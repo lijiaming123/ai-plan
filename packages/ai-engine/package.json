@@ -1,0 +1,8 @@
+{
+  "name": "@ai-plan/ai-engine",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./client": "./src/client.ts"
+  }
+}

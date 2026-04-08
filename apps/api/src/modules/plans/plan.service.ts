@@ -1,5 +1,5 @@
 import { prisma } from '../../lib/prisma';
-import { generatePlanDraft, type GeneratePlanInput } from '../../../../../packages/ai-engine/src/client';
+import { generatePlanDraft, type GeneratePlanInput } from '@ai-plan/ai-engine/client';
 
 const editableFields = ['deadline', 'note'] as const;
 

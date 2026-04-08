@@ -3,12 +3,14 @@
   "private": true,
   "packageManager": "pnpm@9.15.4",
   "scripts": {
+    "dev:up": "powershell -ExecutionPolicy Bypass -File ./scripts/dev-up.ps1",
     "lint": "corepack pnpm typecheck",
     "test:e2e": "vitest run tests/e2e",
     "test": "corepack pnpm -r test",
     "typecheck": "corepack pnpm -r typecheck"
   },
   "devDependencies": {
+    "concurrently": "^9.2.1",
     "vitest": "^3.2.4"
   }
 }

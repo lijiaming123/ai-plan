@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022"],
+    "types": ["vitest/globals", "node"],
+    "noEmit": true
+  },
+  "include": ["src", "tests", "prisma"]
+}

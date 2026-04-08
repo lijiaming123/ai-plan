@@ -1,0 +1,19 @@
+{
+  "name": "@ai-plan/api",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prisma": "prisma"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.16.2"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "prisma": "^6.16.2",
+    "typescript": "^5.8.3",
+    "vitest": "^3.1.4"
+  }
+}

@@ -1,0 +1,32 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Plan {
+  id          String      @id @default(cuid())
+  userId      String
+  goal        String
+  deadline    DateTime
+  requirement String
+  type        String
+  status      String      @default("active")
+  stages      PlanStage[]
+  createdAt   DateTime    @default(now())
+}
+
+model PlanStage {
+  id        String   @id @default(cuid())
+  planId    String
+  name      String
+  sortOrder Int
+  createdAt DateTime @default(now())
+
+  plan Plan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@index([planId])
+}

@@ -1,6 +1,10 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@ai-plan/shared": ["./src/index.ts"]
+    },
     "noEmit": true
   },
   "include": ["src/**/*.ts", "tests/**/*.ts"]

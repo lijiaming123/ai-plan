@@ -55,3 +55,13 @@ model SubmissionImage {
 
   @@index([submissionId])
 }
+
+model RuleConfig {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  value       String
+  description String
+  enabled     Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}

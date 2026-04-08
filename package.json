@@ -1,0 +1,8 @@
+{
+  "name": "ai-plan",
+  "private": true,
+  "packageManager": "pnpm@9.15.4",
+  "scripts": {
+    "test": "pnpm -r test"
+  }
+}

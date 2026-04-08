@@ -18,6 +18,7 @@ describe('PlanCreatePage', () => {
         requirement: '',
         type: 'general',
       }),
+      createSubmission: vi.fn(),
     });
   });
 

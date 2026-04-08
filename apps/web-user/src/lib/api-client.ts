@@ -16,6 +16,13 @@ export type CreatePlanInput = {
   token: string;
 };
 
+export type CreateSubmissionInput = {
+  taskId: string;
+  content: string;
+  imageUrls: string[];
+  token: string;
+};
+
 export type PlanRecord = {
   id: string;
   goal: string;
@@ -24,9 +31,23 @@ export type PlanRecord = {
   type: string;
 };
 
+export type SubmissionImage = {
+  id: string;
+  url: string;
+  hash: string;
+};
+
+export type SubmissionRecord = {
+  id: string;
+  content: string;
+  status: string;
+  images: SubmissionImage[];
+};
+
 export type ApiClient = {
   login(input: LoginInput): Promise<{ token: string }>;
   createPlan(input: CreatePlanInput): Promise<PlanRecord>;
+  createSubmission(input: CreateSubmissionInput): Promise<SubmissionRecord>;
 };
 
 function joinUrl(baseURL: string, path: string) {
@@ -73,6 +94,18 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
           deadline: input.deadline,
           requirement: input.requirement,
           type: input.type,
+        }),
+      });
+    },
+    createSubmission(input) {
+      return request<SubmissionRecord>(`/tasks/${input.taskId}/submissions`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${input.token}`,
+        },
+        body: JSON.stringify({
+          content: input.content,
+          imageUrls: input.imageUrls,
         }),
       });
     },

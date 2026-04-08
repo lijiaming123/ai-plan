@@ -3,6 +3,8 @@ import { authState } from '../stores/auth';
 import LoginPage from '../features/auth/LoginPage.vue';
 import PlanCreatePage from '../features/plans/PlanCreatePage.vue';
 import PlanDetailPage from '../features/plans/PlanDetailPage.vue';
+import TaskSubmitPage from '../features/submissions/TaskSubmitPage.vue';
+import SubmissionResultPage from '../features/submissions/SubmissionResultPage.vue';
 
 export function createAppRouter(history: RouterHistory = createWebHistory()) {
   const router = createRouter({
@@ -19,6 +21,18 @@ export function createAppRouter(history: RouterHistory = createWebHistory()) {
         path: '/plans/:id',
         name: 'plan-detail',
         component: PlanDetailPage,
+        meta: { requiresAuth: true },
+      },
+      {
+        path: '/tasks/:taskId/submit',
+        name: 'task-submit',
+        component: TaskSubmitPage,
+        meta: { requiresAuth: true },
+      },
+      {
+        path: '/submissions/:id/result',
+        name: 'submission-result',
+        component: SubmissionResultPage,
         meta: { requiresAuth: true },
       },
       { path: '/:pathMatch(.*)*', redirect: '/plans/new' },

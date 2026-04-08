@@ -3,7 +3,12 @@
   "private": true,
   "packageManager": "pnpm@9.15.4",
   "scripts": {
+    "lint": "corepack pnpm typecheck",
+    "test:e2e": "vitest run tests/e2e",
     "test": "corepack pnpm -r test",
     "typecheck": "corepack pnpm -r typecheck"
+  },
+  "devDependencies": {
+    "vitest": "^3.2.4"
   }
 }

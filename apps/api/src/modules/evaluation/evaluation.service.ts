@@ -1,5 +1,6 @@
 import { prisma } from '../../lib/prisma';
 import { decideStatus } from './rules.engine';
+import { recordEvaluationLatency } from '../../plugins/metrics';
 
 export type EvaluateSubmissionInput = {
   submissionId: string;
@@ -25,6 +26,7 @@ function scoreContent(content: string, evidenceCount: number) {
 export async function evaluateSubmission(
   input: EvaluateSubmissionInput
 ): Promise<EvaluationResult> {
+  const startedAt = Date.now();
   const submission = await prisma.taskSubmission.findUnique({
     where: { id: input.submissionId },
     include: { images: true },
@@ -48,6 +50,8 @@ export async function evaluateSubmission(
     where: { id: submission.id },
     data: { status },
   });
+
+  recordEvaluationLatency(Date.now() - startedAt);
 
   return {
     submissionId: submission.id,

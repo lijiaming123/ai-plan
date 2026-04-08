@@ -8,7 +8,9 @@
     "prisma": "prisma"
   },
   "dependencies": {
-    "@prisma/client": "^6.16.2"
+    "@fastify/jwt": "^9.1.0",
+    "@prisma/client": "^6.16.2",
+    "fastify": "^5.6.2"
   },
   "devDependencies": {
     "@types/node": "^24.3.0",

@@ -57,4 +57,21 @@ describe('auth routes', () => {
 
     expect(res.statusCode).toBe(403);
   });
+
+  it('supports cors preflight for login route', async () => {
+    const origin = 'http://localhost:5173';
+    const res = await app.inject({
+      method: 'OPTIONS',
+      url: '/auth/login',
+      headers: {
+        origin,
+        'access-control-request-method': 'POST',
+        'access-control-request-headers': 'content-type',
+      },
+    });
+
+    expect(res.statusCode).toBe(204);
+    expect(res.headers['access-control-allow-origin']).toBe(origin);
+    expect(res.headers['access-control-allow-methods']).toContain('POST');
+  });
 });

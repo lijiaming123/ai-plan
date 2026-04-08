@@ -1,5 +1,6 @@
 import fastify from 'fastify';
 import jwt from '@fastify/jwt';
+import cors from '@fastify/cors';
 import { authPlugin } from './plugins/auth';
 import { registerAuthRoutes } from './modules/auth/auth.routes';
 import { registerAdminRoutes } from './modules/admin/admin.routes';
@@ -8,6 +9,12 @@ import { registerSubmissionRoutes } from './modules/submissions/submission.route
 
 export function buildApp() {
   const app = fastify({ logger: false });
+
+  app.register(cors, {
+    origin: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  });
 
   app.register(async (fastify) => {
     fastify.register(jwt, {

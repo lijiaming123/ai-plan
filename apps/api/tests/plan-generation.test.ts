@@ -382,4 +382,80 @@ describe('plan generation', () => {
     });
     expect(confirm.statusCode).toBe(200);
   });
+
+  it('确认某版本后访问 /plans/:id/draft 应返回409（草稿关闭）', async () => {
+    const login = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      payload: { email: 'demo@ai-plan.dev', password: 'Pass1234!' },
+    });
+    const { token } = JSON.parse(login.body) as { token: string };
+
+    const create = await app.inject({
+      method: 'POST',
+      url: '/plans',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        goal: '草稿关闭接口测试',
+        deadline: '2026-11-01T00:00:00.000Z',
+        requirement: '初版',
+        type: 'general',
+      },
+    });
+    const created = JSON.parse(create.body) as { id: string };
+
+    const confirm = await app.inject({
+      method: 'POST',
+      url: `/plans/${created.id}/confirm`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: { version: 1 },
+    });
+    expect(confirm.statusCode).toBe(200);
+
+    const draftRes = await app.inject({
+      method: 'GET',
+      url: `/plans/${created.id}/draft`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(draftRes.statusCode).toBe(409);
+  });
+
+  it('active 计划访问 /plans/:id/draft 应返回409且 message 包含 draft is closed', async () => {
+    const login = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      payload: { email: 'demo@ai-plan.dev', password: 'Pass1234!' },
+    });
+    const { token } = JSON.parse(login.body) as { token: string };
+
+    const create = await app.inject({
+      method: 'POST',
+      url: '/plans',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        goal: 'active计划草稿门禁',
+        deadline: '2026-12-01T00:00:00.000Z',
+        requirement: '执行中计划不应再开草稿',
+        type: 'general',
+      },
+    });
+    const created = JSON.parse(create.body) as { id: string };
+
+    const confirm = await app.inject({
+      method: 'POST',
+      url: `/plans/${created.id}/confirm`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: { version: 1 },
+    });
+    expect(confirm.statusCode).toBe(200);
+
+    const draftRes = await app.inject({
+      method: 'GET',
+      url: `/plans/${created.id}/draft`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(draftRes.statusCode).toBe(409);
+    const body = JSON.parse(draftRes.body) as { message: string };
+    expect(body.message).toContain('draft is closed');
+  });
 });

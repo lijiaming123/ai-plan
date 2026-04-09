@@ -16,14 +16,20 @@ onMounted(async () => {
 </script>
 
 <template>
-  <section>
-    <h1>规则配置</h1>
-    <p v-if="error">{{ error }}</p>
-    <ul v-else>
-      <li v-for="rule in rules" :key="rule.id">
-        <strong>{{ rule.key }}</strong>
-        <span> - {{ rule.value }}</span>
-        <p>{{ rule.description }}</p>
+  <section class="page">
+    <span class="badge">规则中心</span>
+    <header>
+      <h1 class="hero-title">规则配置</h1>
+      <p class="hero-subtitle">管理自动判定阈值与证据门槛，确保评估标准清晰可追踪。</p>
+    </header>
+    <p v-if="error" class="error-text">{{ error }}</p>
+    <ul v-else class="list">
+      <li v-for="rule in rules" :key="rule.id" class="list-item">
+        <div class="item-top">
+          <strong class="item-key">{{ rule.key }}</strong>
+          <span class="pill pill-ok">当前值 {{ rule.value }}</span>
+        </div>
+        <p class="item-desc">{{ rule.description }}</p>
       </li>
     </ul>
   </section>

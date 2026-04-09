@@ -8,16 +8,26 @@ import { clearAuthToken, setAuthToken } from '../src/stores/auth';
 import { setApiClient } from '../src/lib/api-client';
 
 describe('submission flow', () => {
+  const createSubmissionMock = vi.fn();
+
   beforeEach(() => {
     clearAuthToken();
+    createSubmissionMock.mockReset();
+    createSubmissionMock.mockResolvedValue({
+      id: 's1',
+      content: '完成第 1 阶段任务',
+      images: [{ id: 'img_1', url: 'local://evidence.png', hash: 'hash_1' }],
+    });
     setApiClient({
       login: vi.fn(),
       createPlan: vi.fn(),
-      createSubmission: vi.fn().mockResolvedValue({
-        id: 's1',
-        content: '完成第 1 阶段任务',
-        images: [{ id: 'img_1', url: 'local://evidence.png', hash: 'hash_1' }],
-      }),
+      createSubmission: createSubmissionMock,
+      planAssistant: vi.fn(),
+      parsePlanFile: vi.fn(),
+      getPlan: vi.fn(),
+      regeneratePlan: vi.fn(),
+      confirmPlan: vi.fn(),
+      comparePlanVersions: vi.fn(),
     });
   });
 
@@ -40,6 +50,26 @@ describe('submission flow', () => {
     await flushPromises();
 
     expect(push).toHaveBeenCalledWith('/submissions/s1/result');
+  });
+
+  it('提交失败时应展示可关闭错误提示', async () => {
+    setAuthToken('token_123');
+    createSubmissionMock.mockRejectedValueOnce(new Error('Request failed: 400 - bad payload'));
+    const router = createAppRouter(createMemoryHistory());
+    const push = vi.spyOn(router, 'push');
+    const wrapper = mount(TaskSubmitPage, {
+      global: { plugins: [router] },
+    });
+
+    await wrapper.get('textarea[aria-label="完成说明"]').setValue('完成第 1 阶段任务');
+    await wrapper.get('form').trigger('submit');
+    await flushPromises();
+
+    expect(wrapper.get('[data-testid="error-toast"]').text()).toContain('Request failed: 400');
+    await wrapper.get('button[aria-label="关闭错误提示"]').trigger('click');
+    await flushPromises();
+    expect(wrapper.find('[data-testid="error-toast"]').exists()).toBe(false);
+    expect(push).not.toHaveBeenCalled();
   });
 
   it('结果页应展示分数与缺失项', async () => {

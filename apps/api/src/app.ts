@@ -13,7 +13,8 @@ export function buildApp() {
   app.register(cors, {
     origin: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: '*',
+    strictPreflight: false,
   });
 
   app.register(async (fastify) => {

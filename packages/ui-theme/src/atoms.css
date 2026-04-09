@@ -1,0 +1,92 @@
+.app-shell {
+  position: relative;
+  isolation: isolate;
+  min-height: 100vh;
+}
+
+.bg-orb {
+  position: fixed;
+  z-index: -1;
+  pointer-events: none;
+  border-radius: 999px;
+}
+
+.orb-a {
+  top: -56px;
+  left: -26px;
+  width: 252px;
+  height: 252px;
+  background: radial-gradient(circle at 34% 34%, rgba(255, 138, 61, 0.48), rgba(255, 138, 61, 0) 74%);
+}
+
+.orb-b {
+  right: -14px;
+  bottom: 8%;
+  width: 236px;
+  height: 236px;
+  background: radial-gradient(circle at 34% 35%, rgba(255, 93, 108, 0.38), rgba(255, 93, 108, 0) 75%);
+}
+
+.hero-title {
+  margin: 0;
+  font-size: clamp(1.5rem, 2vw, 2rem);
+  line-height: 1.24;
+}
+
+.hero-subtitle {
+  margin: 0.42rem 0 0;
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+}
+
+.badge,
+.brand-badge {
+  width: fit-content;
+  border-radius: 999px;
+  padding: 0.34rem 0.74rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--brand-strong);
+  background: linear-gradient(90deg, rgba(255, 138, 61, 0.16), rgba(255, 93, 108, 0.11));
+}
+
+.stats-grid {
+  display: grid;
+  gap: 0.76rem;
+  grid-template-columns: repeat(auto-fit, minmax(165px, 1fr));
+}
+
+.stat-label {
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+}
+
+.stat-value {
+  margin-top: 0.22rem;
+  font-weight: 700;
+}
+
+.muted-text,
+.inline-note {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.error-text {
+  margin: 0;
+  color: var(--warn);
+  font-size: 0.9rem;
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

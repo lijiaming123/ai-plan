@@ -8,15 +8,33 @@ datasource db {
 }
 
 model Plan {
-  id          String      @id @default(cuid())
-  userId      String
-  goal        String
-  deadline    DateTime
+  id               String        @id @default(cuid())
+  userId           String
+  goal             String
+  deadline         DateTime
+  requirement      String
+  type             String
+  status           String        @default("active")
+  currentVersion   Int           @default(1)
+  confirmedVersion Int?
+  stages           PlanStage[]
+  versions         PlanVersion[]
+  createdAt        DateTime      @default(now())
+}
+
+model PlanVersion {
+  id         String   @id @default(cuid())
+  planId     String
+  version    Int
   requirement String
-  type        String
-  status      String      @default("active")
-  stages      PlanStage[]
-  createdAt   DateTime    @default(now())
+  deadline   DateTime
+  snapshot   Json
+  createdAt  DateTime @default(now())
+
+  plan Plan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@unique([planId, version])
+  @@index([planId])
 }
 
 model PlanStage {

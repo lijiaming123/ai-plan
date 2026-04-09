@@ -1,0 +1,10 @@
+{
+  "name": "@ai-plan/ui-theme",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    "./theme.css": "./src/theme.css",
+    "./atoms.css": "./src/atoms.css"
+  }
+}

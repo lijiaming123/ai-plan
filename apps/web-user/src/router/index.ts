@@ -1,6 +1,8 @@
 import { createRouter, createWebHistory, createMemoryHistory, type RouterHistory } from 'vue-router';
 import { authState } from '../stores/auth';
 import LoginPage from '../features/auth/LoginPage.vue';
+import ForgotPasswordPage from '../features/auth/ForgotPasswordPage.vue';
+import PlanOverviewPage from '../features/plans/PlanOverviewPage.vue';
 import PlanCreatePage from '../features/plans/PlanCreatePage.vue';
 import PlanDetailPage from '../features/plans/PlanDetailPage.vue';
 import TaskSubmitPage from '../features/submissions/TaskSubmitPage.vue';
@@ -11,6 +13,14 @@ export function createAppRouter(history: RouterHistory = createWebHistory()) {
     history,
     routes: [
       { path: '/auth/login', name: 'login', component: LoginPage },
+      { path: '/auth/register', name: 'register', component: LoginPage },
+      { path: '/auth/forgot-password', name: 'forgot-password', component: ForgotPasswordPage },
+      {
+        path: '/plans',
+        name: 'plan-overview',
+        component: PlanOverviewPage,
+        meta: { requiresAuth: true },
+      },
       {
         path: '/plans/new',
         name: 'plan-create',
@@ -35,7 +45,7 @@ export function createAppRouter(history: RouterHistory = createWebHistory()) {
         component: SubmissionResultPage,
         meta: { requiresAuth: true },
       },
-      { path: '/:pathMatch(.*)*', redirect: '/plans/new' },
+      { path: '/:pathMatch(.*)*', redirect: '/plans' },
     ],
   });
 

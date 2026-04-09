@@ -16,16 +16,35 @@ onMounted(async () => {
 </script>
 
 <template>
-  <section>
-    <h1>管理后台总览</h1>
-    <p v-if="error">{{ error }}</p>
-    <div v-else-if="summary">
-      <p>计划数：{{ summary.planCount }}</p>
-      <p>提交数：{{ summary.submissionCount }}</p>
-      <p>规则数：{{ summary.ruleCount }}</p>
-      <p>完成数：{{ summary.completedCount }}</p>
-      <p>需重提：{{ summary.retryCount }}</p>
+  <section class="page">
+    <span class="badge">运营看板</span>
+    <header>
+      <h1 class="hero-title">管理后台总览</h1>
+      <p class="hero-subtitle">集中查看计划推进、提交流水与规则生效情况。</p>
+    </header>
+    <p v-if="error" class="error-text">{{ error }}</p>
+    <div v-else-if="summary" class="stats-grid">
+      <article class="stat-card">
+        <div class="stat-label">计划数</div>
+        <div class="stat-value">{{ summary.planCount }}</div>
+      </article>
+      <article class="stat-card">
+        <div class="stat-label">提交数</div>
+        <div class="stat-value">{{ summary.submissionCount }}</div>
+      </article>
+      <article class="stat-card">
+        <div class="stat-label">规则数</div>
+        <div class="stat-value">{{ summary.ruleCount }}</div>
+      </article>
+      <article class="stat-card">
+        <div class="stat-label">完成数</div>
+        <div class="stat-value">{{ summary.completedCount }}</div>
+      </article>
+      <article class="stat-card">
+        <div class="stat-label">需重提</div>
+        <div class="stat-value">{{ summary.retryCount }}</div>
+      </article>
     </div>
-    <p v-else>加载中...</p>
+    <p v-else class="muted-text">加载中...</p>
   </section>
 </template>

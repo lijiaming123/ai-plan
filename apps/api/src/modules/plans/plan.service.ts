@@ -152,6 +152,26 @@ export async function getPlanWithDraft(planId: string, userId: string) {
   };
 }
 
+export async function getPlanDraft(planId: string, userId: string) {
+  const plan = await prisma.plan.findFirst({
+    where: { id: planId, userId },
+  });
+  if (!plan) return { ok: false as const, code: 404 as const, message: 'plan not found' };
+  if (plan.status === 'active') {
+    return { ok: false as const, code: 409 as const, message: 'draft is closed' };
+  }
+  const state = await loadDraftState(plan);
+  return {
+    ok: true as const,
+    draft: {
+      versions: state.versions,
+      maxVersions: state.maxVersions,
+      confirmedVersion: state.confirmedVersion,
+      canRegenerate: state.versions.length < state.maxVersions && state.confirmedVersion === null,
+    },
+  };
+}
+
 export async function regeneratePlanVersion(planId: string, userId: string, requirement?: string) {
   const plan = await prisma.plan.findFirst({
     where: { id: planId, userId },
@@ -206,15 +226,21 @@ export async function confirmPlanVersion(planId: string, userId: string, version
   const snapshot = state.versions.find((item) => item.version === version);
   if (!snapshot) return { ok: false as const, code: 404 as const, message: 'version not found' };
 
-  const updated = await prisma.plan.update({
-    where: { id: planId },
-    data: {
-      status: 'active',
-      currentVersion: version,
-      confirmedVersion: version,
-      requirement: snapshot.requirement,
-      deadline: new Date(snapshot.deadline),
-    },
+  const updated = await prisma.$transaction(async (tx) => {
+    const next = await tx.plan.update({
+      where: { id: planId },
+      data: {
+        status: 'active',
+        currentVersion: version,
+        confirmedVersion: version,
+        requirement: snapshot.requirement,
+        deadline: new Date(snapshot.deadline),
+      },
+    });
+    await tx.planVersion.deleteMany({
+      where: { planId, version: { not: version } },
+    });
+    return next;
   });
   const refreshedState = await loadDraftState(updated);
   return { ok: true as const, state: refreshedState, plan: updated };

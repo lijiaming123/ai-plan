@@ -3,6 +3,7 @@ import {
   compareDraftVersions,
   confirmPlanVersion,
   createGeneratedPlan,
+  getPlanDraft,
   getPlanWithDraft,
   regeneratePlanVersion,
   sanitizePlanPatch,
@@ -220,6 +221,18 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
       const plan = await getPlanWithDraft(id, payload.sub);
       if (!plan) return reply.code(404).send({ message: 'plan not found' });
       return reply.send(plan);
+    }
+  );
+
+  fastify.get(
+    '/plans/:id/draft',
+    { preHandler: fastify.requireRole('user') },
+    async (request, reply) => {
+      const payload = await request.jwtVerify<{ sub: string }>();
+      const { id } = request.params as { id: string };
+      const result = await getPlanDraft(id, payload.sub);
+      if (!result.ok) return reply.code(result.code).send({ message: result.message });
+      return reply.send(result.draft);
     }
   );
 

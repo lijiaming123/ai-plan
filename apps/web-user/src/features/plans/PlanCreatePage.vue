@@ -302,7 +302,7 @@ async function handleSubmit() {
     isSubmitting.value = false;
   }
 
-  await router.push(`/plans/${plan.id}`);
+  await router.push({ name: 'plan-draft', params: { id: plan.id } });
 }
 
 function buildAiDraftContent() {

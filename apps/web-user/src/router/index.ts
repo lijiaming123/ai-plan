@@ -5,6 +5,7 @@ import ForgotPasswordPage from '../features/auth/ForgotPasswordPage.vue';
 import PlanOverviewPage from '../features/plans/PlanOverviewPage.vue';
 import PlanCreatePage from '../features/plans/PlanCreatePage.vue';
 import PlanDetailPage from '../features/plans/PlanDetailPage.vue';
+import PlanDraftPage from '../features/plans/PlanDraftPage.vue';
 import TaskSubmitPage from '../features/submissions/TaskSubmitPage.vue';
 import SubmissionResultPage from '../features/submissions/SubmissionResultPage.vue';
 
@@ -25,6 +26,12 @@ export function createAppRouter(history: RouterHistory = createWebHistory()) {
         path: '/plans/new',
         name: 'plan-create',
         component: PlanCreatePage,
+        meta: { requiresAuth: true },
+      },
+      {
+        path: '/plans/:id/draft',
+        name: 'plan-draft',
+        component: PlanDraftPage,
         meta: { requiresAuth: true },
       },
       {

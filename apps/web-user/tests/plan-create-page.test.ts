@@ -47,13 +47,14 @@ describe('PlanCreatePage', () => {
       planAssistant: planAssistantMock,
       parsePlanFile: parsePlanFileMock,
       getPlan: vi.fn(),
+      getPlanDraft: vi.fn(),
       regeneratePlan: vi.fn(),
       confirmPlan: vi.fn(),
       comparePlanVersions: vi.fn(),
     });
   });
 
-  it('提交创建计划表单后应跳转到详情页', async () => {
+  it('提交创建计划表单后应跳转到草稿页', async () => {
     setAuthToken('token_123');
     const router = createAppRouter(createMemoryHistory());
     const push = vi.spyOn(router, 'push');
@@ -84,7 +85,7 @@ describe('PlanCreatePage', () => {
         }),
       })
     );
-    expect(push).toHaveBeenCalled();
+    expect(push).toHaveBeenCalledWith({ name: 'plan-draft', params: { id: 'plan_1' } });
   });
 
   it('未登录访问计划页时应跳转到登录页', async () => {
@@ -299,6 +300,7 @@ describe('PlanCreatePage', () => {
         type: 'general',
       });
 
+    const push = vi.spyOn(router, 'push');
     const wrapper = mount(PlanCreatePage, {
       global: { plugins: [router] },
     });
@@ -316,6 +318,7 @@ describe('PlanCreatePage', () => {
       })
     );
     expect(createPlanMock.mock.calls[1]?.[0]).not.toHaveProperty('profile');
+    expect(push).toHaveBeenCalledWith({ name: 'plan-draft', params: { id: 'plan_fallback' } });
   });
 
   it('接口失败时应显示右上角可关闭错误提示', async () => {

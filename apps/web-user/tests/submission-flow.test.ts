@@ -25,6 +25,7 @@ describe('submission flow', () => {
       planAssistant: vi.fn(),
       parsePlanFile: vi.fn(),
       getPlan: vi.fn(),
+      getPlanDraft: vi.fn(),
       regeneratePlan: vi.fn(),
       confirmPlan: vi.fn(),
       comparePlanVersions: vi.fn(),

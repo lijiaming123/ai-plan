@@ -112,6 +112,7 @@ export type ApiClient = {
   planAssistant(input: PlanAssistantInput): Promise<PlanAssistantResult>;
   parsePlanFile(input: ParsePlanFileInput): Promise<ParsePlanFileResult>;
   getPlan(input: { id: string; token: string }): Promise<PlanRecord>;
+  getPlanDraft(input: { id: string; token: string }): Promise<NonNullable<PlanRecord['draft']>>;
   regeneratePlan(input: { id: string; token: string; requirement?: string }): Promise<{
     versions: NonNullable<PlanRecord['draft']>['versions'];
     maxVersions: number;
@@ -239,6 +240,14 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
     },
     getPlan(input) {
       return request<PlanRecord>(`/plans/${input.id}`, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${input.token}`,
+        },
+      });
+    },
+    getPlanDraft(input) {
+      return request<NonNullable<PlanRecord['draft']>>(`/plans/${input.id}/draft`, {
         method: 'GET',
         headers: {
           Authorization: `Bearer ${input.token}`,

@@ -68,12 +68,30 @@ describe('plan generation', () => {
             preference: '',
             timeInvestment: '5h_weekly',
             outputMode: 'phase-weekly',
+            granularityMode: 'deep',
           },
         },
       },
     });
 
     expect(res.statusCode).toBe(201);
+    const body = JSON.parse(res.body) as {
+      draft?: {
+        versions: Array<{
+          stages: Array<{
+            tasks: Array<{
+              timeSlotType?: string;
+              timeSlotKey?: string;
+              taskType?: string;
+            }>;
+          }>;
+        }>;
+      };
+    };
+    const firstTask = body.draft?.versions[0]?.stages[0]?.tasks[0];
+    expect(firstTask?.timeSlotType).toBeDefined();
+    expect(firstTask?.timeSlotKey).toBeDefined();
+    expect(firstTask?.taskType).toBeDefined();
   });
 
   it('profile字段不合法时应忽略并继续创建', async () => {

@@ -10,6 +10,7 @@ type PlanMode = 'basic' | 'pro';
 type CycleValue = '1w' | '1m' | '3m' | '6m' | 'custom';
 type CurrentLevel = 'none' | 'newbie' | 'junior' | 'intermediate' | 'advanced';
 type OutputMode = 'daily' | 'phase-weekly' | 'phase-monthly';
+type GranularityMode = 'smart' | 'deep' | 'rough';
 type ReminderMode = 'standard' | 'smart';
 type AiDepth = 'basic' | 'advanced';
 type ChatRole = 'assistant' | 'user';
@@ -59,6 +60,14 @@ function toIsoStartOfDay(dateStr: string) {
   return `${dateStr}T00:00:00.000Z`;
 }
 
+function calcDurationDays(startDate: string, endDate: string) {
+  const start = parseDate(startDate);
+  const end = parseDate(endDate);
+  const diff = end.getTime() - start.getTime();
+  const days = Math.floor(diff / (1000 * 60 * 60 * 24)) + 1;
+  return Math.max(1, days);
+}
+
 const today = formatDate(new Date());
 const isSubmitting = ref(false);
 const showUpgradeHint = ref(false);
@@ -87,6 +96,7 @@ const form = reactive({
   preference: '',
   timeInvestment: 'none',
   outputMode: 'daily' as OutputMode,
+  granularityMode: 'smart' as GranularityMode,
   reminderMode: 'standard' as ReminderMode,
   aiDepth: 'basic' as AiDepth,
 });
@@ -109,6 +119,19 @@ const cycleOptions = [
 const effectiveDeadline = computed(() => {
   if (form.cycle === 'custom') return form.customEndDate;
   return computeDeadlineByCycle(form.startDate, form.cycle);
+});
+
+const recommendedMode = computed<GranularityMode>(() => {
+  const endDate = effectiveDeadline.value || form.startDate;
+  const days = calcDurationDays(form.startDate, endDate);
+  return days < 30 ? 'deep' : 'rough';
+});
+
+const granularityHint = computed(() => {
+  if (form.granularityMode !== 'smart') return '';
+  return recommendedMode.value === 'deep'
+    ? '智能推荐：当前周期更适合深度计划（按天 + 阶段总结）。'
+    : '智能推荐：当前周期更适合粗略计划（按周推进）。';
 });
 
 const acceptedPlanFileTypes = ['txt', 'md', 'markdown', 'doc', 'docx'] as const;
@@ -241,6 +264,7 @@ async function handleSubmit() {
       preference: form.preference.trim(),
       timeInvestment: form.timeInvestment,
       outputMode: form.outputMode,
+      granularityMode: form.granularityMode,
     },
     proSettings: isProMode.value
       ? {
@@ -261,6 +285,7 @@ async function handleSubmit() {
       preference: form.preference,
       timeInvestment: form.timeInvestment,
       outputMode: form.outputMode,
+      granularityMode: form.granularityMode,
     },
     advanced:
       isProMode.value
@@ -755,6 +780,20 @@ watch(
                   <option value="phase-weekly">分阶段（周）</option>
                   <option value="phase-monthly">分阶段（月）</option>
                 </select>
+              </label>
+
+              <label class="flex flex-col">
+                <p class="field-label"><span class="field-icon optional">◌</span>计划颗粒度</p>
+                <select
+                  v-model="form.granularityMode"
+                  aria-label="计划颗粒度"
+                  class="h-12 rounded-lg border border-[#dbe6df] bg-white px-3 text-sm outline-none transition focus:border-primary/50 focus:ring-2 focus:ring-primary/50"
+                >
+                  <option value="smart">智能推荐</option>
+                  <option value="deep">深度计划</option>
+                  <option value="rough">粗略计划</option>
+                </select>
+                <p v-if="granularityHint" class="mt-2 text-xs text-[#5f6d66]">{{ granularityHint }}</p>
               </label>
 
               <div class="rounded-xl border border-dashed border-[#d6e7dd] bg-[#f8fcfa] px-4 py-3 text-xs leading-5 text-[#5f6d66]">

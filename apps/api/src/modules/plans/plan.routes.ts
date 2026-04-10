@@ -18,6 +18,7 @@ const cycles = ['1w', '1m', '3m', '6m', 'custom'] as const;
 const outputModes = ['daily', 'phase-weekly', 'phase-monthly'] as const;
 const aiDepths = ['basic', 'advanced'] as const;
 const reminderModes = ['standard', 'smart'] as const;
+const granularityModes = ['smart', 'deep', 'rough'] as const;
 
 type PlanType = (typeof planTypes)[number];
 type PlanMode = (typeof planModes)[number];
@@ -26,6 +27,7 @@ type Cycle = (typeof cycles)[number];
 type OutputMode = (typeof outputModes)[number];
 type AiDepth = (typeof aiDepths)[number];
 type ReminderMode = (typeof reminderModes)[number];
+type GranularityMode = (typeof granularityModes)[number];
 type AssistantMode = 'draft' | 'chat';
 
 type PlanAssistantBody = {
@@ -64,6 +66,7 @@ type CreatePlanBody = {
       preference: string;
       timeInvestment: string;
       outputMode: OutputMode;
+      granularityMode?: GranularityMode;
     };
     proSettings?: {
       aiDepth: AiDepth;
@@ -191,12 +194,20 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
 
       const body = parsed.data;
       const payload = await request.jwtVerify<{ sub: string }>();
+      const granularityMode = isOneOf(body.profile?.basicInfo?.granularityMode, granularityModes)
+        ? body.profile?.basicInfo?.granularityMode
+        : undefined;
+      const startDateIso = body.profile?.basicInfo?.startDate
+        ? new Date(`${body.profile.basicInfo.startDate}T00:00:00.000Z`).toISOString()
+        : body.deadline;
       const plan = await createGeneratedPlan({
         userId: payload.sub,
         goal: body.goal,
         deadline: body.deadline,
         requirement: body.requirement,
         type: body.type,
+        granularityMode,
+        startDateIso,
       });
 
       return reply.code(201).send(plan);
@@ -244,7 +255,9 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
       const { id } = request.params as { id: string };
       const body = normalizeBody(request.body);
       const requirement = isRecord(body) && typeof body.requirement === 'string' ? body.requirement : undefined;
-      const result = await regeneratePlanVersion(id, payload.sub, requirement);
+      const granularityMode =
+        isRecord(body) && isOneOf(body.granularityMode, granularityModes) ? body.granularityMode : undefined;
+      const result = await regeneratePlanVersion(id, payload.sub, requirement, granularityMode);
       if (!result.ok) return reply.code(result.code).send({ message: result.message });
       return reply.send({
         versions: result.state.versions,

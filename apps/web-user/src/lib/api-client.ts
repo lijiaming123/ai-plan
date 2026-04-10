@@ -26,6 +26,7 @@ export type CreatePlanInput = {
       preference: string;
       timeInvestment: string;
       outputMode: 'daily' | 'phase-weekly' | 'phase-monthly';
+      granularityMode?: 'smart' | 'deep' | 'rough';
     };
     proSettings?: {
       aiDepth: 'basic' | 'advanced';
@@ -83,7 +84,14 @@ export type PlanRecord = {
       stages: Array<{
         name: string;
         sortOrder: number;
-        tasks: Array<{ id: string; title: string; order: number }>;
+        tasks: Array<{
+          id: string;
+          title: string;
+          order: number;
+          timeSlotType?: 'day' | 'week' | 'month';
+          timeSlotKey?: string;
+          taskType?: 'action' | 'weekly_summary' | 'monthly_summary';
+        }>;
       }>;
     }>;
     maxVersions: number;
@@ -113,7 +121,12 @@ export type ApiClient = {
   parsePlanFile(input: ParsePlanFileInput): Promise<ParsePlanFileResult>;
   getPlan(input: { id: string; token: string }): Promise<PlanRecord>;
   getPlanDraft(input: { id: string; token: string }): Promise<NonNullable<PlanRecord['draft']>>;
-  regeneratePlan(input: { id: string; token: string; requirement?: string }): Promise<{
+  regeneratePlan(input: {
+    id: string;
+    token: string;
+    requirement?: string;
+    granularityMode?: 'smart' | 'deep' | 'rough';
+  }): Promise<{
     versions: NonNullable<PlanRecord['draft']>['versions'];
     maxVersions: number;
     confirmedVersion: number | null;
@@ -267,6 +280,7 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
         },
         body: JSON.stringify({
           requirement: input.requirement,
+          granularityMode: input.granularityMode,
         }),
       });
     },

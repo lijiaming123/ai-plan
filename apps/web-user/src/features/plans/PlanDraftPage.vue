@@ -6,6 +6,7 @@ import { getApiClient, type PlanRecord } from '../../lib/api-client';
 import { authState } from '../../stores/auth';
 
 type DraftBundle = NonNullable<PlanRecord['draft']>;
+type GranularityMode = 'smart' | 'deep' | 'rough';
 
 const route = useRoute();
 const router = useRouter();
@@ -19,6 +20,8 @@ const selectedVersion = ref(1);
 const errorToastMessage = ref('');
 const confirmOpen = ref(false);
 const confirmModalError = ref('');
+const nextGranularityMode = ref<GranularityMode>('smart');
+const granularityConfirmOpen = ref(false);
 
 /** 递增序号，丢弃过期的异步回写（路由/planId 快速切换时） */
 let loadDraftSeq = 0;
@@ -34,6 +37,14 @@ const remainingRegenerateCount = computed(() => {
 });
 
 const canRegenerate = computed(() => Boolean(draftMeta.value?.canRegenerate));
+const selectedGranularityMode = computed<GranularityMode>(() => {
+  const snapshot = selectedSnapshot.value;
+  if (!snapshot) return 'smart';
+  const allTasks = snapshot.stages.flatMap((stage) => stage.tasks);
+  if (allTasks.some((task) => task.taskType === 'monthly_summary' || task.taskType === 'weekly_summary')) return 'deep';
+  if (allTasks.some((task) => task.timeSlotType === 'week')) return 'rough';
+  return 'smart';
+});
 
 function showError(message: string) {
   errorToastMessage.value = message;
@@ -83,6 +94,7 @@ async function loadDraftPage() {
     draftMeta.value = draft;
     const latest = draft.versions.length ? draft.versions[draft.versions.length - 1].version : 1;
     selectedVersion.value = draft.confirmedVersion ?? latest;
+    nextGranularityMode.value = selectedGranularityMode.value;
   } catch (error) {
     if (seq !== loadDraftSeq) return;
     if (isDraftClosedError(error)) {
@@ -104,6 +116,15 @@ function selectVersion(version: number) {
 
 async function handleRegenerate() {
   if (!canRegenerate.value || operating.value || !selectedSnapshot.value) return;
+  if (nextGranularityMode.value !== selectedGranularityMode.value) {
+    granularityConfirmOpen.value = true;
+    return;
+  }
+  await submitRegenerate();
+}
+
+async function submitRegenerate() {
+  if (!canRegenerate.value || operating.value || !selectedSnapshot.value) return;
   operating.value = true;
   clearError();
   try {
@@ -111,6 +132,7 @@ async function handleRegenerate() {
       id: planId.value,
       token: authState.token,
       requirement: selectedSnapshot.value.requirement,
+      granularityMode: nextGranularityMode.value,
     });
     if (!draftMeta.value) return;
     draftMeta.value = {
@@ -122,11 +144,23 @@ async function handleRegenerate() {
     };
     const latest = result.versions.length ? result.versions[result.versions.length - 1].version : 1;
     selectedVersion.value = latest;
+    nextGranularityMode.value = selectedGranularityMode.value;
   } catch (error) {
     showError(error instanceof Error ? error.message : '重新生成失败');
   } finally {
     operating.value = false;
   }
+}
+
+function closeGranularityConfirmModal() {
+  if (operating.value) return;
+  granularityConfirmOpen.value = false;
+}
+
+async function submitGranularitySwitch() {
+  if (operating.value) return;
+  granularityConfirmOpen.value = false;
+  await submitRegenerate();
 }
 
 function openConfirmModal() {
@@ -139,6 +173,7 @@ function closeConfirmModal() {
   if (operating.value) return;
   confirmOpen.value = false;
   confirmModalError.value = '';
+    granularityConfirmOpen.value = false;
 }
 
 async function submitConfirm() {
@@ -179,6 +214,14 @@ watch(
     void loadDraftPage();
   }
 );
+
+watch(
+  selectedGranularityMode,
+  (value) => {
+    nextGranularityMode.value = value;
+  },
+  { immediate: true }
+);
 </script>
 
 <template>
@@ -197,6 +240,19 @@ watch(
           <p class="mt-1 text-sm text-[#61896f]">状态：草稿待确认 · 已生成 {{ versions.length }} 个版本</p>
         </div>
         <div class="flex flex-wrap gap-2">
+          <div class="inline-flex items-center gap-2 rounded-lg border border-[#d5e2db] bg-white px-3 py-2">
+            <label for="granularity-mode" class="text-xs font-semibold text-[#466257]">颗粒度</label>
+            <select
+              id="granularity-mode"
+              v-model="nextGranularityMode"
+              class="h-7 rounded border border-[#d5e2db] bg-white px-2 text-xs font-semibold text-[#203029]"
+              data-testid="draft-granularity-mode"
+            >
+              <option value="smart">智能推荐</option>
+              <option value="deep">深度计划</option>
+              <option value="rough">粗略计划</option>
+            </select>
+          </div>
           <button
             type="button"
             class="inline-flex h-10 items-center justify-center rounded-lg border border-[#d5e2db] bg-white px-4 text-sm font-bold transition hover:bg-[#f0f4f2] disabled:cursor-not-allowed disabled:opacity-60"
@@ -333,6 +389,45 @@ watch(
               @click="submitConfirm"
             >
               {{ operating ? '提交中…' : '确认保存' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <Teleport to="body">
+      <div
+        v-if="granularityConfirmOpen"
+        class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+        data-testid="draft-granularity-confirm-modal"
+        @click.self="closeGranularityConfirmModal"
+      >
+        <div class="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-xl" role="dialog" aria-modal="true">
+          <h2 class="text-lg font-black text-[#111813]">确认切换颗粒度并重新生成？</h2>
+          <p class="mt-2 text-sm leading-relaxed text-[#41534a]">
+            当前版本颗粒度为
+            <span class="font-bold">{{ selectedGranularityMode }}</span>
+            ，将切换为
+            <span class="font-bold">{{ nextGranularityMode }}</span>
+            并生成新的草稿版本。
+          </p>
+          <div class="mt-6 flex justify-end gap-2">
+            <button
+              type="button"
+              class="h-10 rounded-lg border border-[#d5e2db] px-4 text-sm font-bold hover:bg-[#f4f8f6]"
+              data-testid="draft-granularity-confirm-cancel"
+              @click="closeGranularityConfirmModal"
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              class="h-10 rounded-lg bg-primary px-4 text-sm font-bold text-[#111813] hover:brightness-95 disabled:opacity-60"
+              data-testid="draft-granularity-confirm-submit"
+              :disabled="operating"
+              @click="submitGranularitySwitch"
+            >
+              {{ operating ? '生成中…' : '确认并生成' }}
             </button>
           </div>
         </div>

@@ -81,6 +81,7 @@ describe('PlanCreatePage', () => {
             cycle: '1m',
             currentLevel: 'none',
             outputMode: 'daily',
+            granularityMode: 'smart',
           }),
         }),
       })
@@ -148,6 +149,30 @@ describe('PlanCreatePage', () => {
     await flushPromises();
 
     expect(wrapper.find('[data-testid="custom-end-date"]').exists()).toBe(true);
+  });
+
+  it('普通版提交应携带 granularityMode', async () => {
+    setAuthToken('token_123');
+    const router = createAppRouter(createMemoryHistory());
+    const wrapper = mount(PlanCreatePage, {
+      global: { plugins: [router] },
+    });
+
+    await wrapper.get('input[aria-label="计划名称"]').setValue('英语打卡');
+    await wrapper.get('textarea[aria-label="计划内容"]').setValue('每天30分钟听说练习');
+    await wrapper.get('select[aria-label="计划颗粒度"]').setValue('deep');
+    await wrapper.get('form').trigger('submit');
+    await flushPromises();
+
+    expect(createPlanMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        profile: expect.objectContaining({
+          basicInfo: expect.objectContaining({
+            granularityMode: 'deep',
+          }),
+        }),
+      })
+    );
   });
 
   it('专业版提交时应携带专业能力配置', async () => {

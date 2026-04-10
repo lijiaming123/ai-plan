@@ -1,5 +1,6 @@
 import { prisma } from '../../lib/prisma';
 import { generatePlanDraft, type GeneratePlanInput } from '@ai-plan/ai-engine/client';
+import { resolveGranularityPlan, type GranularityMode, type SlotType } from './granularity';
 
 const editableFields = ['deadline', 'note'] as const;
 
@@ -15,6 +16,9 @@ type DraftTask = {
   id: string;
   title: string;
   order: number;
+  timeSlotType?: SlotType;
+  timeSlotKey?: string;
+  taskType?: 'action' | 'weekly_summary' | 'monthly_summary';
 };
 
 type DraftStage = {
@@ -27,6 +31,7 @@ export type PlanVersionSnapshot = {
   version: number;
   requirement: string;
   deadline: string;
+  granularityMode?: GranularityMode;
   stages: DraftStage[];
   createdAt: string;
 };
@@ -38,13 +43,108 @@ type DraftState = {
   confirmedVersion: number | null;
 };
 
-function buildSnapshot(input: GeneratePlanInput, version: number): PlanVersionSnapshot {
+function toDateOnly(input: string) {
+  const parsed = new Date(input);
+  if (Number.isNaN(parsed.getTime())) return new Date();
+  return new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
+}
+
+function daysBetweenInclusive(start: Date, end: Date) {
+  const ms = end.getTime() - start.getTime();
+  const days = Math.floor(ms / (1000 * 60 * 60 * 24));
+  return Math.max(1, days + 1);
+}
+
+function formatDayKey(date: Date) {
+  const y = date.getFullYear();
+  const m = `${date.getMonth() + 1}`.padStart(2, '0');
+  const d = `${date.getDate()}`.padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function buildTaskKeys(params: { slotType: SlotType; taskCount: number; startDate: Date }) {
+  const keys: string[] = [];
+  for (let i = 0; i < params.taskCount; i += 1) {
+    if (params.slotType === 'day') {
+      const next = new Date(params.startDate);
+      next.setDate(params.startDate.getDate() + i);
+      keys.push(formatDayKey(next));
+      continue;
+    }
+    if (params.slotType === 'week') {
+      keys.push(`W${i + 1}`);
+      continue;
+    }
+    keys.push(`M${i + 1}`);
+  }
+  return keys;
+}
+
+function withTimeSlots(
+  stages: Array<{ name: string; sortOrder: number; tasks: Array<{ id: string; title: string; order: number }> }>,
+  options: { granularityMode: GranularityMode; startDateIso: string; deadlineIso: string }
+) {
+  const startDate = toDateOnly(options.startDateIso);
+  const deadline = toDateOnly(options.deadlineIso);
+  const durationDays = daysBetweenInclusive(startDate, deadline);
+  const rule = resolveGranularityPlan({ mode: options.granularityMode, durationDays });
+  const slotType = rule.slots[0] ?? 'day';
+
+  return stages.map((stage) => {
+    const keys = buildTaskKeys({ slotType, taskCount: stage.tasks.length, startDate });
+    const taskList: DraftTask[] = stage.tasks.map((task, index) => ({
+      ...task,
+      timeSlotType: slotType,
+      timeSlotKey: keys[index] ?? keys[keys.length - 1] ?? formatDayKey(startDate),
+      taskType: 'action',
+    }));
+
+    if (rule.summaries.includes('weekly')) {
+      taskList.push({
+        id: `weekly-summary-${stage.sortOrder}`,
+        title: '本周总结与复盘',
+        order: taskList.length + 1,
+        timeSlotType: 'week',
+        timeSlotKey: `W${Math.max(1, Math.ceil(durationDays / 7))}`,
+        taskType: 'weekly_summary',
+      });
+    }
+    if (rule.summaries.includes('monthly')) {
+      taskList.push({
+        id: `monthly-summary-${stage.sortOrder}`,
+        title: '本月总结与复盘',
+        order: taskList.length + 1,
+        timeSlotType: 'month',
+        timeSlotKey: `M${Math.max(1, Math.ceil(durationDays / 30))}`,
+        taskType: 'monthly_summary',
+      });
+    }
+
+    return {
+      ...stage,
+      tasks: taskList,
+    };
+  });
+}
+
+function buildSnapshot(
+  input: GeneratePlanInput,
+  version: number,
+  options?: { granularityMode?: GranularityMode; startDateIso?: string }
+): PlanVersionSnapshot {
   const draft = generatePlanDraft(input);
+  const granularityMode = options?.granularityMode ?? 'smart';
+  const slottedStages = withTimeSlots(draft.stages, {
+    granularityMode,
+    startDateIso: options?.startDateIso ?? input.deadline,
+    deadlineIso: input.deadline,
+  });
   return {
     version,
     requirement: input.requirement,
     deadline: input.deadline,
-    stages: draft.stages,
+    granularityMode,
+    stages: slottedStages,
     createdAt: new Date().toISOString(),
   };
 }
@@ -104,11 +204,21 @@ function toSnapshot(version: {
   snapshot: unknown;
   createdAt: Date;
 }): PlanVersionSnapshot {
+  const stages = (Array.isArray(version.snapshot) ? version.snapshot : []) as DraftStage[];
+  const allTasks = stages.flatMap((stage) => stage.tasks);
+  const granularityMode: GranularityMode | undefined = allTasks.some(
+    (task) => task.taskType === 'weekly_summary' || task.taskType === 'monthly_summary'
+  )
+    ? 'deep'
+    : allTasks.some((task) => task.timeSlotType === 'week')
+      ? 'rough'
+      : undefined;
   return {
     version: version.version,
     requirement: version.requirement,
     deadline: version.deadline.toISOString(),
-    stages: (Array.isArray(version.snapshot) ? version.snapshot : []) as DraftStage[],
+    granularityMode,
+    stages,
     createdAt: version.createdAt.toISOString(),
   };
 }
@@ -172,7 +282,12 @@ export async function getPlanDraft(planId: string, userId: string) {
   };
 }
 
-export async function regeneratePlanVersion(planId: string, userId: string, requirement?: string) {
+export async function regeneratePlanVersion(
+  planId: string,
+  userId: string,
+  requirement?: string,
+  granularityMode?: GranularityMode
+) {
   const plan = await prisma.plan.findFirst({
     where: { id: planId, userId },
   });
@@ -187,6 +302,7 @@ export async function regeneratePlanVersion(planId: string, userId: string, requ
   }
 
   const nextVersion = state.versions.length + 1;
+  const effectiveGranularityMode = granularityMode ?? state.versions[state.versions.length - 1]?.granularityMode ?? 'smart';
   const nextSnapshot = buildSnapshot(
     {
       goal: plan.goal,
@@ -194,7 +310,11 @@ export async function regeneratePlanVersion(planId: string, userId: string, requ
       requirement: requirement?.trim() ? requirement : plan.requirement,
       type: plan.type as GeneratePlanInput['type'],
     },
-    nextVersion
+    nextVersion,
+    {
+      granularityMode: effectiveGranularityMode,
+      startDateIso: plan.deadline.toISOString(),
+    }
   );
   await prisma.planVersion.create({
     data: {
@@ -274,8 +394,17 @@ export async function compareDraftVersions(planId: string, baseVersion: number, 
   };
 }
 
-export async function createGeneratedPlan(input: GeneratePlanInput & { userId: string }) {
-  const draft = generatePlanDraft(input);
+export async function createGeneratedPlan(
+  input: GeneratePlanInput & {
+    userId: string;
+    granularityMode?: GranularityMode;
+    startDateIso?: string;
+  }
+) {
+  const snapshot = buildSnapshot(input, 1, {
+    granularityMode: input.granularityMode,
+    startDateIso: input.startDateIso ?? input.deadline,
+  });
 
   return prisma.$transaction(async (tx) => {
     const createdPlan = await tx.plan.create({
@@ -291,7 +420,7 @@ export async function createGeneratedPlan(input: GeneratePlanInput & { userId: s
     });
 
     const createdStages = await Promise.all(
-      draft.stages.map((stage) =>
+      snapshot.stages.map((stage) =>
         tx.planStage.create({
           data: {
             planId: createdPlan.id,
@@ -308,7 +437,7 @@ export async function createGeneratedPlan(input: GeneratePlanInput & { userId: s
         version: 1,
         requirement: input.requirement,
         deadline: new Date(input.deadline),
-        snapshot: draft.stages,
+        snapshot: snapshot.stages,
       },
     });
 
@@ -318,12 +447,12 @@ export async function createGeneratedPlan(input: GeneratePlanInput & { userId: s
         id: stage.id,
         name: stage.name,
         sortOrder: stage.sortOrder,
-        tasks: draft.stages[index]?.tasks ?? [],
+        tasks: snapshot.stages[index]?.tasks ?? [],
       })),
     };
     const state: DraftState = {
       planId: createdPlan.id,
-      versions: [buildSnapshot(input, 1)],
+      versions: [snapshot],
       maxVersions: MAX_VERSIONS,
       confirmedVersion: null,
     };

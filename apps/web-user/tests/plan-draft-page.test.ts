@@ -135,6 +135,7 @@ describe('PlanDraftPage', () => {
         id: 'plan_1',
         requirement: '需求 A',
         token: 'token_123',
+        granularityMode: 'smart',
       })
     );
     wrapper.unmount();
@@ -158,6 +159,37 @@ describe('PlanDraftPage', () => {
     const modal = document.querySelector('[data-testid="draft-confirm-modal"]');
     expect(modal).not.toBeNull();
     expect(modal?.textContent ?? '').toContain('确认保存该版本');
+    wrapper.unmount();
+  });
+
+  it('切换颗粒度后点击重新生成应先弹确认，再创建新版本', async () => {
+    const router = createAppRouter(createMemoryHistory());
+    await router.push('/plans/plan_1/draft');
+    await router.isReady();
+
+    const wrapper = mount(PlanDraftPage, {
+      global: { plugins: [router] },
+      attachTo: document.body,
+    });
+    await flushPromises();
+
+    await wrapper.get('[data-testid="draft-granularity-mode"]').setValue('rough');
+    await wrapper.get('[data-testid="draft-regenerate"]').trigger('click');
+    await flushPromises();
+    expect(document.querySelector('[data-testid="draft-granularity-confirm-modal"]')).not.toBeNull();
+    expect(regeneratePlanMock).not.toHaveBeenCalled();
+
+    (document.querySelector('[data-testid="draft-granularity-confirm-submit"]') as HTMLButtonElement | null)?.click();
+    await flushPromises();
+
+    expect(regeneratePlanMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'plan_1',
+        token: 'token_123',
+        requirement: '需求 B',
+        granularityMode: 'rough',
+      })
+    );
     wrapper.unmount();
   });
 

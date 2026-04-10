@@ -3,12 +3,17 @@ import { computed } from 'vue';
 import { useRoute } from 'vue-router';
 
 const route = useRoute();
+
 const status = computed(() => String(route.query.status ?? 'completed'));
 const totalScore = computed(() => String(route.query.totalScore ?? '86'));
 const riskScore = computed(() => String(route.query.riskScore ?? '24'));
 const missingItems = computed(() => String(route.query.missingItems ?? '补充图片证据'));
-const statusLabel = computed(() => (status.value === 'completed' ? '已通过' : '需补交'));
-const statusClass = computed(() => (status.value === 'completed' ? 'status-completed' : 'status-needs-retry'));
+const statusLabel = computed(() => {
+  return status.value === 'completed' ? '已通过' : '需补交';
+});
+const statusClass = computed(() => {
+  return status.value === 'completed' ? 'status-completed' : 'status-needs-retry';
+});
 const scorePercent = computed(() => {
   const parsed = Number(totalScore.value);
   if (Number.isNaN(parsed)) return 0;

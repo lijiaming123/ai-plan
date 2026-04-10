@@ -7,6 +7,14 @@ import { authState } from '../../stores/auth';
 
 type DraftBundle = NonNullable<PlanRecord['draft']>;
 type GranularityMode = 'smart' | 'deep' | 'rough';
+type VersionDiffMeta = {
+  addedStages: number;
+  removedStages: number;
+  addedTasks: number;
+  removedTasks: number;
+  addedStageNames: Set<string>;
+  addedTaskKeys: Set<string>;
+};
 
 const route = useRoute();
 const router = useRouter();
@@ -30,6 +38,55 @@ const versions = computed(() => draftMeta.value?.versions ?? []);
 const selectedSnapshot = computed(
   () => versions.value.find((v) => v.version === selectedVersion.value) ?? versions.value[versions.value.length - 1] ?? null
 );
+const selectedTaskCount = computed(() =>
+  selectedSnapshot.value ? selectedSnapshot.value.stages.reduce((sum, stage) => sum + stage.tasks.length, 0) : 0
+);
+const totalTaskCount = computed(() =>
+  versions.value.reduce((versionSum, version) => {
+    return versionSum + version.stages.reduce((stageSum, stage) => stageSum + stage.tasks.length, 0);
+  }, 0)
+);
+const versionDiffMetaMap = computed(() => {
+  const map = new Map<number, VersionDiffMeta>();
+  versions.value.forEach((version, index) => {
+    if (index === 0) {
+      map.set(version.version, {
+        addedStages: 0,
+        removedStages: 0,
+        addedTasks: 0,
+        removedTasks: 0,
+        addedStageNames: new Set<string>(),
+        addedTaskKeys: new Set<string>(),
+      });
+      return;
+    }
+    const prev = versions.value[index - 1];
+    const currentStageNames = new Set(version.stages.map((stage) => stage.name));
+    const previousStageNames = new Set(prev.stages.map((stage) => stage.name));
+    const addedStageNames = new Set([...currentStageNames].filter((name) => !previousStageNames.has(name)));
+    const removedStageCount = [...previousStageNames].filter((name) => !currentStageNames.has(name)).length;
+
+    const toTaskKey = (stageName: string, taskTitle: string) => `${stageName}::${taskTitle}`;
+    const currentTaskKeys = new Set(version.stages.flatMap((stage) => stage.tasks.map((task) => toTaskKey(stage.name, task.title))));
+    const previousTaskKeys = new Set(prev.stages.flatMap((stage) => stage.tasks.map((task) => toTaskKey(stage.name, task.title))));
+    const addedTaskKeys = new Set([...currentTaskKeys].filter((key) => !previousTaskKeys.has(key)));
+    const removedTaskCount = [...previousTaskKeys].filter((key) => !currentTaskKeys.has(key)).length;
+
+    map.set(version.version, {
+      addedStages: addedStageNames.size,
+      removedStages: removedStageCount,
+      addedTasks: addedTaskKeys.size,
+      removedTasks: removedTaskCount,
+      addedStageNames,
+      addedTaskKeys,
+    });
+  });
+  return map;
+});
+const selectedDiffMeta = computed(() => {
+  if (!selectedSnapshot.value) return null;
+  return versionDiffMetaMap.value.get(selectedSnapshot.value.version) ?? null;
+});
 
 const remainingRegenerateCount = computed(() => {
   if (!draftMeta.value) return 0;
@@ -173,7 +230,7 @@ function closeConfirmModal() {
   if (operating.value) return;
   confirmOpen.value = false;
   confirmModalError.value = '';
-    granularityConfirmOpen.value = false;
+  granularityConfirmOpen.value = false;
 }
 
 async function submitConfirm() {
@@ -204,6 +261,18 @@ function formatCreatedAt(iso: string) {
   }
 }
 
+function getDiffMeta(version: number): VersionDiffMeta | null {
+  return versionDiffMetaMap.value.get(version) ?? null;
+}
+
+function isAddedStage(version: number, stageName: string) {
+  return getDiffMeta(version)?.addedStageNames.has(stageName) ?? false;
+}
+
+function isAddedTask(version: number, stageName: string, taskTitle: string) {
+  return getDiffMeta(version)?.addedTaskKeys.has(`${stageName}::${taskTitle}`) ?? false;
+}
+
 onMounted(() => {
   void loadDraftPage();
 });
@@ -225,19 +294,30 @@ watch(
 </script>
 
 <template>
-  <div class="flex min-h-screen w-full flex-col bg-background-light font-display text-[#111813]">
+  <div class="flex h-screen w-full flex-col overflow-hidden bg-[linear-gradient(180deg,#f6faf8_0%,#eef5f1_42%,#edf3ef_100%)] font-display text-[#111813]">
     <UiErrorToast :message="errorToastMessage" @close="clearError" />
 
-    <header class="sticky top-0 z-20 border-b border-slate-200 bg-white/95 px-4 py-4 shadow-sm backdrop-blur md:px-8">
+    <header class="sticky top-0 z-20 border-b border-[#d8e6df] bg-white/95 px-4 py-4 shadow-sm backdrop-blur md:px-8">
       <div class="mx-auto flex max-w-[1600px] flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div class="min-w-0">
-          <div class="mb-1 flex flex-wrap items-center gap-2 text-sm text-[#61896f]">
-            <router-link to="/plans" class="font-medium hover:text-[#203029]">我的计划</router-link>
+          <div class="mb-2 flex flex-wrap items-center gap-2 text-sm text-[#5f7d70]">
+            <router-link to="/plans" class="font-semibold hover:text-[#203029]">我的计划</router-link>
             <span>/</span>
-            <span class="font-mono text-xs">草稿</span>
+            <span class="rounded-md bg-[#edf5f1] px-2 py-0.5 font-mono text-xs font-bold text-[#35624f]">草稿中心</span>
           </div>
-          <h1 class="truncate text-2xl font-black tracking-tight md:text-3xl">{{ planGoal || '计划草稿' }}</h1>
-          <p class="mt-1 text-sm text-[#61896f]">状态：草稿待确认 · 已生成 {{ versions.length }} 个版本</p>
+          <h1 class="truncate text-2xl font-black tracking-tight text-[#17251f] md:text-3xl">{{ planGoal || '计划草稿' }}</h1>
+          <div class="mt-2 flex flex-wrap items-center gap-2 text-xs font-semibold">
+            <span class="rounded-full bg-[#eaf7f0] px-3 py-1 text-[#0f8b4e]">草稿待确认</span>
+            <span class="rounded-full bg-white px-3 py-1 text-[#486255] ring-1 ring-[#dbe8e2]">版本数 {{ versions.length }}</span>
+            <span class="rounded-full bg-white px-3 py-1 text-[#486255] ring-1 ring-[#dbe8e2]">总任务 {{ totalTaskCount }}</span>
+            <span class="rounded-full bg-white px-3 py-1 text-[#486255] ring-1 ring-[#dbe8e2]">当前任务 {{ selectedTaskCount }}</span>
+            <span
+              v-if="selectedSnapshot && selectedSnapshot.version !== versions[0]?.version && selectedDiffMeta"
+              class="rounded-full bg-[#edf8f2] px-3 py-1 text-[#35624f] ring-1 ring-[#d3e8dd]"
+            >
+              对比上一版：+{{ selectedDiffMeta.addedTasks }} / -{{ selectedDiffMeta.removedTasks }} 任务
+            </span>
+          </div>
         </div>
         <div class="flex flex-wrap gap-2">
           <div class="inline-flex items-center gap-2 rounded-lg border border-[#d5e2db] bg-white px-3 py-2">
@@ -255,7 +335,7 @@ watch(
           </div>
           <button
             type="button"
-            class="inline-flex h-10 items-center justify-center rounded-lg border border-[#d5e2db] bg-white px-4 text-sm font-bold transition hover:bg-[#f0f4f2] disabled:cursor-not-allowed disabled:opacity-60"
+            class="inline-flex h-10 items-center justify-center rounded-lg border border-[#c8ddd1] bg-white px-4 text-sm font-bold text-[#244236] transition duration-200 hover:-translate-y-0.5 hover:bg-[#f3f8f5] hover:shadow-[0_6px_14px_rgba(25,55,43,0.12)] active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60"
             :disabled="!canRegenerate || operating || loading"
             data-testid="draft-regenerate"
             @click="handleRegenerate"
@@ -264,7 +344,7 @@ watch(
           </button>
           <button
             type="button"
-            class="inline-flex h-10 items-center justify-center rounded-lg bg-primary px-4 text-sm font-bold text-[#111813] transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
+            class="inline-flex h-10 items-center justify-center rounded-lg bg-[linear-gradient(90deg,#12a65d,#0f8b4e)] px-4 text-sm font-bold text-white shadow-[0_6px_18px_rgba(15,139,78,0.28)] transition duration-200 hover:-translate-y-0.5 hover:brightness-105 hover:shadow-[0_10px_22px_rgba(15,139,78,0.34)] active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60"
             :disabled="!selectedSnapshot || operating || loading"
             data-testid="draft-open-confirm"
             @click="openConfirmModal"
@@ -287,35 +367,80 @@ watch(
       </div>
     </header>
 
-    <main class="flex-1 px-4 py-6 md:px-8">
+    <main class="flex flex-1 flex-col overflow-hidden px-4 py-6 md:px-8">
       <div v-if="loading" class="py-16 text-center text-sm text-[#61896f]">加载草稿中…</div>
 
-      <div v-else class="mx-auto max-w-[1600px]">
+      <div v-else class="mx-auto flex h-full w-full max-w-[1600px] flex-col overflow-hidden">
         <!-- 桌面：并排卡片 + 横向滚动 -->
-        <div class="hidden gap-4 overflow-x-auto pb-2 md:flex md:flex-nowrap">
+        <div
+          class="hidden h-full auto-rows-fr gap-4 pb-3 md:grid"
+          :style="{ gridTemplateColumns: `repeat(${Math.max(versions.length, 1)}, minmax(0, 1fr))` }"
+        >
           <button
             v-for="ver in versions"
             :key="ver.version"
             type="button"
-            class="flex w-[min(100%,22rem)] shrink-0 flex-col rounded-xl border-2 bg-white text-left shadow-sm transition hover:border-[#9cc4b0]"
+            class="group relative flex h-full min-w-0 flex-col rounded-2xl border bg-white/95 text-left shadow-[0_10px_22px_rgba(20,51,39,0.08)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_14px_28px_rgba(20,51,39,0.14)]"
             :class="
-              selectedVersion === ver.version ? 'border-[#0f8b4e] ring-2 ring-[#0f8b4e]/25' : 'border-slate-200'
+              selectedVersion === ver.version
+                ? 'border-[#0f8b4e] ring-2 ring-[#0f8b4e]/25 draft-card-active'
+                : 'border-[#dbe6e0] hover:border-[#a8cab8]'
             "
             :data-testid="`draft-card-v${ver.version}`"
             @click="selectVersion(ver.version)"
           >
-            <div class="border-b border-slate-100 px-4 py-3">
-              <p class="text-lg font-black">v{{ ver.version }}</p>
-              <p class="text-xs text-[#61896f]">{{ formatCreatedAt(ver.createdAt) }}</p>
+            <div class="sticky top-0 z-10 rounded-t-2xl border-b border-[#e6efea] bg-[linear-gradient(180deg,#fbfffd_0%,#f4fbf7_100%)] px-4 py-3">
+              <div class="flex items-center justify-between">
+                <p class="text-lg font-black text-[#163025]">v{{ ver.version }}</p>
+                <span
+                  class="rounded-full px-2 py-0.5 text-[11px] font-bold"
+                  :class="
+                    selectedVersion === ver.version ? 'bg-[#dff5e8] text-[#0f8b4e]' : 'bg-[#eef4f1] text-[#5d786b]'
+                  "
+                >
+                  {{ selectedVersion === ver.version ? '当前选中' : '待评估' }}
+                </span>
+              </div>
+              <p class="mt-1 text-xs font-medium text-[#61896f]">{{ formatCreatedAt(ver.createdAt) }}</p>
+              <div class="mt-2 flex flex-wrap gap-1.5 text-[11px] font-bold">
+                <template v-if="ver.version === versions[0]?.version">
+                  <span class="rounded-full bg-[#edf4f0] px-2 py-0.5 text-[#5d786b]">基线版本</span>
+                </template>
+                <template v-else>
+                  <span class="rounded-full bg-[#e8f7ee] px-2 py-0.5 text-[#0f8b4e]">+阶段 {{ getDiffMeta(ver.version)?.addedStages ?? 0 }}</span>
+                  <span class="rounded-full bg-[#e8f7ee] px-2 py-0.5 text-[#0f8b4e]">+任务 {{ getDiffMeta(ver.version)?.addedTasks ?? 0 }}</span>
+                  <span class="rounded-full bg-[#fff4f2] px-2 py-0.5 text-[#a34e45]">-阶段 {{ getDiffMeta(ver.version)?.removedStages ?? 0 }}</span>
+                  <span class="rounded-full bg-[#fff4f2] px-2 py-0.5 text-[#a34e45]">-任务 {{ getDiffMeta(ver.version)?.removedTasks ?? 0 }}</span>
+                </template>
+              </div>
             </div>
-            <div class="max-h-[min(70vh,36rem)] flex-1 overflow-y-auto px-4 py-3">
-              <p class="mb-3 text-xs font-semibold uppercase tracking-wide text-[#61896f]">版本说明</p>
-              <p class="mb-4 whitespace-pre-wrap text-sm leading-relaxed text-[#2a3832]">{{ ver.requirement }}</p>
+            <div class="draft-card-scroll min-h-0 flex-1 overflow-y-auto px-4 py-3">
+              <div class="mb-4 rounded-xl border border-[#e5efea] bg-[#f8fcfa] p-3">
+                <p class="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[#61896f]">版本说明</p>
+                <p class="whitespace-pre-wrap text-sm leading-relaxed text-[#2a3832]">{{ ver.requirement }}</p>
+              </div>
               <div v-for="stage in ver.stages" :key="`${ver.version}-${stage.sortOrder}`" class="mb-4 last:mb-0">
-                <p class="mb-2 text-sm font-bold text-[#203029]">阶段 {{ stage.sortOrder }} · {{ stage.name }}</p>
+                <p class="mb-2 flex items-center gap-2 text-sm font-extrabold text-[#203029]">
+                  <span>阶段 {{ stage.sortOrder }} · {{ stage.name }}</span>
+                  <span v-if="isAddedStage(ver.version, stage.name)" class="rounded-full bg-[#e8f7ee] px-2 py-0.5 text-[10px] font-bold text-[#0f8b4e]">
+                    新增阶段
+                  </span>
+                </p>
                 <ul class="space-y-2 text-sm text-[#41534a]">
-                  <li v-for="task in stage.tasks" :key="task.id" class="rounded-md bg-[#f4f8f6] px-3 py-2">
-                    {{ task.title }}
+                  <li
+                    v-for="task in stage.tasks"
+                    :key="task.id"
+                    class="rounded-lg border border-[#e2ece7] bg-white px-3 py-2 leading-relaxed shadow-[inset_0_0_0_1px_#f1f6f3] transition duration-150 hover:border-[#c8ddd1] hover:bg-[#f8fcfa]"
+                  >
+                    <div class="flex items-start justify-between gap-2">
+                      <span>{{ task.title }}</span>
+                      <span
+                        v-if="isAddedTask(ver.version, stage.name, task.title)"
+                        class="shrink-0 rounded-full bg-[#e8f7ee] px-2 py-0.5 text-[10px] font-bold text-[#0f8b4e]"
+                      >
+                        新增
+                      </span>
+                    </div>
                   </li>
                 </ul>
               </div>
@@ -324,16 +449,13 @@ watch(
         </div>
 
         <!-- 小屏：单列当前版本 -->
-        <div v-if="selectedSnapshot" class="md:hidden">
-          <article
-            class="flex flex-col rounded-xl border-2 border-[#0f8b4e] bg-white shadow-sm ring-2 ring-[#0f8b4e]/20"
-            :data-testid="`draft-card-v${selectedSnapshot.version}`"
-          >
+        <div v-if="selectedSnapshot" class="min-h-0 md:hidden">
+          <article class="flex flex-col rounded-2xl border-2 border-[#0f8b4e] bg-white shadow-sm ring-2 ring-[#0f8b4e]/20" :data-testid="`draft-card-v${selectedSnapshot.version}`">
             <div class="border-b border-slate-100 px-4 py-3">
               <p class="text-lg font-black">v{{ selectedSnapshot.version }}</p>
               <p class="text-xs text-[#61896f]">{{ formatCreatedAt(selectedSnapshot.createdAt) }}</p>
             </div>
-            <div class="max-h-[min(70vh,36rem)] overflow-y-auto px-4 py-3">
+            <div class="max-h-[70vh] overflow-y-auto px-4 py-3">
               <p class="mb-3 text-xs font-semibold uppercase tracking-wide text-[#61896f]">版本说明</p>
               <p class="mb-4 whitespace-pre-wrap text-sm leading-relaxed text-[#2a3832]">{{ selectedSnapshot.requirement }}</p>
               <div
@@ -352,7 +474,10 @@ watch(
           </article>
         </div>
 
-        <p v-if="!loading && !versions.length" class="py-12 text-center text-sm text-[#61896f]">暂无草稿版本</p>
+        <div v-if="!loading && !versions.length" class="mx-auto my-auto max-w-xl rounded-2xl border border-[#dbe6e0] bg-white/80 p-8 text-center shadow-sm">
+          <p class="mb-2 text-base font-bold text-[#234236]">还没有可比较的草稿版本</p>
+          <p class="text-sm text-[#61896f]">点击顶部“重新生成”创建新版本，或返回创建页完善输入信息。</p>
+        </div>
       </div>
     </main>
 
@@ -435,3 +560,47 @@ watch(
     </Teleport>
   </div>
 </template>
+
+<style scoped>
+.draft-card-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 10px;
+}
+
+.draft-card-scroll::-webkit-scrollbar-track {
+  background: rgba(209, 223, 216, 0.38);
+  border-radius: 9999px;
+}
+
+.draft-card-scroll::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #8eb4a2 0%, #6d9a86 100%);
+  border-radius: 9999px;
+}
+
+.draft-card-scroll {
+  scrollbar-color: #7ca590 rgba(209, 223, 216, 0.38);
+  scrollbar-width: thin;
+}
+
+.draft-card-active::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: 1rem;
+  pointer-events: none;
+  box-shadow: 0 0 0 0 rgba(15, 139, 78, 0.28);
+  animation: draftCardPulse 2.2s ease-out infinite;
+}
+
+@keyframes draftCardPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(15, 139, 78, 0.25);
+  }
+  70% {
+    box-shadow: 0 0 0 12px rgba(15, 139, 78, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(15, 139, 78, 0);
+  }
+}
+</style>

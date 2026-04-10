@@ -20,6 +20,9 @@ const errorToastMessage = ref('');
 const confirmOpen = ref(false);
 const confirmModalError = ref('');
 
+/** 递增序号，丢弃过期的异步回写（路由/planId 快速切换时） */
+let loadDraftSeq = 0;
+
 const versions = computed(() => draftMeta.value?.versions ?? []);
 const selectedSnapshot = computed(
   () => versions.value.find((v) => v.version === selectedVersion.value) ?? versions.value[versions.value.length - 1] ?? null
@@ -45,38 +48,53 @@ function isDraftClosedError(error: unknown) {
   return /\b409\b/.test(msg) && /draft is closed/i.test(msg);
 }
 
-async function goToDetail() {
-  await router.replace({ name: 'plan-detail', params: { id: planId.value } });
+async function goToDetail(targetId: string) {
+  await router.replace({ name: 'plan-detail', params: { id: targetId } });
 }
 
 async function loadDraftPage() {
+  const seq = ++loadDraftSeq;
+  const id = planId.value;
   loading.value = true;
   clearError();
+  draftMeta.value = null;
+  planGoal.value = '';
+  selectedVersion.value = 1;
+  confirmOpen.value = false;
+  confirmModalError.value = '';
   try {
     const plan = await getApiClient().getPlan({
-      id: planId.value,
+      id,
       token: authState.token,
     });
+    if (seq !== loadDraftSeq) return;
     planGoal.value = plan.goal;
     if (plan.status === 'active') {
-      await goToDetail();
+      if (seq !== loadDraftSeq) return;
+      await goToDetail(id);
       return;
     }
+    draftMeta.value = null;
     const draft = await getApiClient().getPlanDraft({
-      id: planId.value,
+      id,
       token: authState.token,
     });
+    if (seq !== loadDraftSeq) return;
     draftMeta.value = draft;
     const latest = draft.versions.length ? draft.versions[draft.versions.length - 1].version : 1;
     selectedVersion.value = draft.confirmedVersion ?? latest;
   } catch (error) {
+    if (seq !== loadDraftSeq) return;
     if (isDraftClosedError(error)) {
-      await goToDetail();
+      if (seq !== loadDraftSeq) return;
+      await goToDetail(id);
       return;
     }
     showError(error instanceof Error ? error.message : '加载草稿失败');
   } finally {
-    loading.value = false;
+    if (seq === loadDraftSeq) {
+      loading.value = false;
+    }
   }
 }
 

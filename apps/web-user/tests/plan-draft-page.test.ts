@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
 import { createMemoryHistory } from 'vue-router';
 import PlanDraftPage from '../src/features/plans/PlanDraftPage.vue';
@@ -61,6 +61,10 @@ describe('PlanDraftPage', () => {
     confirmedVersion: null as number | null,
     canRegenerate: true,
   };
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
 
   beforeEach(() => {
     mockMatchMediaDesktop();

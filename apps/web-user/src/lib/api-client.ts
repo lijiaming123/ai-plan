@@ -17,14 +17,18 @@ export type CreatePlanInput = {
   profile?: {
     planMode: 'basic' | 'pro';
     basicInfo: {
+      planScenario: 'study' | 'work' | 'exam' | 'fitness' | 'other';
       planName: string;
       planContent: string;
       currentLevel: 'none' | 'newbie' | 'junior' | 'intermediate' | 'advanced';
+      startingPoint?: '' | 'none' | 'newbie' | 'junior' | 'intermediate' | 'advanced';
       startDate: string;
       cycle: '1w' | '1m' | '3m' | '6m' | 'custom';
       endDate: string;
       preference: string;
+      focusAreas?: string[];
       timeInvestment: string;
+      timeInvestmentCustomHours?: number;
       outputMode: 'daily' | 'phase-weekly' | 'phase-monthly';
       granularityMode?: 'smart' | 'deep' | 'rough';
     };

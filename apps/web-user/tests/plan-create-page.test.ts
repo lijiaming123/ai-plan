@@ -64,6 +64,7 @@ describe('PlanCreatePage', () => {
 
     await wrapper.get('input[aria-label="计划名称"]').setValue('三个月完成作品集');
     await wrapper.get('textarea[aria-label="计划内容"]').setValue('12周内完成前端作品集并达到可投递标准');
+    await wrapper.get('select[aria-label="计划场景"]').setValue('study');
     await wrapper.get('form').trigger('submit');
     await flushPromises();
 
@@ -76,10 +77,12 @@ describe('PlanCreatePage', () => {
         profile: expect.objectContaining({
           planMode: 'basic',
           basicInfo: expect.objectContaining({
+            planScenario: 'study',
             planName: '三个月完成作品集',
             planContent: expect.any(String),
             cycle: '1m',
             currentLevel: 'none',
+            startingPoint: '',
             outputMode: 'daily',
             granularityMode: 'smart',
           }),
@@ -160,6 +163,7 @@ describe('PlanCreatePage', () => {
 
     await wrapper.get('input[aria-label="计划名称"]').setValue('英语打卡');
     await wrapper.get('textarea[aria-label="计划内容"]').setValue('每天30分钟听说练习');
+    await wrapper.get('select[aria-label="计划场景"]').setValue('study');
     await wrapper.get('select[aria-label="计划颗粒度"]').setValue('deep');
     await wrapper.get('form').trigger('submit');
     await flushPromises();
@@ -186,6 +190,7 @@ describe('PlanCreatePage', () => {
     await wrapper.get('[data-testid="tier-tab-pro"]').trigger('click');
     await wrapper.get('input[aria-label="计划名称"]').setValue('提升英语口语');
     await wrapper.get('textarea[aria-label="计划内容"]').setValue('3个月提升到可流畅表达日常和工作场景');
+    await wrapper.get('select[aria-label="计划场景"]').setValue('study');
     await wrapper.get('form').trigger('submit');
     await flushPromises();
 
@@ -295,6 +300,7 @@ describe('PlanCreatePage', () => {
     await wrapper.get('[data-testid="tier-tab-pro"]').trigger('click');
     await wrapper.get('input[aria-label="计划名称"]').setValue('工作项目推进');
     await wrapper.get('textarea[aria-label="计划内容"]').setValue('完成季度目标与里程碑交付');
+    await wrapper.get('select[aria-label="计划场景"]').setValue('work');
     await wrapper.get('form').trigger('submit');
     await flushPromises();
 
@@ -331,6 +337,7 @@ describe('PlanCreatePage', () => {
     });
     await wrapper.get('input[aria-label="计划名称"]').setValue('前端');
     await wrapper.get('textarea[aria-label="计划内容"]').setValue('内容');
+    await wrapper.get('select[aria-label="计划场景"]').setValue('study');
     await wrapper.get('form').trigger('submit');
     await flushPromises();
 
@@ -359,6 +366,7 @@ describe('PlanCreatePage', () => {
     });
     await wrapper.get('input[aria-label="计划名称"]').setValue('前端');
     await wrapper.get('textarea[aria-label="计划内容"]').setValue('内容');
+    await wrapper.get('select[aria-label="计划场景"]').setValue('study');
     await wrapper.get('form').trigger('submit');
     await flushPromises();
 
@@ -366,5 +374,119 @@ describe('PlanCreatePage', () => {
     await wrapper.get('button[aria-label="关闭错误提示"]').trigger('click');
     await flushPromises();
     expect(wrapper.find('[data-testid="error-toast"]').exists()).toBe(false);
+  });
+
+  it('未选择计划场景时应阻止提交', async () => {
+    setAuthToken('token_123');
+    const router = createAppRouter(createMemoryHistory());
+    const wrapper = mount(PlanCreatePage, {
+      global: { plugins: [router] },
+    });
+
+    await wrapper.get('input[aria-label="计划名称"]').setValue('前端');
+    await wrapper.get('textarea[aria-label="计划内容"]').setValue('内容');
+    await wrapper.get('form').trigger('submit');
+    await flushPromises();
+
+    expect(createPlanMock).not.toHaveBeenCalled();
+    expect(wrapper.text()).toContain('请选择计划场景');
+  });
+
+  it('投入时间选择自定义时应携带自定义小时数', async () => {
+    setAuthToken('token_123');
+    const router = createAppRouter(createMemoryHistory());
+    const wrapper = mount(PlanCreatePage, {
+      global: { plugins: [router] },
+    });
+
+    await wrapper.get('input[aria-label="计划名称"]').setValue('数学强化');
+    await wrapper.get('textarea[aria-label="计划内容"]').setValue('考研数学冲刺');
+    await wrapper.get('select[aria-label="计划场景"]').setValue('exam');
+    await wrapper.get('select[aria-label="投入时间"]').setValue('custom');
+    await wrapper.get('input[aria-label="自定义每周投入小时"]').setValue('12');
+    await wrapper.get('form').trigger('submit');
+    await flushPromises();
+
+    expect(createPlanMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        profile: expect.objectContaining({
+          basicInfo: expect.objectContaining({
+            timeInvestment: 'custom:12h_weekly',
+            timeInvestmentCustomHours: 12,
+          }),
+        }),
+      })
+    );
+  });
+
+  it('重点倾斜应支持tag添加删除并以数组提交', async () => {
+    setAuthToken('token_123');
+    const router = createAppRouter(createMemoryHistory());
+    const wrapper = mount(PlanCreatePage, {
+      global: { plugins: [router] },
+    });
+
+    await wrapper.get('input[aria-label="计划名称"]').setValue('考研冲刺');
+    await wrapper.get('textarea[aria-label="计划内容"]').setValue('提升总分并补齐薄弱科目');
+    await wrapper.get('select[aria-label="计划场景"]').setValue('exam');
+
+    const tagInput = wrapper.get('input[aria-label="添加重点倾斜"]');
+    await tagInput.setValue('数学');
+    await tagInput.trigger('keydown', { key: 'Enter' });
+    await tagInput.setValue('英语');
+    await tagInput.trigger('keydown', { key: ',' });
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('数学');
+    expect(wrapper.text()).toContain('英语');
+
+    await wrapper.get('button[aria-label="删除重点项-数学"]').trigger('click');
+    await wrapper.get('form').trigger('submit');
+    await flushPromises();
+
+    expect(createPlanMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        profile: expect.objectContaining({
+          basicInfo: expect.objectContaining({
+            focusAreas: ['英语'],
+          }),
+        }),
+      })
+    );
+  });
+
+  it('重点倾斜最多允许8个标签', async () => {
+    setAuthToken('token_123');
+    const router = createAppRouter(createMemoryHistory());
+    const wrapper = mount(PlanCreatePage, {
+      global: { plugins: [router] },
+    });
+
+    await wrapper.get('input[aria-label="计划名称"]').setValue('考研冲刺');
+    await wrapper.get('textarea[aria-label="计划内容"]').setValue('提升总分并补齐薄弱科目');
+    await wrapper.get('select[aria-label="计划场景"]').setValue('exam');
+
+    const tagInput = wrapper.get('input[aria-label="添加重点倾斜"]');
+    const tags = ['数学', '英语', '政治', '专业课', '阅读', '写作', '听力', '口语', '逻辑'];
+    for (const tag of tags) {
+      await tagInput.setValue(tag);
+      await tagInput.trigger('keydown', { key: 'Enter' });
+    }
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('最多添加8个重点项');
+    expect(wrapper.text()).not.toContain('逻辑');
+
+    await wrapper.get('form').trigger('submit');
+    await flushPromises();
+    expect(createPlanMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        profile: expect.objectContaining({
+          basicInfo: expect.objectContaining({
+            focusAreas: ['数学', '英语', '政治', '专业课', '阅读', '写作', '听力', '口语'],
+          }),
+        }),
+      })
+    );
   });
 });

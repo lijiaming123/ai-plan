@@ -8,7 +8,8 @@ import UiErrorToast from '../../components/UiErrorToast.vue';
 
 type PlanMode = 'basic' | 'pro';
 type CycleValue = '1w' | '1m' | '3m' | '6m' | 'custom';
-type CurrentLevel = 'none' | 'newbie' | 'junior' | 'intermediate' | 'advanced';
+type PlanScenario = 'study' | 'work' | 'exam' | 'fitness' | 'other';
+type StartingPoint = '' | 'none' | 'newbie' | 'junior' | 'intermediate' | 'advanced';
 type OutputMode = 'daily' | 'phase-weekly' | 'phase-monthly';
 type GranularityMode = 'smart' | 'deep' | 'rough';
 type ReminderMode = 'standard' | 'smart';
@@ -78,6 +79,10 @@ const uploadedFileHint = ref('');
 const chatInput = ref('');
 const isAiThinking = ref(false);
 const errorToastMessage = ref('');
+const focusAreas = ref<string[]>([]);
+const focusAreaInput = ref('');
+const focusAreaHint = ref('');
+const MAX_FOCUS_AREAS = 8;
 const chatMessages = ref<ChatMessage[]>([
   {
     id: 'chat-init',
@@ -87,14 +92,16 @@ const chatMessages = ref<ChatMessage[]>([
 ]);
 
 const form = reactive({
+  planScenario: '' as PlanScenario | '',
   goal: '',
   requirement: '',
-  currentLevel: 'none' as CurrentLevel,
+  startingPoint: '' as StartingPoint,
   startDate: today,
   cycle: '1m' as CycleValue,
   customEndDate: '',
   preference: '',
   timeInvestment: 'none',
+  timeInvestmentCustomHours: '',
   outputMode: 'daily' as OutputMode,
   granularityMode: 'smart' as GranularityMode,
   reminderMode: 'standard' as ReminderMode,
@@ -102,11 +109,54 @@ const form = reactive({
 });
 
 const errors = reactive({
+  planScenario: '',
   goal: '',
   requirement: '',
   startDate: '',
   customEndDate: '',
+  timeInvestmentCustomHours: '',
 });
+
+const scenarioOptions = [
+  { label: '学习', value: 'study' },
+  { label: '工作', value: 'work' },
+  { label: '考试', value: 'exam' },
+  { label: '健身', value: 'fitness' },
+  { label: '其他', value: 'other' },
+] as const;
+
+const startingPointOptionsMap: Record<PlanScenario, Array<{ label: string; value: Exclude<StartingPoint, ''> }>> = {
+  study: [
+    { label: '零基础', value: 'none' },
+    { label: '入门', value: 'newbie' },
+    { label: '进阶', value: 'intermediate' },
+    { label: '熟练', value: 'advanced' },
+  ],
+  work: [
+    { label: '未启动', value: 'none' },
+    { label: '已了解背景', value: 'newbie' },
+    { label: '可独立执行', value: 'intermediate' },
+    { label: '可带人推进', value: 'advanced' },
+  ],
+  exam: [
+    { label: '基础薄弱', value: 'none' },
+    { label: '基础一般', value: 'newbie' },
+    { label: '接近目标线', value: 'intermediate' },
+    { label: '冲刺阶段', value: 'advanced' },
+  ],
+  fitness: [
+    { label: '刚开始', value: 'none' },
+    { label: '已建立习惯', value: 'newbie' },
+    { label: '稳定提升', value: 'intermediate' },
+    { label: '进阶强化', value: 'advanced' },
+  ],
+  other: [
+    { label: '刚开始', value: 'none' },
+    { label: '有初步经验', value: 'newbie' },
+    { label: '可稳定推进', value: 'intermediate' },
+    { label: '高熟练度', value: 'advanced' },
+  ],
+};
 
 const cycleOptions = [
   { label: '1周', value: '1w' },
@@ -136,6 +186,51 @@ const granularityHint = computed(() => {
 
 const acceptedPlanFileTypes = ['txt', 'md', 'markdown', 'doc', 'docx'] as const;
 
+const startingPointOptions = computed(() => {
+  if (!form.planScenario) return [];
+  return startingPointOptionsMap[form.planScenario];
+});
+
+function normalizeFocusArea(raw: string) {
+  return raw.trim().replace(/\s+/g, ' ');
+}
+
+function addFocusArea(raw: string) {
+  const next = normalizeFocusArea(raw);
+  if (!next) return;
+  if (focusAreas.value.includes(next)) {
+    focusAreaHint.value = '该重点项已存在';
+    return;
+  }
+  if (focusAreas.value.length >= MAX_FOCUS_AREAS) {
+    focusAreaHint.value = `最多添加${MAX_FOCUS_AREAS}个重点项`;
+    return;
+  }
+  focusAreas.value.push(next);
+  focusAreaHint.value = '';
+}
+
+function removeFocusArea(index: number) {
+  if (index < 0 || index >= focusAreas.value.length) return;
+  focusAreas.value.splice(index, 1);
+  if (focusAreas.value.length < MAX_FOCUS_AREAS && focusAreaHint.value.includes('最多添加')) {
+    focusAreaHint.value = '';
+  }
+}
+
+function handleFocusAreaKeydown(event: KeyboardEvent) {
+  if (event.key !== 'Enter' && event.key !== ',') return;
+  event.preventDefault();
+  addFocusArea(focusAreaInput.value);
+  focusAreaInput.value = '';
+}
+
+function handleFocusAreaBlur() {
+  if (!focusAreaInput.value.trim()) return;
+  addFocusArea(focusAreaInput.value);
+  focusAreaInput.value = '';
+}
+
 function closeErrorToast() {
   errorToastMessage.value = '';
 }
@@ -162,15 +257,22 @@ function getCycleLabel(cycle: CycleValue) {
 
 const generatedPrompt = computed(() => {
   const endDateText = effectiveDeadline.value || form.startDate || today;
+  const scenarioLabel = scenarioOptions.find((item) => item.value === form.planScenario)?.label ?? '未指定';
   const contextLines = [
+    `- 计划场景：${scenarioLabel}`,
     `- 目标名称：${form.goal || '（待补充）'}`,
     `- 目标说明：${form.requirement || '（待补充）'}`,
     `- 计划开始时间：${form.startDate || today}`,
     `- 计划周期：${getCycleLabel(form.cycle)}（预计完成：${endDateText}）`,
   ];
-  if (form.currentLevel !== 'none') contextLines.push(`- 当前水平：${form.currentLevel}`);
-  if (form.preference.trim()) contextLines.push(`- 偏好与限制：${form.preference.trim()}`);
-  if (form.timeInvestment !== 'none') contextLines.push(`- 可投入时间：${form.timeInvestment}`);
+  if (form.startingPoint) contextLines.push(`- 起点状态：${form.startingPoint}`);
+  if (form.preference.trim()) contextLines.push(`- 偏好与约束：${form.preference.trim()}`);
+  if (focusAreas.value.length) contextLines.push(`- 重点倾斜/薄弱项：${focusAreas.value.join('、')}`);
+  if (form.timeInvestment === 'custom' && form.timeInvestmentCustomHours) {
+    contextLines.push(`- 可投入时间：每周约 ${form.timeInvestmentCustomHours} 小时`);
+  } else if (form.timeInvestment !== 'none') {
+    contextLines.push(`- 可投入时间：${form.timeInvestment}`);
+  }
   contextLines.push(`- 输出形式偏好：${form.outputMode}`);
 
   return `你是一名资深 AI 计划顾问与执行教练。
@@ -219,16 +321,32 @@ function syncModeFromRoute() {
 }
 
 function validateForm() {
+  errors.planScenario = form.planScenario ? '' : '请选择计划场景';
   errors.goal = form.goal.trim() ? '' : '请输入计划名称';
   errors.requirement = form.requirement.trim() ? '' : '请输入计划内容';
   errors.startDate = form.startDate ? '' : '请选择计划开始时间';
   errors.customEndDate = form.cycle === 'custom' && !form.customEndDate ? '请选择计划完成时间' : '';
-  return !errors.goal && !errors.requirement && !errors.startDate && !errors.customEndDate;
+  errors.timeInvestmentCustomHours =
+    form.timeInvestment === 'custom' &&
+    (!form.timeInvestmentCustomHours ||
+      Number.isNaN(Number(form.timeInvestmentCustomHours)) ||
+      Number(form.timeInvestmentCustomHours) <= 0)
+      ? '请输入有效的每周投入小时（大于0）'
+      : '';
+  return (
+    !errors.planScenario &&
+    !errors.goal &&
+    !errors.requirement &&
+    !errors.startDate &&
+    !errors.customEndDate &&
+    !errors.timeInvestmentCustomHours
+  );
 }
 
 async function handleSubmit() {
   if (!validateForm()) return;
   isSubmitting.value = true;
+  const planScenario = form.planScenario as PlanScenario;
 
   const client = getApiClient();
   let finalRequirement = form.requirement;
@@ -255,14 +373,22 @@ async function handleSubmit() {
   const profile = {
     planMode: planTierMode.value,
     basicInfo: {
+      planScenario,
       planName: form.goal,
       planContent: finalRequirement,
-      currentLevel: form.currentLevel,
+      startingPoint: form.startingPoint,
+      currentLevel: form.startingPoint || 'none',
       startDate: form.startDate,
       cycle: form.cycle,
       endDate: effectiveDeadline.value || form.startDate,
       preference: form.preference.trim(),
-      timeInvestment: form.timeInvestment,
+      focusAreas: focusAreas.value,
+      timeInvestment:
+        form.timeInvestment === 'custom'
+          ? `custom:${Number(form.timeInvestmentCustomHours)}h_weekly`
+          : form.timeInvestment,
+      timeInvestmentCustomHours:
+        form.timeInvestment === 'custom' ? Number(form.timeInvestmentCustomHours) : undefined,
       outputMode: form.outputMode,
       granularityMode: form.granularityMode,
     },
@@ -276,14 +402,19 @@ async function handleSubmit() {
 
   const planPayloadDraft = {
     basic: {
+      planScenario,
       goal: form.goal,
       requirement: finalRequirement,
       startDate: form.startDate,
       cycle: form.cycle,
       deadline: effectiveDeadline.value,
-      currentLevel: form.currentLevel,
+      startingPoint: form.startingPoint,
       preference: form.preference,
-      timeInvestment: form.timeInvestment,
+      focusAreas: focusAreas.value,
+      timeInvestment:
+        form.timeInvestment === 'custom'
+          ? `custom:${Number(form.timeInvestmentCustomHours)}h_weekly`
+          : form.timeInvestment,
       outputMode: form.outputMode,
       granularityMode: form.granularityMode,
     },
@@ -579,6 +710,37 @@ watch(
   }
 );
 
+watch(
+  () => form.planScenario,
+  () => {
+    if (!form.planScenario) {
+      form.startingPoint = '';
+      return;
+    }
+    const validValues = new Set(startingPointOptionsMap[form.planScenario].map((item) => item.value));
+    if (form.startingPoint && !validValues.has(form.startingPoint)) {
+      form.startingPoint = '';
+    }
+  }
+);
+
+watch(
+  () => form.timeInvestment,
+  () => {
+    if (form.timeInvestment !== 'custom') {
+      form.timeInvestmentCustomHours = '';
+    }
+  }
+);
+
+watch(
+  () => focusAreaInput.value,
+  () => {
+    if (!focusAreaHint.value || focusAreaHint.value.includes('最多添加')) return;
+    focusAreaHint.value = '';
+  }
+);
+
 onMounted(syncModeFromRoute);
 watch(
   () => route.query.mode,
@@ -670,6 +832,19 @@ watch(
             <h3 class="mb-4 text-base font-bold text-[#26302b]">基础信息</h3>
             <div class="flex flex-col gap-5">
               <label class="flex flex-col">
+                <p class="field-label"><span class="field-icon required">✦</span>计划场景</p>
+                <select
+                  v-model="form.planScenario"
+                  aria-label="计划场景"
+                  class="h-12 rounded-lg border border-[#dbe6df] bg-white px-3 text-sm outline-none transition focus:border-primary/50 focus:ring-2 focus:ring-primary/50"
+                >
+                  <option value="">请选择场景</option>
+                  <option v-for="option in scenarioOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+                </select>
+                <p v-if="errors.planScenario" class="mt-2 text-xs font-semibold text-[#cc4338]">{{ errors.planScenario }}</p>
+              </label>
+
+              <label class="flex flex-col">
                 <p class="field-label"><span class="field-icon required">✦</span>计划名称</p>
                 <input
                   v-model="form.goal"
@@ -692,17 +867,14 @@ watch(
               </label>
 
               <label class="flex flex-col">
-                <p class="field-label"><span class="field-icon optional">◌</span>当前水平</p>
+                <p class="field-label"><span class="field-icon optional">◌</span>起点状态</p>
                 <select
-                  v-model="form.currentLevel"
-                  aria-label="当前水平"
+                  v-model="form.startingPoint"
+                  aria-label="起点状态"
                   class="h-12 rounded-lg border border-[#dbe6df] bg-white px-3 text-sm outline-none transition focus:border-primary/50 focus:ring-2 focus:ring-primary/50"
                 >
-                  <option value="none">无</option>
-                  <option value="newbie">新手</option>
-                  <option value="junior">入门</option>
-                  <option value="intermediate">进阶</option>
-                  <option value="advanced">熟练</option>
+                  <option value="">不设置</option>
+                  <option v-for="option in startingPointOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
                 </select>
               </label>
 
@@ -746,12 +918,52 @@ watch(
               </label>
 
               <label class="flex flex-col">
-                <p class="field-label"><span class="field-icon optional">◌</span>偏好</p>
+                <p class="field-label"><span class="field-icon optional">◌</span>偏好与约束</p>
                 <textarea
                   v-model="form.preference"
                   class="min-h-24 rounded-lg border border-[#dbe6df] bg-white p-[15px] text-base outline-none transition focus:border-primary/50 focus:ring-2 focus:ring-primary/50"
-                  placeholder="例如：工作日晚上学习，每周最多投入6小时"
+                  placeholder="例如：工作日晚上可投入，周三不安排高强度任务"
                 />
+              </label>
+
+              <label class="flex flex-col">
+                <p class="field-label"><span class="field-icon optional">◌</span>重点倾斜 / 薄弱项</p>
+                <div class="rounded-lg border border-[#dbe6df] bg-white p-3 transition focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/50">
+                  <div v-if="focusAreas.length" class="mb-2 flex flex-wrap gap-2">
+                    <span
+                      v-for="(item, index) in focusAreas"
+                      :key="`${item}-${index}`"
+                      class="inline-flex items-center gap-1 rounded-full bg-[#ecf8f0] px-2.5 py-1 text-xs font-semibold text-[#1c5e3f]"
+                    >
+                      {{ item }}
+                      <button
+                        type="button"
+                        class="rounded-full px-1 text-[#2b7a53] hover:bg-[#dff0e7]"
+                        :aria-label="`删除重点项-${item}`"
+                        @click="removeFocusArea(index)"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  </div>
+                  <input
+                    v-model="focusAreaInput"
+                    aria-label="添加重点倾斜"
+                    class="h-9 w-full border-none bg-transparent text-sm outline-none"
+                    placeholder="输入后按 Enter 或逗号添加，例如：数学"
+                    :disabled="focusAreas.length >= MAX_FOCUS_AREAS"
+                    @keydown="handleFocusAreaKeydown"
+                    @blur="handleFocusAreaBlur"
+                  />
+                  <p class="mt-1 text-xs text-[#6f7e76]">{{ focusAreas.length }}/{{ MAX_FOCUS_AREAS }}</p>
+                  <p
+                    v-if="focusAreas.length >= MAX_FOCUS_AREAS"
+                    class="mt-1 text-xs font-semibold text-[#cc4338]"
+                  >
+                    最多添加{{ MAX_FOCUS_AREAS }}个重点项
+                  </p>
+                  <p v-if="focusAreaHint" class="mt-1 text-xs font-semibold text-[#cc4338]">{{ focusAreaHint }}</p>
+                </div>
               </label>
 
               <label class="flex flex-col">
@@ -766,7 +978,21 @@ watch(
                   <option value="1h_daily">每天1小时</option>
                   <option value="5h_weekly">每周5小时</option>
                   <option value="10h_weekly">每周10小时</option>
+                  <option value="custom">自定义</option>
                 </select>
+                <input
+                  v-if="form.timeInvestment === 'custom'"
+                  v-model="form.timeInvestmentCustomHours"
+                  aria-label="自定义每周投入小时"
+                  type="number"
+                  min="1"
+                  step="1"
+                  class="mt-3 h-12 rounded-lg border border-[#dbe6df] bg-white p-[15px] text-base outline-none transition focus:border-primary/50 focus:ring-2 focus:ring-primary/50"
+                  placeholder="请输入每周投入小时（例如 12）"
+                />
+                <p v-if="errors.timeInvestmentCustomHours" class="mt-2 text-xs font-semibold text-[#cc4338]">
+                  {{ errors.timeInvestmentCustomHours }}
+                </p>
               </label>
 
               <label class="flex flex-col">
@@ -806,6 +1032,19 @@ watch(
             <div class="rounded-2xl border border-[#e6ebe8] bg-white p-5 shadow-sm">
               <h3 class="mb-4 text-base font-bold text-[#26302b]">专业版基础信息</h3>
               <div class="flex flex-col gap-5">
+                <label class="flex flex-col">
+                  <p class="field-label"><span class="field-icon required">✦</span>计划场景</p>
+                  <select
+                    v-model="form.planScenario"
+                    aria-label="计划场景"
+                    class="h-12 rounded-lg border border-[#dbe6df] bg-white px-3 text-sm outline-none transition focus:border-primary/50 focus:ring-2 focus:ring-primary/50"
+                  >
+                    <option value="">请选择场景</option>
+                    <option v-for="option in scenarioOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+                  </select>
+                  <p v-if="errors.planScenario" class="mt-2 text-xs font-semibold text-[#cc4338]">{{ errors.planScenario }}</p>
+                </label>
+
                 <label class="flex flex-col">
                   <p class="field-label"><span class="field-icon required">✦</span>计划名称</p>
                   <input

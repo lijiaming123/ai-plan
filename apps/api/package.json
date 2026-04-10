@@ -13,6 +13,7 @@
     "@fastify/cors": "^11.1.0",
     "@fastify/jwt": "^9.1.0",
     "@prisma/client": "^6.16.2",
+    "dotenv": "^17.4.1",
     "fastify": "^5.6.2",
     "mammoth": "^1.12.0"
   },

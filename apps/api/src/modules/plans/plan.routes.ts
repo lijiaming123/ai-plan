@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
 import {
   compareDraftVersions,
   confirmPlanVersion,
@@ -8,6 +8,7 @@ import {
   regeneratePlanVersion,
   sanitizePlanPatch,
 } from './plan.service';
+import { completeDeepseekChat, isDeepseekConfigured } from '../../lib/deepseek';
 import { generatePlanDraft } from '@ai-plan/ai-engine/client';
 import mammoth from 'mammoth';
 
@@ -156,6 +157,56 @@ function getFileExtension(fileName: string) {
 
 function sanitizeTextContent(content: string) {
   return content.replace(/\u0000/g, '').replace(/\r\n/g, '\n').trim();
+}
+
+const DEEPSEEK_SYSTEM =
+  '你是「计划大师」的 AI 计划顾问。根据用户给出的信息与要求，用中文输出可直接作为「计划内容」保存的正文：务实用语、分阶段目标与验收、可执行任务（优先按周，必要时到天）、风险与应对、复盘建议。不要输出与计划无关的寒暄。';
+
+async function tryDeepseekAssistant(
+  log: FastifyBaseLogger,
+  body: PlanAssistantBody,
+  localDraftText: string,
+): Promise<{ reply: string; suggestedContent: string } | null> {
+  if (!isDeepseekConfigured()) return null;
+
+  try {
+    if (body.mode === 'draft') {
+      const userContent =
+        body.requirement.trim().length > 0
+          ? body.requirement
+          : `请根据以下目标生成计划：${body.goal}\n起始：${body.startDate}，预计完成：${body.endDate}，周期代码：${body.cycle}`;
+      const suggestedContent = await completeDeepseekChat([
+        { role: 'system', content: DEEPSEEK_SYSTEM },
+        { role: 'user', content: userContent },
+      ]);
+      return {
+        reply: '已通过 DeepSeek 生成计划初稿，你可继续调整说明后再次提交或直接使用。',
+        suggestedContent,
+      };
+    }
+
+    const userContent = `【当前计划内容】\n${body.requirement || '（暂无）'}\n\n【用户补充】\n${body.message}`;
+    const suggestedContent = await completeDeepseekChat([
+      {
+        role: 'system',
+        content: `${DEEPSEEK_SYSTEM} 用户会提出补充，请输出合并、润色后的完整计划正文。`,
+      },
+      { role: 'user', content: userContent },
+    ]);
+    return {
+      reply: '已根据你的补充更新了计划内容（DeepSeek）。',
+      suggestedContent,
+    };
+  } catch (err) {
+    log.warn({ err }, 'DeepSeek plan assistant failed; falling back to local draft');
+    return {
+      reply:
+        body.mode === 'draft'
+          ? 'AI 服务暂时不可用，已使用本地模板生成初稿；配置 DEEPSEEK_API_KEY 后可启用云端生成。'
+          : 'AI 服务暂时不可用，已把你的补充直接合并进正文；可稍后重试。',
+      suggestedContent: body.mode === 'draft' ? localDraftText : `${body.requirement}\n\n用户补充：${body.message}`,
+    };
+  }
 }
 
 function formatDraftToText(params: { goal: string; startDate: string; endDate: string; cycle: Cycle; requirement: string }) {
@@ -319,6 +370,11 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
         cycle: body.cycle,
         requirement: body.requirement,
       });
+
+      const deepseekResult = await tryDeepseekAssistant(request.log, body, draftText);
+      if (deepseekResult) {
+        return reply.send(deepseekResult);
+      }
 
       if (body.mode === 'draft') {
         return reply.send({

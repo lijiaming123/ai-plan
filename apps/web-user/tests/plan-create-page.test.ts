@@ -1,10 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
+import { ElSelect } from 'element-plus';
+import type { VueWrapper } from '@vue/test-utils';
 import { createMemoryHistory } from 'vue-router';
 import PlanCreatePage from '../src/features/plans/PlanCreatePage.vue';
 import { createAppRouter } from '../src/router';
 import { clearAuthToken, setAuthTier, setAuthToken } from '../src/stores/auth';
 import { setApiClient } from '../src/lib/api-client';
+
+async function setPlanSelect(wrapper: VueWrapper, testId: string, value: string) {
+  const root = wrapper.get(`[data-testid="${testId}"]`);
+  const select = root.findComponent(ElSelect);
+  expect(select.exists()).toBe(true);
+  await select.vm.$emit('update:modelValue', value);
+  await flushPromises();
+}
 
 describe('PlanCreatePage', () => {
   const createPlanMock = vi.fn();
@@ -64,7 +74,7 @@ describe('PlanCreatePage', () => {
 
     await wrapper.get('input[aria-label="计划名称"]').setValue('三个月完成作品集');
     await wrapper.get('textarea[aria-label="计划内容"]').setValue('12周内完成前端作品集并达到可投递标准');
-    await wrapper.get('select[aria-label="计划场景"]').setValue('study');
+    await setPlanSelect(wrapper, 'field-plan-scenario', 'study');
     await wrapper.get('form').trigger('submit');
     await flushPromises();
 
@@ -148,7 +158,7 @@ describe('PlanCreatePage', () => {
       global: { plugins: [router] },
     });
 
-    await wrapper.get('select[aria-label="计划周期"]').setValue('custom');
+    await setPlanSelect(wrapper, 'field-cycle', 'custom');
     await flushPromises();
 
     expect(wrapper.find('[data-testid="custom-end-date"]').exists()).toBe(true);
@@ -163,8 +173,8 @@ describe('PlanCreatePage', () => {
 
     await wrapper.get('input[aria-label="计划名称"]').setValue('英语打卡');
     await wrapper.get('textarea[aria-label="计划内容"]').setValue('每天30分钟听说练习');
-    await wrapper.get('select[aria-label="计划场景"]').setValue('study');
-    await wrapper.get('select[aria-label="计划颗粒度"]').setValue('deep');
+    await setPlanSelect(wrapper, 'field-plan-scenario', 'study');
+    await setPlanSelect(wrapper, 'field-granularity', 'deep');
     await wrapper.get('form').trigger('submit');
     await flushPromises();
 
@@ -190,7 +200,7 @@ describe('PlanCreatePage', () => {
     await wrapper.get('[data-testid="tier-tab-pro"]').trigger('click');
     await wrapper.get('input[aria-label="计划名称"]').setValue('提升英语口语');
     await wrapper.get('textarea[aria-label="计划内容"]').setValue('3个月提升到可流畅表达日常和工作场景');
-    await wrapper.get('select[aria-label="计划场景"]').setValue('study');
+    await setPlanSelect(wrapper, 'field-plan-scenario', 'study');
     await wrapper.get('form').trigger('submit');
     await flushPromises();
 
@@ -300,7 +310,7 @@ describe('PlanCreatePage', () => {
     await wrapper.get('[data-testid="tier-tab-pro"]').trigger('click');
     await wrapper.get('input[aria-label="计划名称"]').setValue('工作项目推进');
     await wrapper.get('textarea[aria-label="计划内容"]').setValue('完成季度目标与里程碑交付');
-    await wrapper.get('select[aria-label="计划场景"]').setValue('work');
+    await setPlanSelect(wrapper, 'field-plan-scenario', 'work');
     await wrapper.get('form').trigger('submit');
     await flushPromises();
 
@@ -337,7 +347,7 @@ describe('PlanCreatePage', () => {
     });
     await wrapper.get('input[aria-label="计划名称"]').setValue('前端');
     await wrapper.get('textarea[aria-label="计划内容"]').setValue('内容');
-    await wrapper.get('select[aria-label="计划场景"]').setValue('study');
+    await setPlanSelect(wrapper, 'field-plan-scenario', 'study');
     await wrapper.get('form').trigger('submit');
     await flushPromises();
 
@@ -366,7 +376,7 @@ describe('PlanCreatePage', () => {
     });
     await wrapper.get('input[aria-label="计划名称"]').setValue('前端');
     await wrapper.get('textarea[aria-label="计划内容"]').setValue('内容');
-    await wrapper.get('select[aria-label="计划场景"]').setValue('study');
+    await setPlanSelect(wrapper, 'field-plan-scenario', 'study');
     await wrapper.get('form').trigger('submit');
     await flushPromises();
 
@@ -401,8 +411,8 @@ describe('PlanCreatePage', () => {
 
     await wrapper.get('input[aria-label="计划名称"]').setValue('数学强化');
     await wrapper.get('textarea[aria-label="计划内容"]').setValue('考研数学冲刺');
-    await wrapper.get('select[aria-label="计划场景"]').setValue('exam');
-    await wrapper.get('select[aria-label="投入时间"]').setValue('custom');
+    await setPlanSelect(wrapper, 'field-plan-scenario', 'exam');
+    await setPlanSelect(wrapper, 'field-time-investment', 'custom');
     await wrapper.get('input[aria-label="自定义每周投入小时"]').setValue('12');
     await wrapper.get('form').trigger('submit');
     await flushPromises();
@@ -428,7 +438,7 @@ describe('PlanCreatePage', () => {
 
     await wrapper.get('input[aria-label="计划名称"]').setValue('考研冲刺');
     await wrapper.get('textarea[aria-label="计划内容"]').setValue('提升总分并补齐薄弱科目');
-    await wrapper.get('select[aria-label="计划场景"]').setValue('exam');
+    await setPlanSelect(wrapper, 'field-plan-scenario', 'exam');
 
     const tagInput = wrapper.get('input[aria-label="添加重点倾斜"]');
     await tagInput.setValue('数学');
@@ -464,7 +474,7 @@ describe('PlanCreatePage', () => {
 
     await wrapper.get('input[aria-label="计划名称"]').setValue('考研冲刺');
     await wrapper.get('textarea[aria-label="计划内容"]').setValue('提升总分并补齐薄弱科目');
-    await wrapper.get('select[aria-label="计划场景"]').setValue('exam');
+    await setPlanSelect(wrapper, 'field-plan-scenario', 'exam');
 
     const tagInput = wrapper.get('input[aria-label="添加重点倾斜"]');
     const tags = ['数学', '英语', '政治', '专业课', '阅读', '写作', '听力', '口语', '逻辑'];

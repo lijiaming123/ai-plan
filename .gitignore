@@ -1,5 +1,5 @@
 node_modules/
-.cursor/
+apps/api/.env
 stitch_/
 apps/web-user/dist/
 .worktrees/

@@ -1,0 +1,40 @@
+/**
+ * 全局滚动条皮肤（与计划列表等页一致）
+ * 用法：在可滚动容器上加 class="ui-scrollbar"
+ */
+.ui-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+.ui-scrollbar::-webkit-scrollbar {
+  width: 10px;
+}
+
+.ui-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 999px;
+}
+
+.ui-scrollbar::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 999px;
+  border: 2px solid transparent;
+}
+
+.ui-scrollbar:hover {
+  scrollbar-color: #87a89b #edf1ef;
+}
+
+.ui-scrollbar:hover::-webkit-scrollbar-track {
+  background: #edf1ef;
+}
+
+.ui-scrollbar:hover::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #93b4a5 0%, #7e9f92 100%);
+  border: 2px solid #edf1ef;
+}
+
+.ui-scrollbar:hover::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #88a99b 0%, #719285 100%);
+}

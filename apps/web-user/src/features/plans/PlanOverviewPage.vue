@@ -184,7 +184,7 @@ watch(
           </button>
         </div>
 
-        <div class="plan-scrollbar flex-1 overflow-y-auto pr-1">
+        <div class="ui-scrollbar flex-1 overflow-y-auto pr-1">
           <div class="grid grid-cols-1 gap-6 pb-6 sm:grid-cols-2 lg:grid-cols-3">
             <router-link
               v-for="plan in filteredPlans"
@@ -232,41 +232,3 @@ watch(
   </div>
 </template>
 
-<style scoped>
-.plan-scrollbar {
-  scrollbar-width: thin;
-  scrollbar-color: transparent transparent;
-}
-
-.plan-scrollbar::-webkit-scrollbar {
-  width: 10px;
-}
-
-.plan-scrollbar::-webkit-scrollbar-track {
-  background: transparent;
-  border-radius: 999px;
-}
-
-.plan-scrollbar::-webkit-scrollbar-thumb {
-  background: transparent;
-  border-radius: 999px;
-  border: 2px solid transparent;
-}
-
-.plan-scrollbar:hover {
-  scrollbar-color: #87a89b #edf1ef;
-}
-
-.plan-scrollbar:hover::-webkit-scrollbar-track {
-  background: #edf1ef;
-}
-
-.plan-scrollbar:hover::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, #93b4a5 0%, #7e9f92 100%);
-  border: 2px solid #edf1ef;
-}
-
-.plan-scrollbar:hover::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(180deg, #88a99b 0%, #719285 100%);
-}
-</style>

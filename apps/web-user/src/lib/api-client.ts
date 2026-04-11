@@ -156,8 +156,14 @@ function joinUrl(baseURL: string, path: string) {
   return `${normalizedBase}${normalizedPath}`;
 }
 
+/** 与 createApiClient 默认行为一致（去掉末尾 `/`），供流式 fetch 等与 JSON API 共用同一基址 */
+export function getApiBaseURL(): string {
+  const raw = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '';
+  return raw.replace(/\/$/, '');
+}
+
 export function createApiClient(options: ApiClientOptions = {}): ApiClient {
-  const baseURL = options.baseURL ?? (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '';
+  const baseURL = options.baseURL ?? getApiBaseURL();
   const fetchImpl = options.fetchImpl ?? globalThis.fetch.bind(globalThis);
 
   async function request<T>(path: string, init: RequestInit) {

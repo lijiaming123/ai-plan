@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElDatePicker, ElOption } from 'element-plus';
 import { getApiClient } from '../../lib/api-client';
+import { storeDraftStreamPayload } from '../../lib/plan-assistant-stream';
 import { authState } from '../../stores/auth';
 import UiErrorToast from '../../components/UiErrorToast.vue';
 import UiSunriseSelect from '../../components/UiSunriseSelect.vue';
@@ -384,26 +385,8 @@ async function handleSubmit() {
   const planScenario = form.planScenario as PlanScenario;
 
   const client = getApiClient();
-  let finalRequirement = form.requirement;
-  if (typeof client.planAssistant === 'function') {
-    try {
-      const assistantResult = await client.planAssistant({
-        token: authState.token,
-        mode: 'draft',
-        goal: form.goal,
-        requirement: generatedPrompt.value,
-        startDate: form.startDate,
-        cycle: form.cycle,
-        endDate: effectiveDeadline.value || form.startDate,
-      });
-      if (assistantResult.suggestedContent?.trim()) {
-        finalRequirement = assistantResult.suggestedContent.trim();
-        form.requirement = finalRequirement;
-      }
-    } catch (error) {
-      showErrorToast(extractErrorMessage(error, 'AI初稿生成失败，已使用原始内容继续。'));
-    }
-  }
+  /** 先落库用户填写的正文；第三方 AI 在草稿页流式生成后写回 v1 */
+  const finalRequirement = form.requirement.trim();
 
   const profile = {
     planMode: planTierMode.value,
@@ -492,6 +475,13 @@ async function handleSubmit() {
   } finally {
     isSubmitting.value = false;
   }
+
+  storeDraftStreamPayload(plan.id, {
+    assistantPrompt: generatedPrompt.value,
+    startDate: form.startDate,
+    cycle: form.cycle,
+    endDate: effectiveDeadline.value || form.startDate,
+  });
 
   await router.push({ name: 'plan-draft', params: { id: plan.id } });
 }

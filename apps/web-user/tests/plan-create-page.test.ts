@@ -81,7 +81,7 @@ describe('PlanCreatePage', () => {
     expect(createPlanMock).toHaveBeenCalledWith(
       expect.objectContaining({
         goal: '三个月完成作品集',
-        requirement: expect.any(String),
+        requirement: '12周内完成前端作品集并达到可投递标准',
         token: 'token_123',
         type: 'general',
         profile: expect.objectContaining({
@@ -89,7 +89,7 @@ describe('PlanCreatePage', () => {
           basicInfo: expect.objectContaining({
             planScenario: 'study',
             planName: '三个月完成作品集',
-            planContent: expect.any(String),
+            planContent: '12周内完成前端作品集并达到可投递标准',
             cycle: '1m',
             currentLevel: 'none',
             startingPoint: '',
@@ -297,7 +297,7 @@ describe('PlanCreatePage', () => {
     expect(content).toContain('这是一个文本计划内容');
   });
 
-  it('点击立即生成计划时应携带自动生成prompt提交后端', async () => {
+  it('点击立即生成计划时应写入草稿流式载荷并不再阻塞 planAssistant', async () => {
     setAuthToken('token_123');
     setAuthTier('pro');
     const router = createAppRouter(createMemoryHistory());
@@ -314,17 +314,16 @@ describe('PlanCreatePage', () => {
     await wrapper.get('form').trigger('submit');
     await flushPromises();
 
-    expect(planAssistantMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        mode: 'draft',
-        requirement: expect.stringContaining('你是一名资深 AI 计划顾问与执行教练'),
-      })
-    );
+    expect(planAssistantMock).not.toHaveBeenCalled();
     expect(createPlanMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        requirement: expect.stringContaining('建议执行结构'),
+        requirement: '完成季度目标与里程碑交付',
       })
     );
+    const raw = sessionStorage.getItem('ai-plan:draft-stream:plan_1');
+    expect(raw).toBeTruthy();
+    const payload = JSON.parse(raw as string) as { assistantPrompt?: string };
+    expect(payload.assistantPrompt).toContain('你是一名资深 AI 计划顾问与执行教练');
   });
 
   it('新协议创建失败时应降级为老协议重试', async () => {

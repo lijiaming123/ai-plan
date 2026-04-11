@@ -1,3 +1,4 @@
+import { PassThrough } from 'node:stream';
 import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
 import {
   compareDraftVersions,
@@ -7,8 +8,9 @@ import {
   getPlanWithDraft,
   regeneratePlanVersion,
   sanitizePlanPatch,
+  updatePlanV1Requirement,
 } from './plan.service';
-import { completeDeepseekChat, isDeepseekConfigured } from '../../lib/deepseek';
+import { completeDeepseekChat, isDeepseekConfigured, streamDeepseekChat } from '../../lib/deepseek';
 import { generatePlanDraft } from '@ai-plan/ai-engine/client';
 import mammoth from 'mammoth';
 
@@ -130,6 +132,38 @@ function validateAssistantBody(raw: unknown): { ok: true; data: PlanAssistantBod
     return { ok: false, message: 'endDate must be >= startDate for custom cycle' };
   }
   return { ok: true, data: raw as PlanAssistantBody };
+}
+
+type AssistantDraftStreamBody = {
+  assistantPrompt: string;
+  startDate: string;
+  cycle: Cycle;
+  endDate: string;
+};
+
+function validateAssistantDraftStreamBody(
+  raw: unknown,
+): { ok: true; data: AssistantDraftStreamBody } | { ok: false; message: string } {
+  raw = normalizeBody(raw);
+  if (!isRecord(raw)) return { ok: false, message: 'Invalid request body' };
+  if (typeof raw.assistantPrompt !== 'string') return { ok: false, message: 'assistantPrompt must be a string' };
+  if (!raw.assistantPrompt.trim()) return { ok: false, message: 'assistantPrompt is required' };
+  if (raw.assistantPrompt.length > 120_000) return { ok: false, message: 'assistantPrompt is too large' };
+  if (!isDateString(raw.startDate)) return { ok: false, message: 'startDate must be a valid date string' };
+  if (!isOneOf(raw.cycle, cycles)) return { ok: false, message: 'cycle is invalid' };
+  if (!isDateString(raw.endDate)) return { ok: false, message: 'endDate must be a valid date string' };
+  if (raw.cycle === 'custom' && new Date(raw.endDate).getTime() < new Date(raw.startDate).getTime()) {
+    return { ok: false, message: 'endDate must be >= startDate for custom cycle' };
+  }
+  return {
+    ok: true,
+    data: {
+      assistantPrompt: raw.assistantPrompt,
+      startDate: raw.startDate,
+      cycle: raw.cycle,
+      endDate: raw.endDate,
+    },
+  };
 }
 
 function validateParsePlanFileBody(raw: unknown): { ok: true; data: ParsePlanFileBody } | { ok: false; message: string } {
@@ -350,6 +384,88 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
       const diff = await compareDraftVersions(id, baseVersion, targetVersion);
       if (!diff) return reply.code(404).send({ message: 'compare versions not found' });
       return reply.send(diff);
+    }
+  );
+
+  fastify.post(
+    '/plans/:id/assistant-draft-stream',
+    { preHandler: fastify.requireRole('user') },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const parsed = validateAssistantDraftStreamBody(request.body);
+      if (!parsed.ok) {
+        return reply.code(400).send({ message: parsed.message });
+      }
+      const streamInput = parsed.data;
+      const payload = await request.jwtVerify<{ sub: string }>();
+      const plan = await getPlanWithDraft(id, payload.sub);
+      if (!plan) {
+        return reply.code(404).send({ message: 'plan not found' });
+      }
+      if (plan.status !== 'draft') {
+        return reply.code(409).send({ message: 'draft is closed' });
+      }
+
+      const abort = new AbortController();
+      const onClose = () => abort.abort();
+      request.raw.socket?.once('close', onClose);
+
+      const pass = new PassThrough();
+      reply
+        .header('Content-Type', 'text/event-stream; charset=utf-8')
+        .header('Cache-Control', 'no-cache, no-transform')
+        .header('Connection', 'keep-alive')
+        .header('X-Accel-Buffering', 'no');
+      reply.send(pass);
+      /** 立即推一行 SSE 注释，便于浏览器/DevTools 识别为 EventStream 并尽早建立流 */
+      pass.write(': stream\n\n');
+
+      const writeEv = (obj: unknown) => {
+        pass.write(`data: ${JSON.stringify(obj)}\n\n`);
+      };
+
+      void (async () => {
+        let full = '';
+        try {
+          if (isDeepseekConfigured()) {
+            for await (const chunk of streamDeepseekChat(
+              [
+                { role: 'system', content: DEEPSEEK_SYSTEM },
+                { role: 'user', content: streamInput.assistantPrompt.trim() },
+              ],
+              { signal: abort.signal },
+            )) {
+              full += chunk;
+              writeEv({ type: 'delta', text: chunk });
+            }
+          } else {
+            full = formatDraftToText({
+              goal: plan.goal,
+              startDate: streamInput.startDate,
+              endDate: streamInput.endDate,
+              cycle: streamInput.cycle,
+              requirement: plan.requirement,
+            });
+            writeEv({ type: 'delta', text: full });
+          }
+
+          const upd = await updatePlanV1Requirement(id, payload.sub, full);
+          if (upd.ok) {
+            writeEv({ type: 'done', ok: true });
+          } else {
+            writeEv({ type: 'error', message: upd.message });
+          }
+        } catch (err) {
+          request.log.warn({ err }, 'assistant-draft-stream failed');
+          writeEv({
+            type: 'error',
+            message: err instanceof Error ? err.message : 'stream failed',
+          });
+        } finally {
+          request.raw.socket?.off('close', onClose);
+          pass.end();
+        }
+      })();
     }
   );
 

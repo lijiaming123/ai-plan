@@ -467,3 +467,18 @@ export async function createGeneratedPlan(
     };
   });
 }
+
+/** 将 v1 与 Plan 主档的 requirement 同步更新（草稿态），用于流式 AI 生成完成后落库 */
+export async function updatePlanV1Requirement(planId: string, userId: string, requirement: string) {
+  const plan = await prisma.plan.findFirst({ where: { id: planId, userId } });
+  if (!plan) return { ok: false as const, code: 404 as const, message: 'plan not found' };
+  if (plan.status !== 'draft') return { ok: false as const, code: 409 as const, message: 'draft is closed' };
+  const trimmed = requirement.trim();
+  if (!trimmed) return { ok: false as const, code: 400 as const, message: 'requirement is empty' };
+
+  await prisma.$transaction(async (tx) => {
+    await tx.plan.update({ where: { id: planId }, data: { requirement: trimmed } });
+    await tx.planVersion.updateMany({ where: { planId, version: 1 }, data: { requirement: trimmed } });
+  });
+  return { ok: true as const };
+}

@@ -67,6 +67,7 @@ describe('PlanDraftPage', () => {
   });
 
   beforeEach(() => {
+    sessionStorage.clear();
     mockMatchMediaDesktop();
     getPlanMock.mockReset();
     getPlanDraftMock.mockReset();

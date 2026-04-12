@@ -2,7 +2,7 @@
 import { computed, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { getApiClient } from '../../lib/api-client';
-import { setAuthTier, setAuthToken } from '../../stores/auth';
+import { setAuthTier, setAuthToken, setUserEmail } from '../../stores/auth';
 import AuthBackground from './AuthBackground.vue';
 import UiErrorToast from '../../components/UiErrorToast.vue';
 
@@ -59,6 +59,7 @@ async function handleSubmit() {
     const client = getApiClient();
     const result = await client.login(form);
     setAuthToken(result.token);
+    setUserEmail(form.email.trim());
     setAuthTier(form.useProTier ? 'pro' : 'basic');
     await router.push('/plans');
   } catch (error) {
@@ -99,36 +100,46 @@ async function handleSubmit() {
         </div>
 
         <form class="space-y-6" @submit.prevent="handleSubmit">
-          <label class="flex flex-col">
-            <span class="pb-2 text-sm font-medium">用户名/邮箱</span>
+          <div class="flex flex-col">
+            <label for="login-email" class="pb-2 text-sm font-medium">用户名/邮箱</label>
             <input
+              id="login-email"
               v-model="form.email"
               type="text"
+              autocomplete="username"
               aria-label="邮箱"
-              class="h-12 rounded-lg border border-[#dbe6df] bg-white p-3 text-base outline-none focus:border-primary focus:ring-2 focus:ring-primary/50"
+              class="h-12 rounded-lg border border-[#dbe6df] bg-white p-3 text-base outline-none focus:border-primary focus:ring-2 focus:ring-primary/50 focus:ring-offset-0"
               placeholder="请输入您的用户名或邮箱"
             />
-          </label>
+          </div>
 
-          <label class="flex flex-col">
-            <span class="pb-2 text-sm font-medium">密码</span>
-            <div class="flex w-full items-stretch">
+          <!-- 密码与可见性按钮不能放在同一个 <label> 内，否则点击眼睛会触发 label 对第一个 input 的默认行为，造成焦点/点击错乱 -->
+          <div class="flex flex-col">
+            <label for="login-password" class="pb-2 text-sm font-medium">密码</label>
+            <div
+              class="flex w-full min-w-0 items-stretch rounded-lg border border-[#dbe6df] bg-white outline-none transition-[box-shadow,border-color] focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/50 focus-within:ring-offset-0"
+            >
               <input
+                id="login-password"
                 v-model="form.password"
                 :type="showPassword ? 'text' : 'password'"
+                autocomplete="current-password"
                 aria-label="密码"
-                class="h-12 w-full rounded-l-lg border border-r-0 border-[#dbe6df] bg-white p-3 pr-2 text-base outline-none focus:border-primary focus:ring-2 focus:ring-primary/50"
+                class="h-12 min-w-0 flex-1 rounded-l-lg border-0 border-r border-[#dbe6df] bg-transparent p-3 pr-2 text-base outline-none ring-0 focus:border-transparent focus:ring-0 focus:outline-none"
                 placeholder="请输入您的密码"
               />
+              <!-- 焦点统一交给外层 focus-within 绿色描边；按钮禁用浏览器默认蓝 outline，避免与图一不一致 -->
               <button
                 type="button"
-                class="flex items-center justify-center rounded-r-lg border border-l-0 border-[#dbe6df] bg-white px-3 text-[#61896f]"
+                class="flex shrink-0 items-center justify-center rounded-r-lg border-0 bg-white px-3 text-[#61896f] !outline-none hover:bg-[#f6f8f6] focus:!outline-none focus-visible:!outline-none focus-visible:ring-0"
+                :aria-pressed="showPassword"
+                :aria-label="showPassword ? '隐藏密码' : '显示密码'"
                 @click="showPassword = !showPassword"
               >
-                <span class="material-symbols-outlined text-xl">{{ showPassword ? 'visibility_off' : 'visibility' }}</span>
+                <span class="material-symbols-outlined text-xl" aria-hidden="true">{{ showPassword ? 'visibility_off' : 'visibility' }}</span>
               </button>
             </div>
-          </label>
+          </div>
 
           <label v-if="!isRegisterMode" class="flex items-center gap-3">
             <input
@@ -140,13 +151,15 @@ async function handleSubmit() {
             <span class="text-sm text-[#5f6d66]">体验专业版能力（登录后启用高级配置）</span>
           </label>
 
-          <label v-if="isRegisterMode" class="flex flex-col">
-            <span class="pb-2 text-sm font-medium">确认密码</span>
+          <div v-if="isRegisterMode" class="flex flex-col">
+            <label for="register-confirm-password" class="pb-2 text-sm font-medium">确认密码</label>
             <input
+              id="register-confirm-password"
               v-model="form.confirmPassword"
               :type="showConfirmPassword ? 'text' : 'password'"
+              autocomplete="new-password"
               aria-label="确认密码"
-              class="h-12 rounded-lg border border-[#dbe6df] bg-white p-3 text-base outline-none focus:border-primary focus:ring-2 focus:ring-primary/50"
+              class="h-12 rounded-lg border border-[#dbe6df] bg-white p-3 text-base outline-none focus:border-primary focus:ring-2 focus:ring-primary/50 focus:ring-offset-0"
               placeholder="请再次输入密码"
             />
             <button
@@ -156,7 +169,7 @@ async function handleSubmit() {
             >
               {{ showConfirmPassword ? '隐藏确认密码' : '显示确认密码' }}
             </button>
-          </label>
+          </div>
 
           <div v-if="!isRegisterMode" class="flex justify-end pt-1">
             <router-link to="/auth/forgot-password" class="text-sm font-medium text-primary/80 transition-colors hover:text-primary">

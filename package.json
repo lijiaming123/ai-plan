@@ -10,7 +10,10 @@
     "typecheck": "corepack pnpm -r typecheck"
   },
   "devDependencies": {
+    "@prisma/engines": "6.16.2",
     "concurrently": "^9.2.1",
+    "effect": "^3.12.0",
+    "esbuild": "^0.28.0",
     "vitest": "^3.2.4"
   }
 }

@@ -3,10 +3,14 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/server.ts",
+    "dev": "node ../../node_modules/tsx/dist/cli.mjs watch src/server.ts",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "prisma": "prisma"
+    "prisma": "node ../../node_modules/prisma/build/index.js",
+    "db:seed": "node ../../node_modules/tsx/dist/cli.mjs prisma/seed.ts"
+  },
+  "prisma": {
+    "seed": "node ../../node_modules/tsx/dist/cli.mjs prisma/seed.ts"
   },
   "dependencies": {
     "@ai-plan/ai-engine": "workspace:*",

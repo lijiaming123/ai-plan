@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { planListSearchQuery } from '../../stores/plan-search-query';
 
 type PlanStatus = '进行中' | '已完成' | '未开始';
 type FilterType = '全部' | PlanStatus;
@@ -76,9 +77,33 @@ function normalizeFilter(value: unknown): FilterType {
 
 const activeFilter = ref<FilterType>(normalizeFilter(route.query.status));
 
+const searchText = computed(() => planListSearchQuery.value.trim().toLowerCase());
+
 const filteredPlans = computed(() => {
-  if (activeFilter.value === '全部') return plans.value;
-  return plans.value.filter((plan) => plan.status === activeFilter.value);
+  let list = plans.value;
+  if (activeFilter.value !== '全部') {
+    list = list.filter((plan) => plan.status === activeFilter.value);
+  }
+  const q = searchText.value;
+  if (q) {
+    list = list.filter(
+      (plan) => plan.title.toLowerCase().includes(q) || plan.description.toLowerCase().includes(q)
+    );
+  }
+  return list;
+});
+
+const totalPlanCount = computed(() => plans.value.length);
+
+const filterSummary = computed(() => {
+  const n = filteredPlans.value.length;
+  if (searchText.value) {
+    return `找到 ${n} 个与搜索相关的计划`;
+  }
+  if (activeFilter.value === '全部') {
+    return `共 ${totalPlanCount.value} 个计划，慢慢来，每一步都算数`;
+  }
+  return `当前筛选下共 ${n} 个计划`;
 });
 
 function setFilter(filter: FilterType) {
@@ -94,9 +119,13 @@ function setFilter(filter: FilterType) {
 }
 
 function statusClass(status: PlanStatus) {
-  if (status === '进行中') return 'bg-[#d7fbe5] text-[#0f7d47]';
-  if (status === '已完成') return 'bg-[#e6f9ec] text-[#118c4f]';
-  return 'bg-[#efefef] text-[#666]';
+  if (status === '进行中') {
+    return 'bg-emerald-50 text-emerald-800 ring-1 ring-emerald-200/80';
+  }
+  if (status === '已完成') {
+    return 'bg-teal-50 text-teal-900 ring-1 ring-teal-200/70';
+  }
+  return 'bg-stone-100 text-stone-600 ring-1 ring-stone-200/80';
 }
 
 watch(
@@ -108,127 +137,175 @@ watch(
 </script>
 
 <template>
-  <div class="relative flex h-screen w-full overflow-hidden bg-[#f5f7f6] font-display text-[#111813]">
-    <aside class="hidden h-screen w-[206px] shrink-0 flex-col justify-between border-r border-[#e6ebe8] bg-[#f5f7f6] px-5 py-5 lg:flex">
-      <div class="flex flex-col gap-7">
+  <div
+    class="plan-home relative flex h-full min-h-0 w-full flex-col font-plan text-stone-800"
+    data-testid="plan-overview-root"
+  >
+    <!-- 柔和氛围底：渐变 + 轻噪点 -->
+    <div class="pointer-events-none absolute inset-0 -z-10 overflow-hidden rounded-3xl opacity-90">
+      <div
+        class="absolute -left-20 -top-24 h-72 w-72 rounded-full bg-[#c8f5d4]/35 blur-3xl"
+        aria-hidden="true"
+      />
+      <div
+        class="absolute -bottom-16 right-0 h-80 w-80 rounded-full bg-[#e8f7ed]/80 blur-3xl"
+        aria-hidden="true"
+      />
+      <div class="plan-home-grain absolute inset-0" aria-hidden="true" />
+    </div>
+
+    <header class="relative mb-6 shrink-0 sm:mb-8">
+      <p class="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-emerald-700/70">今天的小步前进</p>
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h2 class="text-[30px] font-black leading-8 tracking-[-0.03em]">计划大师</h2>
-          <p class="mt-1 text-sm text-[#7c8a84]">PlanMaster System</p>
-        </div>
-        <nav class="flex flex-col gap-2">
-          <a class="flex items-center gap-3 rounded-xl px-3 py-2 text-[#6e7b75]">
-            <span class="material-symbols-outlined text-[20px]">dashboard</span>
-            <span class="text-[15px] font-medium">仪表盘</span>
-          </a>
-          <router-link to="/plans" class="flex items-center gap-3 rounded-xl bg-[#eef9f3] px-3 py-2 text-[#0a8f4a]">
-            <span class="material-symbols-outlined text-[20px]">folder</span>
-            <span class="text-[15px] font-semibold">我的计划</span>
-          </router-link>
-          <a class="flex items-center gap-3 rounded-xl px-3 py-2 text-[#6e7b75]">
-            <span class="material-symbols-outlined text-[20px]">layers</span>
-            <span class="text-[15px] font-medium">模板</span>
-          </a>
-          <a class="flex items-center gap-3 rounded-xl px-3 py-2 text-[#6e7b75]">
-            <span class="material-symbols-outlined text-[20px]">settings</span>
-            <span class="text-[15px] font-medium">设置</span>
-          </a>
-        </nav>
-      </div>
-      <div class="space-y-3">
-        <button class="h-12 w-full rounded-xl bg-primary text-sm font-bold text-[#111813]">获取专业版</button>
-        <div class="flex items-center gap-3 rounded-xl border border-[#e6ebe8] bg-white p-2">
-          <img
-            alt="avatar"
-            class="h-9 w-9 rounded-full object-cover"
-            src="https://images.unsplash.com/photo-1633332755192-727a05c4013d?auto=format&fit=crop&w=120&q=80"
-          />
-          <div>
-            <p class="text-sm font-semibold">账户信息</p>
-            <p class="text-xs text-[#7c8a84]">kinetic-user@v.ai</p>
-          </div>
+          <h1 class="text-4xl font-extrabold tracking-tight text-stone-900 sm:text-[2.75rem] sm:leading-[1.1]">
+            我的计划
+          </h1>
+          <p class="mt-2 max-w-xl text-[15px] leading-relaxed text-stone-600">
+            {{ filterSummary }}
+          </p>
         </div>
       </div>
-    </aside>
 
-    <main class="h-screen flex-1 overflow-hidden px-3 py-4 sm:px-4 sm:py-5">
-      <div class="flex h-full w-full flex-col">
-        <div class="mb-6 flex items-center justify-between gap-4">
-          <div class="relative max-w-[320px] flex-1">
-            <span class="material-symbols-outlined pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#8d9993]">search</span>
-            <input
-              class="h-11 w-full rounded-xl border border-[#e5ebe7] bg-white pl-10 pr-4 text-sm outline-none focus:border-primary/40"
-              placeholder="搜索计划..."
+      <div
+        class="mt-6 flex flex-wrap gap-2 rounded-2xl border border-white/60 bg-white/50 p-1.5 shadow-[0_1px_0_rgba(255,255,255,0.85)_inset,0_8px_24px_-12px_rgba(15,60,40,0.12)] backdrop-blur-sm"
+        role="tablist"
+        aria-label="计划筛选"
+      >
+        <button
+          v-for="filter in filters"
+          :key="filter"
+          type="button"
+          :data-testid="`filter-${filter}`"
+          class="rounded-xl px-5 py-2.5 text-sm font-semibold transition-all duration-200"
+          :class="
+            activeFilter === filter
+              ? 'bg-white text-stone-900 shadow-[0_2px_8px_-2px_rgba(16,80,50,0.15)] ring-1 ring-emerald-200/60'
+              : 'text-stone-600 hover:bg-white/70 hover:text-stone-900'
+          "
+          :aria-selected="activeFilter === filter"
+          role="tab"
+          @click="setFilter(filter)"
+        >
+          {{ filter }}
+        </button>
+      </div>
+    </header>
+
+    <div class="ui-scrollbar min-h-0 flex-1 overflow-y-auto pr-1 pb-2">
+      <div class="grid grid-cols-1 gap-5 pb-8 sm:grid-cols-2 sm:gap-6 lg:grid-cols-3">
+        <router-link
+          v-for="(plan, index) in filteredPlans"
+          :key="plan.id"
+          :to="`/plans/${plan.id}`"
+          data-testid="plan-card"
+          class="animate-plan-card group flex flex-col overflow-hidden rounded-3xl border border-stone-200/80 bg-white/90 shadow-[0_12px_40px_-24px_rgba(15,50,30,0.25)] ring-1 ring-white/80 transition duration-300 hover:-translate-y-1 hover:border-emerald-200/60 hover:shadow-[0_20px_48px_-20px_rgba(16,100,60,0.22)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500"
+          :style="{ '--stagger': `${index * 45}ms` }"
+        >
+          <div class="relative aspect-[16/10] w-full overflow-hidden bg-stone-100">
+            <div
+              class="absolute inset-0 bg-cover bg-center transition duration-500 ease-out group-hover:scale-[1.04]"
+              :style="{ backgroundImage: `url('${plan.image}')` }"
             />
+            <div
+              class="absolute inset-0 bg-gradient-to-t from-stone-900/55 via-stone-900/10 to-transparent"
+              aria-hidden="true"
+            />
+            <div class="absolute bottom-3 left-3 right-3 flex items-end justify-between gap-2">
+              <span
+                class="rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide backdrop-blur-md"
+                :class="statusClass(plan.status)"
+              >
+                {{ plan.status }}
+              </span>
+              <span
+                class="rounded-lg bg-white/90 px-2 py-1 text-[11px] font-medium text-stone-700 shadow-sm backdrop-blur-sm"
+              >
+                截止 {{ plan.deadline }}
+              </span>
+            </div>
           </div>
-          <div class="flex items-center gap-3">
-            <router-link to="/plans/new" class="inline-flex h-11 items-center justify-center rounded-xl bg-primary px-5 text-sm font-bold text-[#111813]">
-              创建新计划
-            </router-link>
-            <span class="material-symbols-outlined text-[#555]">notifications</span>
-            <span class="material-symbols-outlined text-[#555]">account_circle</span>
-          </div>
-        </div>
 
-        <h1 class="mb-4 text-[46px] font-black leading-none tracking-[-0.03em]">我的计划</h1>
-
-        <div class="mb-7 flex flex-wrap gap-2">
-          <button
-            v-for="filter in filters"
-            :key="filter"
-            :data-testid="`filter-${filter}`"
-            class="rounded-full px-6 py-2 text-sm font-semibold transition"
-            :class="activeFilter === filter ? 'bg-primary text-[#111813]' : 'bg-[#f0f2f1] text-[#4c5551]'"
-            @click="setFilter(filter)"
-          >
-            {{ filter }}
-          </button>
-        </div>
-
-        <div class="ui-scrollbar flex-1 overflow-y-auto pr-1">
-          <div class="grid grid-cols-1 gap-6 pb-6 sm:grid-cols-2 lg:grid-cols-3">
-            <router-link
-              v-for="plan in filteredPlans"
-              :key="plan.id"
-              :to="`/plans/${plan.id}`"
-              data-testid="plan-card"
-              class="group flex flex-col overflow-hidden rounded-2xl border border-[#e6ebe8] bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
-            >
-              <div class="aspect-[16/9] w-full bg-cover bg-center" :style="{ backgroundImage: `url('${plan.image}')` }" />
-              <div class="flex flex-1 flex-col p-4">
-                <div class="mb-3 flex items-center justify-between gap-2">
-                  <span class="rounded-full px-2.5 py-1 text-xs font-semibold" :class="statusClass(plan.status)">{{ plan.status }}</span>
-                  <span class="text-xs text-[#727f79]">截止: {{ plan.deadline }}</span>
-                </div>
-                <p class="mb-2 text-[34px] font-black leading-9 tracking-[-0.02em]">{{ plan.title }}</p>
-                <p class="mb-4 line-clamp-2 text-sm leading-6 text-[#5d6a64]">{{ plan.description }}</p>
-                <div class="mt-auto">
-                  <div class="mb-1 flex items-center justify-between text-xs font-semibold text-[#505b56]">
-                    <span>进度</span>
-                    <span>{{ plan.progress }}%</span>
-                  </div>
-                  <div class="h-2 rounded-full bg-[#ecf0ee]">
-                    <div class="h-2 rounded-full bg-primary transition-all" :style="{ width: `${plan.progress}%` }" />
-                  </div>
-                </div>
+          <div class="flex flex-1 flex-col p-5">
+            <h2 class="mb-2 line-clamp-2 text-lg font-bold leading-snug tracking-tight text-stone-900 sm:text-xl">
+              {{ plan.title }}
+            </h2>
+            <p class="mb-5 line-clamp-2 text-[14px] leading-relaxed text-stone-600">
+              {{ plan.description }}
+            </p>
+            <div class="mt-auto">
+              <div class="mb-2 flex items-center justify-between text-xs font-semibold text-stone-500">
+                <span>完成进度</span>
+                <span class="tabular-nums text-stone-800">{{ plan.progress }}%</span>
               </div>
-            </router-link>
-
-            <router-link
-              to="/plans/new"
-              class="flex min-h-[330px] flex-col justify-between rounded-2xl bg-primary p-6 text-[#111813] shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
-            >
-              <div>
-                <div class="mb-6 flex h-12 w-12 items-center justify-center rounded-full bg-black/10">
-                  <span class="material-symbols-outlined text-3xl">add</span>
-                </div>
-                <p class="text-[42px] font-black leading-10 tracking-[-0.02em]">创建<br />新的项目计划</p>
+              <div
+                class="h-2.5 overflow-hidden rounded-full bg-stone-100 shadow-[inset_0_1px_2px_rgba(0,0,0,0.06)]"
+              >
+                <div
+                  class="plan-progress-fill h-full rounded-full bg-gradient-to-r from-emerald-400 to-primary shadow-[0_0_12px_-2px_rgba(19,236,91,0.5)] transition-all duration-500"
+                  :style="{ width: `${plan.progress}%` }"
+                />
               </div>
-              <p class="text-sm text-black/70">点击开始您的下一个效率征程</p>
-            </router-link>
+            </div>
           </div>
+        </router-link>
+
+        <div
+          v-if="filteredPlans.length === 0"
+          class="flex min-h-[280px] flex-col items-center justify-center rounded-3xl border border-dashed border-stone-300/90 bg-white/60 px-8 py-12 text-center lg:col-span-2"
+        >
+          <span class="material-symbols-outlined mb-3 text-4xl text-stone-400">search_off</span>
+          <p class="text-lg font-semibold text-stone-800">这里暂时空空如也</p>
+          <p class="mt-2 max-w-sm text-sm leading-relaxed text-stone-600">
+            换个筛选条件，或清空顶栏搜索看看。也可以新建一个计划，从小目标开始。
+          </p>
         </div>
+
+        <router-link
+          to="/plans/new"
+          class="animate-plan-card group relative flex min-h-[300px] flex-col justify-between overflow-hidden rounded-3xl border border-emerald-400/30 bg-gradient-to-br from-primary via-[#5ef082] to-emerald-300 p-6 text-stone-900 shadow-[0_16px_40px_-18px_rgba(19,180,80,0.55)] transition duration-300 hover:-translate-y-1 hover:shadow-[0_24px_48px_-16px_rgba(19,160,70,0.45)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"
+          :style="{ '--stagger': `${filteredPlans.length * 45 + 60}ms` }"
+        >
+          <div class="pointer-events-none absolute -right-8 -top-8 h-32 w-32 rounded-full bg-white/25 blur-2xl" />
+          <div class="pointer-events-none absolute bottom-0 left-0 right-0 h-24 bg-gradient-to-t from-black/5 to-transparent" />
+          <div class="relative">
+            <div
+              class="mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-stone-900/10 shadow-inner ring-1 ring-white/40 backdrop-blur-[2px] transition group-hover:scale-105"
+            >
+              <span class="material-symbols-outlined text-3xl text-stone-900" style="font-variation-settings: 'wght' 600">add</span>
+            </div>
+            <p class="text-2xl font-extrabold leading-tight tracking-tight sm:text-[1.65rem]">
+              新建一个<br /><span class="text-stone-800/90">属于你的计划</span>
+            </p>
+          </div>
+          <p class="relative text-sm font-medium leading-relaxed text-stone-800/75">
+            不用一次想完所有步骤，先写下目标，后面再慢慢拆解。
+          </p>
+        </router-link>
       </div>
-    </main>
+    </div>
   </div>
 </template>
 
+<style scoped>
+.plan-home-grain {
+  opacity: 0.04;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+@keyframes plan-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-plan-card {
+  animation: plan-card-in 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: var(--stagger, 0ms);
+}
+</style>

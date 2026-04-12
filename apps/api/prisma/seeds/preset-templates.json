@@ -1,0 +1,50 @@
+[
+  {
+    "slug": "preset-study-exam-12w",
+    "title": "12 周备考冲刺（学习）",
+    "summary": "分三阶段：基础巩固、真题演练与错题复盘、模考与心态调整。适合职业资格或升学类考试。",
+    "category": "study",
+    "tags": ["考试", "学习", "备考"],
+    "locale": "zh-CN",
+    "sortOrder": 10,
+    "payload": {
+      "goal": "12 周内通过目标考试并稳定发挥",
+      "deadline": "2026-12-31T00:00:00.000Z",
+      "requirement": "每周至少 5 天学习；阶段一完成考纲与教材精读；阶段二完成近 5 年真题并建立错题本；阶段三全真模考与查漏补缺。每日记录学习时长与掌握度。",
+      "type": "study",
+      "granularityMode": "deep"
+    }
+  },
+  {
+    "slug": "preset-fitness-90d",
+    "title": "90 天健身习惯养成",
+    "summary": "从体能评估到力量与有氧结合，循序渐进建立可持续训练节奏。",
+    "category": "fitness",
+    "tags": ["健身", "健康", "习惯"],
+    "locale": "zh-CN",
+    "sortOrder": 20,
+    "payload": {
+      "goal": "90 天内养成每周稳定锻炼习惯并提升体能",
+      "deadline": "2026-09-30T00:00:00.000Z",
+      "requirement": "第 1–2 周：体检/体能自测、学习基础动作与热身拉伸；第 3–8 周：每周 4 次训练（2 次力量 + 2 次有氧），逐步加重；第 9–12 周：巩固计划并记录围度与心率变化。保证睡眠与蛋白质摄入。",
+      "type": "general",
+      "granularityMode": "rough"
+    }
+  },
+  {
+    "slug": "preset-work-project-delivery",
+    "title": "工作项目交付（里程碑驱动）",
+    "summary": "需求澄清、排期、迭代开发与联调上线，适合中小型交付类项目。",
+    "category": "work",
+    "tags": ["工作", "项目", "交付"],
+    "locale": "zh-CN",
+    "sortOrder": 30,
+    "payload": {
+      "goal": "在约定窗口内高质量完成项目交付并通过验收",
+      "deadline": "2026-11-15T00:00:00.000Z",
+      "requirement": "阶段一：干系人对齐、范围与验收标准文档化；阶段二：拆分里程碑与风险清单，双周同步；阶段三：开发/联调/测试与灰度发布；阶段四：验收、文档移交与复盘。",
+      "type": "work",
+      "granularityMode": "smart"
+    }
+  }
+]

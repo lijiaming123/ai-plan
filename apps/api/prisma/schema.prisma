@@ -83,3 +83,67 @@ model RuleConfig {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
+
+model PresetTemplate {
+  id            String   @id @default(cuid())
+  slug          String   @unique
+  title         String
+  summary       String
+  coverImageUrl String?
+  category      String
+  tags          String[]
+  locale        String   @default("zh-CN")
+  payload       Json
+  sortOrder     Int      @default(0)
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([isActive, sortOrder])
+  @@index([category])
+}
+
+model MarketTemplate {
+  id               String   @id @default(cuid())
+  authorId         String
+  sourcePlanId     String?
+  title            String
+  summary          String
+  category         String
+  tags             String[]
+  payload          Json
+  status           String   @default("published")
+  publishedAt      DateTime?
+  likeCount        Int      @default(0)
+  applicationCount Int      @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  likes            MarketTemplateLike[]
+  favorites        MarketTemplateFavorite[]
+
+  @@index([status, publishedAt])
+  @@index([category])
+  @@index([authorId])
+}
+
+model MarketTemplateLike {
+  id         String   @id @default(cuid())
+  userId     String
+  templateId String
+  createdAt  DateTime @default(now())
+  template   MarketTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, templateId])
+  @@index([templateId])
+}
+
+model MarketTemplateFavorite {
+  id         String   @id @default(cuid())
+  userId     String
+  templateId String
+  createdAt  DateTime @default(now())
+  template   MarketTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, templateId])
+  @@index([templateId])
+}

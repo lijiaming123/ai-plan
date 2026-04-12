@@ -84,16 +84,13 @@ if (-not $pgReady) {
   throw "PostgreSQL container is running but not ready."
 }
 
-$tsxReady = $true
-corepack pnpm --filter @ai-plan/api exec tsx --version *> $null
-if ($LASTEXITCODE -ne 0) {
-  $tsxReady = $false
+$nodeModulesRoot = Join-Path $projectRoot "node_modules"
+if (-not (Test-Path $nodeModulesRoot)) {
+  Write-Host "[dev-up] Installing workspace dependencies..."
+  pnpm install
 }
 
-if (-not $tsxReady) {
-  Write-Host "[dev-up] Installing workspace dependencies..."
-  corepack pnpm install
-}
+& (Join-Path $scriptDir "sync-workspace-packages.ps1")
 
 $env:DATABASE_URL = $databaseUrl
 
@@ -126,17 +123,20 @@ $env:PORT = "$apiPort"
 $env:VITE_API_BASE_URL = $apiBaseUrl
 
 Write-Host "[dev-up] Applying database migrations..."
-corepack pnpm --filter @ai-plan/api prisma migrate dev --name dev_bootstrap
+pnpm --filter @ai-plan/api prisma migrate dev --name dev_bootstrap
+
+Write-Host "[dev-up] Seeding preset templates (idempotent)..."
+pnpm --filter @ai-plan/api db:seed
 
 Write-Host "[dev-up] Starting services..."
 Write-Host "  API:       $apiBaseUrl"
 Write-Host "  Web User:  http://localhost:5173"
 Write-Host "  Web Admin: http://localhost:5174"
 
-corepack pnpm exec concurrently `
+pnpm exec concurrently `
   -k `
   --names "api,web-user,web-admin" `
   --prefix-colors "cyan,green,magenta" `
-  "corepack pnpm --filter @ai-plan/api dev" `
-  "corepack pnpm --filter @ai-plan/web-user exec vite --port 5173" `
-  "corepack pnpm --filter @ai-plan/web-admin exec vite --port 5174"
+  "pnpm --filter @ai-plan/api dev" `
+  "pnpm --filter @ai-plan/web-user run dev" `
+  "pnpm --filter @ai-plan/web-admin run dev"

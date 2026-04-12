@@ -1,17 +1,71 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import UiErrorToast from '../../components/UiErrorToast.vue';
-import { getApiClient, type PlanRecord } from '../../lib/api-client';
+import type { PlanRecord } from '../../lib/api-client';
+import { getApiClient } from '../../lib/api-client';
 import { authState } from '../../stores/auth';
 
 const route = useRoute();
+const router = useRouter();
 const planId = computed(() => String(route.params.id ?? ''));
 const loading = ref(false);
 const plan = ref<PlanRecord | null>(null);
 const errorToastMessage = ref('');
+const showPublishForm = ref(false);
+const publishSubmitting = ref(false);
+const publishForm = ref({
+  title: '',
+  summary: '',
+  category: 'general',
+  tags: '' as string,
+});
 
 const isDraft = computed(() => plan.value?.status === 'draft');
+
+const canPublishTemplate = computed(() => {
+  const p = plan.value;
+  if (!p || !authState.token || !authState.userId) return false;
+  if (p.userId && p.userId !== authState.userId) return false;
+  return p.status === 'draft' || p.status === 'active';
+});
+
+function openPublishForm() {
+  const p = plan.value;
+  if (!p) return;
+  publishForm.value = {
+    title: p.goal.slice(0, 200),
+    summary: p.requirement.slice(0, 5000),
+    category: p.type === 'study' || p.type === 'work' ? p.type : 'general',
+    tags: '',
+  };
+  showPublishForm.value = true;
+}
+
+async function submitPublishTemplate() {
+  if (!plan.value || !authState.token) return;
+  publishSubmitting.value = true;
+  try {
+    const tags = publishForm.value.tags
+      .split(/[,，]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    await getApiClient().publishMarketTemplate({
+      token: authState.token,
+      title: publishForm.value.title.trim(),
+      summary: publishForm.value.summary.trim(),
+      category: publishForm.value.category.trim() || 'general',
+      tags,
+      planId: plan.value.id,
+    });
+    showPublishForm.value = false;
+    await router.push({ path: '/templates', query: { published: '1' } });
+  } catch (e) {
+    showError(e instanceof Error ? e.message : '发布失败');
+  } finally {
+    publishSubmitting.value = false;
+  }
+}
 
 const executionSnapshot = computed(() => {
   const d = plan.value?.draft;
@@ -69,39 +123,10 @@ watch(
 </script>
 
 <template>
-  <div class="flex min-h-screen w-full flex-row bg-background-light font-display text-[#111813]">
+  <div class="flex h-full min-h-0 w-full flex-col overflow-y-auto bg-background-light font-display text-[#111813]">
     <UiErrorToast :message="errorToastMessage" @close="clearError" />
 
-    <aside class="hidden min-h-screen w-64 shrink-0 flex-col justify-between border-r border-slate-200 bg-white p-4 lg:flex">
-      <div class="flex flex-col gap-4">
-        <div class="flex items-center gap-3">
-          <div
-            class="size-10 rounded-full bg-cover bg-center"
-            style="background-image: url('https://images.unsplash.com/photo-1633332755192-727a05c4013d?auto=format&fit=crop&w=120&q=80')"
-          />
-          <div class="flex flex-col">
-            <h1 class="text-base font-medium">张伟</h1>
-            <p class="text-sm text-[#61896f]">zhang.wei@example.com</p>
-          </div>
-        </div>
-        <nav class="flex flex-col gap-2">
-          <router-link class="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium hover:bg-[#f0f4f2]" to="/plans">
-            <span class="material-symbols-outlined text-base">dashboard</span>
-            我的计划
-          </router-link>
-          <a class="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium hover:bg-[#f0f4f2]">
-            <span class="material-symbols-outlined text-base">grid_view</span>
-            模板
-          </a>
-        </nav>
-      </div>
-      <router-link to="/plans/new" class="flex h-10 items-center justify-center rounded-lg bg-primary px-4 text-sm font-bold text-[#111813]">
-        创建新计划
-      </router-link>
-    </aside>
-
-    <main class="flex-1 overflow-y-auto p-8">
-      <div class="mx-auto max-w-5xl">
+    <div class="mx-auto w-full max-w-5xl p-4 sm:p-6 lg:p-8">
         <div class="mb-6 flex flex-wrap gap-2">
           <router-link to="/plans" class="text-base font-medium text-[#61896f]">我的计划</router-link>
           <span class="text-base font-medium text-[#61896f]">/</span>
@@ -109,15 +134,86 @@ watch(
         </div>
 
         <section class="mb-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-          <p class="text-3xl font-black tracking-[-0.03em]">{{ plan?.goal ?? '计划详情' }}</p>
+          <p class="text-3xl font-black tracking-[-0.03em]">{{ plan ? plan.goal : '计划详情' }}</p>
           <p class="mt-2 text-sm text-[#61896f]">
-            状态：{{ plan?.status === 'active' ? '执行中' : '草稿' }}
-            <span v-if="plan?.deadline"> · 截止 {{ plan.deadline }}</span>
+            状态：{{ plan && plan.status === 'active' ? '执行中' : '草稿' }}
+            <span v-if="plan && plan.deadline"> · 截止 {{ plan.deadline }}</span>
           </p>
-          <p v-if="plan?.requirement && plan.status === 'active'" class="mt-4 whitespace-pre-wrap text-sm leading-relaxed text-[#2a3832]">
+          <p
+            v-if="plan && plan.requirement && plan.status === 'active'"
+            class="mt-4 whitespace-pre-wrap text-sm leading-relaxed text-[#2a3832]"
+          >
             {{ plan.requirement }}
           </p>
+          <div v-if="canPublishTemplate" class="mt-4 border-t border-slate-100 pt-4">
+            <button
+              type="button"
+              class="rounded-lg border border-[#dbe6df] bg-[#f6f8f6] px-4 py-2 text-sm font-semibold text-[#111813] hover:bg-[#eef3ef]"
+              data-testid="btn-publish-template"
+              @click="openPublishForm"
+            >
+              发布为模板
+            </button>
+          </div>
         </section>
+
+        <div
+          v-if="showPublishForm"
+          class="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4"
+          data-testid="publish-template-dialog"
+          @click.self="showPublishForm = false"
+        >
+          <div class="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-xl" @click.stop>
+            <h3 class="text-lg font-bold">发布到模板市场</h3>
+            <p class="mt-1 text-xs text-[#61896f]">将基于当前计划生成可被套用的市场模板（标题与摘要可编辑）。</p>
+            <label class="mt-4 block text-sm font-medium">标题</label>
+            <input
+              v-model="publishForm.title"
+              type="text"
+              class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+              maxlength="200"
+            />
+            <label class="mt-3 block text-sm font-medium">摘要</label>
+            <textarea
+              v-model="publishForm.summary"
+              rows="4"
+              class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+              maxlength="5000"
+            />
+            <label class="mt-3 block text-sm font-medium">分类</label>
+            <input
+              v-model="publishForm.category"
+              type="text"
+              class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+              placeholder="如 study / work / fitness"
+            />
+            <label class="mt-3 block text-sm font-medium">标签（逗号分隔）</label>
+            <input
+              v-model="publishForm.tags"
+              type="text"
+              class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+              placeholder="学习, 考试"
+            />
+            <div class="mt-6 flex justify-end gap-2">
+              <button
+                type="button"
+                class="rounded-lg px-4 py-2 text-sm font-medium text-[#61896f]"
+                @click="showPublishForm = false"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                class="rounded-lg bg-[#111813] px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
+                :disabled="publishSubmitting"
+                data-testid="confirm-publish-template"
+                @click="submitPublishTemplate"
+              >
+                {{ publishSubmitting ? '发布中…' : '确认发布' }}
+              </button>
+            </div>
+          </div>
+        </div>
 
         <section
           v-if="isDraft"
@@ -171,7 +267,6 @@ watch(
             </tbody>
           </table>
         </section>
-      </div>
-    </main>
+    </div>
   </div>
 </template>

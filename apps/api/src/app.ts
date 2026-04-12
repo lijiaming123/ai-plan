@@ -6,6 +6,7 @@ import { registerAuthRoutes } from './modules/auth/auth.routes';
 import { registerAdminRoutes } from './modules/admin/admin.routes';
 import { registerPlanRoutes } from './modules/plans/plan.routes';
 import { registerSubmissionRoutes } from './modules/submissions/submission.routes';
+import { registerTemplateRoutes } from './modules/templates/template.routes';
 
 export function buildApp() {
   const app = fastify({ logger: false });
@@ -26,6 +27,7 @@ export function buildApp() {
     await registerAdminRoutes(fastify);
     await registerPlanRoutes(fastify);
     await registerSubmissionRoutes(fastify);
+    await registerTemplateRoutes(fastify);
   });
 
   return app;

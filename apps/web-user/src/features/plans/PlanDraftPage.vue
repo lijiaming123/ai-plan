@@ -528,7 +528,7 @@ watch(
       </div>
     </header>
 
-    <main class="relative z-10 flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-hidden px-4 pb-3 pt-5 md:px-8 md:pb-4 md:pt-6">
+    <main class="relative z-10 flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto px-4 pb-3 pt-5 md:px-8 md:pb-4 md:pt-6">
       <div
         v-if="assistantStreaming"
         class="draft-stream-banner mx-auto mb-3 flex w-full max-w-[1600px] shrink-0 items-center gap-2 rounded-xl border border-[#b8e6cc] bg-[#e8faf0] px-4 py-2.5 text-sm font-semibold text-[#1a5c3a] shadow-sm"
@@ -561,45 +561,50 @@ watch(
             </div>
             <p class="text-xs font-semibold text-[#61896f]">共 {{ checkinSchedule.slots.length }} 个时间槽</p>
           </div>
-          <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            <article
+          <div class="mt-4 overflow-hidden rounded-xl border border-[#e6efe9] bg-white shadow-[inset_0_1px_0_rgba(255,255,255,0.85)]">
+            <div class="hidden grid-cols-[160px,1fr,140px] items-center gap-3 border-b border-[#edf4f0] bg-[#f8fcfa] px-4 py-2 text-[11px] font-black tracking-[0.12em] text-[#4d6a5e] sm:grid">
+              <div>时间槽</div>
+              <div>内容</div>
+              <div class="text-right">操作</div>
+            </div>
+            <div
               v-for="slot in checkinSchedule.slots"
               :key="slot.slotKey"
-              class="rounded-xl border border-slate-100 bg-[#fbfcfb] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]"
+              class="grid grid-cols-1 gap-3 border-b border-[#f1f5f3] px-4 py-3 last:border-b-0 sm:grid-cols-[160px,1fr,140px] sm:items-start"
             >
-              <div class="flex items-start justify-between gap-3">
-                <div class="min-w-0">
-                  <p class="text-xs font-semibold tracking-[0.08em] text-[#61896f]">
-                    {{ slot.slotKey }}
-                    <span
-                      v-if="slot.contentSource === 'edited'"
-                      class="ml-2 inline-flex rounded-full bg-[#f1f5f3] px-2 py-0.5 text-[10px] font-bold text-[#2a3832]"
-                    >
-                      已编辑
-                    </span>
-                  </p>
-                  <p class="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-[#111813]">{{ slot.content }}</p>
-                </div>
-                <div class="flex flex-col gap-2">
-                  <button
-                    type="button"
-                    class="rounded-lg border border-[#dbe6df] bg-white px-3 py-1.5 text-xs font-semibold text-[#111813] hover:bg-[#f6f8f6] disabled:opacity-50"
-                    :disabled="scheduleSaving"
-                    @click="openScheduleEdit(slot.slotKey, slot.content)"
+              <div class="min-w-0">
+                <p class="text-xs font-semibold tracking-[0.08em] text-[#61896f]">
+                  {{ slot.slotKey }}
+                  <span
+                    v-if="slot.contentSource === 'edited'"
+                    class="ml-2 inline-flex rounded-full bg-[#f1f5f3] px-2 py-0.5 text-[10px] font-bold text-[#2a3832]"
                   >
-                    编辑
-                  </button>
-                  <button
-                    type="button"
-                    class="rounded-lg border border-[#f0d8d6] bg-white px-3 py-1.5 text-xs font-semibold text-[#7b2f28] hover:bg-[#fff7f6] disabled:opacity-50"
-                    :disabled="scheduleSaving"
-                    @click="restoreScheduleSlot(slot.slotKey)"
-                  >
-                    恢复
-                  </button>
-                </div>
+                    已编辑
+                  </span>
+                </p>
               </div>
-            </article>
+              <div class="min-w-0">
+                <p class="whitespace-pre-wrap text-sm leading-relaxed text-[#111813]">{{ slot.content }}</p>
+              </div>
+              <div class="flex justify-end gap-2 sm:flex-col sm:items-end">
+                <button
+                  type="button"
+                  class="rounded-lg border border-[#dbe6df] bg-white px-3 py-1.5 text-xs font-semibold text-[#111813] hover:bg-[#f6f8f6] disabled:opacity-50"
+                  :disabled="scheduleSaving"
+                  @click="openScheduleEdit(slot.slotKey, slot.content)"
+                >
+                  编辑
+                </button>
+                <button
+                  type="button"
+                  class="rounded-lg border border-[#f0d8d6] bg-white px-3 py-1.5 text-xs font-semibold text-[#7b2f28] hover:bg-[#fff7f6] disabled:opacity-50"
+                  :disabled="scheduleSaving"
+                  @click="restoreScheduleSlot(slot.slotKey)"
+                >
+                  恢复
+                </button>
+              </div>
+            </div>
           </div>
         </section>
 

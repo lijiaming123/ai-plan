@@ -1,3 +1,9 @@
+/**
+ * PresetTemplate.payload / MarketTemplate 等业务里嵌套的「计划种子」JSON。
+ *
+ * parseTemplatePayload：白名单字段 + 类型检查，失败返回 { ok:false, message } 供路由转 4xx/5xx。
+ * templatePayloadToCreateInput：转成 createGeneratedPlan 需要的字段（含 userId 由调用方传入）。
+ */
 import type { GeneratePlanInput } from '@ai-plan/ai-engine/client';
 import type { GranularityMode } from '../plans/granularity';
 

@@ -1,13 +1,18 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import PageSectionHeading from '../../components/PageSectionHeading.vue';
 import UserAvatarBadge from '../../components/UserAvatarBadge.vue';
 import { getApiClient } from '../../lib/api-client';
 import { authState, clearAuthToken, setAuthTier } from '../../stores/auth';
 import { planListSearchQuery } from '../../stores/plan-search-query';
 import { persistUserPreferences, userPreferences } from '../../stores/user-preferences';
-
-const DISPLAY_NAME_KEY = 'ai-plan-display-name';
+import {
+  displayProfileState,
+  emailPrefix,
+  refreshDisplayProfileFromStorage,
+  setDisplayProfileName,
+} from '../../stores/display-profile';
 
 const route = useRoute();
 const router = useRouter();
@@ -21,11 +26,6 @@ const displayNameModel = ref('');
 const meLoadError = ref(false);
 
 const emailForDisplay = computed(() => meEmail.value || authState.userEmail || '');
-
-function emailPrefix(email: string): string {
-  const i = email.indexOf('@');
-  return i > 0 ? email.slice(0, i) : email;
-}
 
 const badgeLabel = computed(() => {
   const n = displayNameModel.value.trim();
@@ -41,7 +41,8 @@ const roleLabel = computed(() => {
 });
 
 function loadDisplayNameFromStorage() {
-  const stored = typeof localStorage !== 'undefined' ? localStorage.getItem(DISPLAY_NAME_KEY) : null;
+  refreshDisplayProfileFromStorage();
+  const stored = displayProfileState.localDisplayName;
   const email = emailForDisplay.value;
   displayNameModel.value = stored?.trim() ? stored.trim().slice(0, 32) : email ? emailPrefix(email) : '';
 }
@@ -49,9 +50,7 @@ function loadDisplayNameFromStorage() {
 function onDisplayNameBlur() {
   let v = displayNameModel.value.trim().slice(0, 32);
   displayNameModel.value = v;
-  if (typeof localStorage === 'undefined') return;
-  if (v) localStorage.setItem(DISPLAY_NAME_KEY, v);
-  else localStorage.removeItem(DISPLAY_NAME_KEY);
+  setDisplayProfileName(v);
 }
 
 function toggleNotifyDeadline() {
@@ -156,21 +155,13 @@ watch(
       aria-hidden="true"
     />
 
-    <div class="relative pb-12 pt-1">
+    <div class="relative pb-12 pt-0.5">
       <header
-        class="settings-panel settings-panel--d0 mb-8 flex flex-col gap-5 lg:mb-10 lg:flex-row lg:items-end lg:justify-between"
+        class="settings-panel settings-panel--d0 mb-5 flex flex-col gap-3 lg:mb-6 lg:flex-row lg:items-end lg:justify-between"
       >
-        <div>
-          <p class="mb-2 text-[10px] font-bold uppercase tracking-[0.28em] text-emerald-800/55">账户与工作区</p>
-          <h1
-            class="font-editorial text-[clamp(2.75rem,5vw,3.25rem)] font-semibold italic leading-[0.95] tracking-[-0.02em] text-[#0f1f16]"
-          >
-            设置
-          </h1>
-          <p class="mt-3 max-w-lg text-sm leading-relaxed text-[#5a6b62]">
-            个人资料、通知与安全集中在此；会员与退出在下方。
-          </p>
-        </div>
+        <PageSectionHeading kicker="账户与工作区" title="设置">
+          <p class="max-w-lg">个人资料、通知与安全集中在此；会员与退出在下方。</p>
+        </PageSectionHeading>
         <div
           class="flex items-center gap-2 self-start rounded-2xl border border-emerald-200/60 bg-white/70 px-4 py-2.5 shadow-sm ring-1 ring-white/90 backdrop-blur-md lg:self-auto"
         >

@@ -1,3 +1,12 @@
+/**
+ * Fastify 应用工厂（无副作用监听，便于测试里 `buildApp()` 后注入依赖或 `inject`）。
+ *
+ * 注册顺序说明：
+ * - CORS：`origin: true` 反射请求来源，适合浏览器直连 API；生产可收紧为白名单。
+ * - 内层闭包：先挂 @fastify/jwt（密钥 JWT_SECRET），再 `authPlugin` 装饰 `requireRole`，
+ *   后续各路由通过 `preHandler: fastify.requireRole('user'|'admin')` 统一鉴权。
+ * - 路由模块彼此独立，可按需调整 register 顺序（除 auth 需先于依赖 JWT 的路由外无硬依赖）。
+ */
 import fastify from 'fastify';
 import jwt from '@fastify/jwt';
 import cors from '@fastify/cors';
@@ -9,6 +18,7 @@ import { registerSubmissionRoutes } from './modules/submissions/submission.route
 import { registerTemplateRoutes } from './modules/templates/template.routes';
 
 export function buildApp() {
+  // logger: false 减少默认控制台噪音；需要排障时可改为 true 或接 pino 目标
   const app = fastify({ logger: false });
 
   app.register(cors, {

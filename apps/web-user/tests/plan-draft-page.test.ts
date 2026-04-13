@@ -27,6 +27,7 @@ describe('PlanDraftPage', () => {
   const getPlanDraftMock = vi.fn();
   const regeneratePlanMock = vi.fn();
   const confirmPlanMock = vi.fn();
+  const patchPlanScheduleSlotMock = vi.fn();
 
   const draftPayload = {
     versions: [
@@ -93,6 +94,7 @@ describe('PlanDraftPage', () => {
       plan: { id: 'plan_1', goal: '测试目标', status: 'active' },
       confirmedVersion: 2,
     });
+    patchPlanScheduleSlotMock.mockReset();
 
     clearAuthToken();
     setAuthToken('token_123');
@@ -104,6 +106,7 @@ describe('PlanDraftPage', () => {
       parsePlanFile: vi.fn(),
       getPlan: getPlanMock,
       getPlanDraft: getPlanDraftMock,
+      patchPlanScheduleSlot: patchPlanScheduleSlotMock,
       regeneratePlan: regeneratePlanMock,
       confirmPlan: confirmPlanMock,
       comparePlanVersions: vi.fn(),
@@ -123,8 +126,8 @@ describe('PlanDraftPage', () => {
 
     expect(wrapper.find('[data-testid="draft-card-v1"]').exists()).toBe(true);
     expect(wrapper.find('[data-testid="draft-card-v2"]').exists()).toBe(true);
-    expect(wrapper.text()).toContain('任务一');
-    expect(wrapper.text()).toContain('任务二');
+    expect(wrapper.text()).not.toContain('任务一');
+    expect(wrapper.text()).not.toContain('任务二');
 
     await wrapper.get('[data-testid="draft-card-v1"]').trigger('click');
     await flushPromises();
@@ -139,6 +142,42 @@ describe('PlanDraftPage', () => {
         granularityMode: 'smart',
       })
     );
+    wrapper.unmount();
+  });
+
+  it('应渲染 schedule 打卡表面板（若后端返回）', async () => {
+    getPlanDraftMock.mockResolvedValueOnce({
+      ...draftPayload,
+      versions: [
+        {
+          ...draftPayload.versions[0],
+          schedule: {
+            granularity: 'day',
+            slots: [
+              {
+                slotKey: '2026-04-10',
+                generatedContent: 'A',
+                content: 'A',
+                contentSource: 'generated',
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    const router = createAppRouter(createMemoryHistory());
+    await router.push('/plans/plan_1/draft');
+    await router.isReady();
+
+    const wrapper = mount(PlanDraftPage, {
+      global: { plugins: [router] },
+    });
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="draft-schedule-panel"]').exists()).toBe(true);
+    expect(wrapper.text()).toContain('打卡计划');
+    expect(wrapper.text()).toContain('2026-04-10');
     wrapper.unmount();
   });
 

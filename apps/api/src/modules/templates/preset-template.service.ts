@@ -1,3 +1,9 @@
+/**
+ * 预设模板（运营配置，存在 PresetTemplate 表）。
+ *
+ * listPresets：只读列表，可按 category 过滤，不含完整 payload（减小响应）。
+ * applyPresetTemplate：读全量行 → parseTemplatePayload → createGeneratedPlan；失败分 404（无此预设）/500（payload 坏）。
+ */
 import { prisma } from '../../lib/prisma';
 import { createGeneratedPlan } from '../plans/plan.service';
 import { parseTemplatePayload, templatePayloadToCreateInput } from './template-payload';

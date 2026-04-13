@@ -1,3 +1,14 @@
+/**
+ * 计划域 HTTP 路由注册。
+ *
+ * 结构：
+ * - 前半：请求体校验器（normalizeBody 支持误传 JSON 字符串）、AI 相关辅助（tryDeepseekAssistant、formatDraftToText）。
+ * - registerPlanRoutes：REST + SSE；所有写操作除 PATCH 外多要求 JWT user。
+ * - assistant-draft-stream：使用 PassThrough 写 `text/event-stream`，事件为 JSON：`delta` | `done` | `error`。
+ * - parse-file：mammoth 解析 docx，文本类直接 utf8；限制扩展名防任意文件上传滥用。
+ *
+ * profile（创建计划时的扩展字段）：校验宽松，缺失或形状不对时忽略，保证老客户端仍能创建。
+ */
 import { PassThrough } from 'node:stream';
 import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
 import {
@@ -8,8 +19,17 @@ import {
   getPlanWithDraft,
   regeneratePlanVersion,
   sanitizePlanPatch,
+  updatePlanScheduleSlot,
   updatePlanV1Requirement,
 } from './plan.service';
+import {
+  buildFallbackSchedule,
+  extractLastJsonCodeBlock,
+  parseScheduleWireOrNull,
+  stripLastJsonCodeBlock,
+  validateScheduleStrict,
+} from './deepseek-schedule';
+import { buildScheduleSlotKeys, decideScheduleGranularity } from './plan.service';
 import { completeDeepseekChat, isDeepseekConfigured, streamDeepseekChat } from '../../lib/deepseek';
 import { generatePlanDraft } from '@ai-plan/ai-engine/client';
 import mammoth from 'mammoth';
@@ -40,6 +60,7 @@ type PlanAssistantBody = {
   startDate: string;
   cycle: Cycle;
   endDate: string;
+  granularityMode?: GranularityMode;
   message?: string;
 };
 
@@ -131,6 +152,9 @@ function validateAssistantBody(raw: unknown): { ok: true; data: PlanAssistantBod
   if (raw.cycle === 'custom' && new Date(raw.endDate).getTime() < new Date(raw.startDate).getTime()) {
     return { ok: false, message: 'endDate must be >= startDate for custom cycle' };
   }
+  if (isRecord(raw) && raw.granularityMode != null && !isOneOf(raw.granularityMode, granularityModes)) {
+    return { ok: false, message: 'granularityMode is invalid' };
+  }
   return { ok: true, data: raw as PlanAssistantBody };
 }
 
@@ -193,29 +217,78 @@ function sanitizeTextContent(content: string) {
   return content.replace(/\u0000/g, '').replace(/\r\n/g, '\n').trim();
 }
 
+/** 与 /plans/assistant、流式 draft-stream 共用的人设 system prompt（中文输出、可落库的正文风格） */
 const DEEPSEEK_SYSTEM =
   '你是「计划大师」的 AI 计划顾问。根据用户给出的信息与要求，用中文输出可直接作为「计划内容」保存的正文：务实用语、分阶段目标与验收、可执行任务（优先按周，必要时到天）、风险与应对、复盘建议。不要输出与计划无关的寒暄。';
 
+/** 配置 DeepSeek 时走云端对话；失败则回退到本地模板文案，避免接口整体失败 */
 async function tryDeepseekAssistant(
   log: FastifyBaseLogger,
   body: PlanAssistantBody,
   localDraftText: string,
-): Promise<{ reply: string; suggestedContent: string } | null> {
+): Promise<{ reply: string; suggestedContent: string; schedule?: unknown } | null> {
   if (!isDeepseekConfigured()) return null;
 
   try {
     if (body.mode === 'draft') {
-      const userContent =
-        body.requirement.trim().length > 0
-          ? body.requirement
-          : `请根据以下目标生成计划：${body.goal}\n起始：${body.startDate}，预计完成：${body.endDate}，周期代码：${body.cycle}`;
-      const suggestedContent = await completeDeepseekChat([
+      const effectiveMode: GranularityMode = isOneOf(body.granularityMode, granularityModes) ? body.granularityMode : 'smart';
+      const startDateIso = new Date(`${body.startDate}T00:00:00.000Z`).toISOString();
+      const endDateIso = new Date(`${body.endDate}T00:00:00.000Z`).toISOString();
+      const expectedGranularity = decideScheduleGranularity({
+        mode: effectiveMode,
+        startDate: startDateIso,
+        endDate: endDateIso,
+      });
+      const slotKeys = buildScheduleSlotKeys({
+        granularity: expectedGranularity,
+        startDate: startDateIso,
+        endDate: endDateIso,
+      });
+
+      const baseRequirement = body.requirement.trim().length > 0 ? body.requirement : `请根据以下目标生成计划：${body.goal}`;
+      const userContent = [
+        `目标：${body.goal}`,
+        `起始：${body.startDate}，预计完成：${body.endDate}，周期代码：${body.cycle}`,
+        '',
+        `补充说明：`,
+        baseRequirement,
+        '',
+        `请输出两部分：`,
+        `1) 可直接保存为「计划内容」的中文正文；`,
+        `2) 在最后输出一个严格的 JSON 代码块（\`\`\`json ...\`\`\`），仅包含如下结构：`,
+        `{`,
+        `  "schedule": {`,
+        `    "granularity": "${expectedGranularity}",`,
+        `    "slots": [`,
+        `      { "slotKey": "...", "content": "..." }`,
+        `    ]`,
+        `  }`,
+        `}`,
+        `注意：slotKey 必须严格来自下方「时间槽」列表，且顺序必须完全一致；content 为当期计划一段中文（1-3句，具体可执行）。`,
+        '',
+        '时间槽：',
+        ...slotKeys.map((k) => `- ${k}`),
+      ].join('\n');
+
+      const deepseekRaw = await completeDeepseekChat([
         { role: 'system', content: DEEPSEEK_SYSTEM },
         { role: 'user', content: userContent },
       ]);
+      const jsonBlock = extractLastJsonCodeBlock(deepseekRaw);
+      const wire = jsonBlock ? parseScheduleWireOrNull(jsonBlock) : null;
+      const validated = wire
+        ? validateScheduleStrict({
+            expectedGranularity,
+            expectedSlotKeys: slotKeys,
+            wire,
+          })
+        : ({ ok: false as const, reason: 'missing json' } as const);
+      const schedule = validated.ok ? validated.schedule : buildFallbackSchedule({ granularity: expectedGranularity, slotKeys });
+      const suggestedContent = jsonBlock ? stripLastJsonCodeBlock(deepseekRaw) : deepseekRaw;
       return {
         reply: '已通过 DeepSeek 生成计划初稿，你可继续调整说明后再次提交或直接使用。',
         suggestedContent,
+        schedule,
       };
     }
 
@@ -233,16 +306,33 @@ async function tryDeepseekAssistant(
     };
   } catch (err) {
     log.warn({ err }, 'DeepSeek plan assistant failed; falling back to local draft');
+    // 回退路径：仍提供 schedule（由 granularityMode + 起止日期骨架生成 + 默认文案填充）
+    const effectiveMode: GranularityMode = isOneOf(body.granularityMode, granularityModes) ? body.granularityMode : 'smart';
+    const startDateIso = new Date(`${body.startDate}T00:00:00.000Z`).toISOString();
+    const endDateIso = new Date(`${body.endDate}T00:00:00.000Z`).toISOString();
+    const expectedGranularity = decideScheduleGranularity({
+      mode: effectiveMode,
+      startDate: startDateIso,
+      endDate: endDateIso,
+    });
+    const slotKeys = buildScheduleSlotKeys({
+      granularity: expectedGranularity,
+      startDate: startDateIso,
+      endDate: endDateIso,
+    });
+    const schedule = buildFallbackSchedule({ granularity: expectedGranularity, slotKeys });
     return {
       reply:
         body.mode === 'draft'
           ? 'AI 服务暂时不可用，已使用本地模板生成初稿；配置 DEEPSEEK_API_KEY 后可启用云端生成。'
           : 'AI 服务暂时不可用，已把你的补充直接合并进正文；可稍后重试。',
       suggestedContent: body.mode === 'draft' ? localDraftText : `${body.requirement}\n\n用户补充：${body.message}`,
+      schedule: body.mode === 'draft' ? schedule : undefined,
     };
   }
 }
 
+/** 无 AI 时根据 ai-engine 本地草稿生成一段可读的「计划说明」纯文本 */
 function formatDraftToText(params: { goal: string; startDate: string; endDate: string; cycle: Cycle; requirement: string }) {
   const draft = generatePlanDraft({
     goal: params.goal,
@@ -268,6 +358,7 @@ function formatDraftToText(params: { goal: string; startDate: string; endDate: s
 }
 
 export async function registerPlanRoutes(fastify: FastifyInstance) {
+  // —— CRUD 与草稿生命周期 ——
   fastify.post(
     '/plans',
     { preHandler: fastify.requireRole('user') },
@@ -305,6 +396,27 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
     async (request) => {
       const body = request.body as Record<string, unknown> | undefined;
       return sanitizePlanPatch(body ?? {});
+    }
+  );
+
+  fastify.patch(
+    '/plans/:id/schedule/slots/:slotKey',
+    { preHandler: fastify.requireRole('user') },
+    async (request, reply) => {
+      const payload = await request.jwtVerify<{ sub: string }>();
+      const { id, slotKey } = request.params as { id: string; slotKey: string };
+      const body = normalizeBody(request.body);
+      const content = isRecord(body) && typeof body.content === 'string' ? body.content : undefined;
+      const restore = isRecord(body) && body.restore === true;
+      const result = await updatePlanScheduleSlot({
+        planId: id,
+        userId: payload.sub,
+        slotKey,
+        content,
+        restore,
+      });
+      if (!result.ok) return reply.code(result.code).send({ message: result.message });
+      return reply.send({ schedule: result.schedule, slot: result.slot });
     }
   );
 
@@ -387,6 +499,7 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
     }
   );
 
+  // —— 草稿页流式生成 v1 版本说明（SSE），完成后 updatePlanV1Requirement ——
   fastify.post(
     '/plans/:id/assistant-draft-stream',
     { preHandler: fastify.requireRole('user') },
@@ -428,10 +541,46 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
         let full = '';
         try {
           if (isDeepseekConfigured()) {
+            const existingSchedule = plan.draft?.versions?.[0]?.schedule as
+              | { granularity: 'day' | 'week'; slots: Array<{ slotKey: string }> }
+              | undefined;
+            const expectedGranularity =
+              existingSchedule?.granularity ??
+              decideScheduleGranularity({
+                mode: 'smart',
+                startDate: new Date(`${streamInput.startDate}T00:00:00.000Z`).toISOString(),
+                endDate: new Date(`${streamInput.endDate}T00:00:00.000Z`).toISOString(),
+              });
+            const slotKeys =
+              existingSchedule?.slots?.map((s) => s.slotKey) ??
+              buildScheduleSlotKeys({
+                granularity: expectedGranularity,
+                startDate: new Date(`${streamInput.startDate}T00:00:00.000Z`).toISOString(),
+                endDate: new Date(`${streamInput.endDate}T00:00:00.000Z`).toISOString(),
+              });
+
+            const prompt = [
+              streamInput.assistantPrompt.trim(),
+              '',
+              '请在正文后追加一个严格的 JSON 代码块（```json ...```），仅包含如下结构：',
+              '{',
+              '  "schedule": {',
+              `    "granularity": "${expectedGranularity}",`,
+              '    "slots": [',
+              '      { "slotKey": "...", "content": "..." }',
+              '    ]',
+              '  }',
+              '}',
+              '要求：slotKey 必须严格来自下方「时间槽」列表，且顺序必须完全一致；content 为当期计划一段中文（1-3句，具体可执行）。',
+              '',
+              '时间槽：',
+              ...slotKeys.map((k) => `- ${k}`),
+            ].join('\n');
+
             for await (const chunk of streamDeepseekChat(
               [
                 { role: 'system', content: DEEPSEEK_SYSTEM },
-                { role: 'user', content: streamInput.assistantPrompt.trim() },
+                { role: 'user', content: prompt },
               ],
               { signal: abort.signal },
             )) {
@@ -469,6 +618,7 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
     }
   );
 
+  // —— 创建页 / 专业版对话：非流式 AI 或本地模板 ——
   fastify.post(
     '/plans/assistant',
     { preHandler: fastify.requireRole('user') },
@@ -507,6 +657,7 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
     }
   );
 
+  // —— 上传 docx/txt/md 等，抽取纯文本供前端填表 ——
   fastify.post(
     '/plans/parse-file',
     { preHandler: fastify.requireRole('user') },

@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { ElDatePicker, ElOption } from 'element-plus';
 import { getApiClient } from '../../lib/api-client';
 import { storeDraftStreamPayload } from '../../lib/plan-assistant-stream';
 import { authState } from '../../stores/auth';
@@ -12,7 +11,6 @@ type PlanMode = 'basic' | 'pro';
 type CycleValue = '1w' | '1m' | '3m' | '6m' | 'custom';
 type PlanScenario = 'study' | 'work' | 'exam' | 'fitness' | 'other';
 type StartingPoint = '' | 'none' | 'newbie' | 'junior' | 'intermediate' | 'advanced';
-type OutputMode = 'daily' | 'phase-weekly' | 'phase-monthly';
 type GranularityMode = 'smart' | 'deep' | 'rough';
 type ReminderMode = 'standard' | 'smart';
 type AiDepth = 'basic' | 'advanced';
@@ -27,6 +25,11 @@ type ChatMessage = {
 
 const router = useRouter();
 const route = useRoute();
+
+type AssistantSchedule = {
+  granularity: 'day' | 'week';
+  slots: Array<{ slotKey: string; content: string }>;
+};
 
 function formatDate(date: Date) {
   const y = date.getFullYear();
@@ -106,6 +109,8 @@ const chatMessages = ref<ChatMessage[]>([
   },
 ]);
 
+const assistantSchedule = ref<AssistantSchedule | null>(null);
+
 const form = reactive({
   planScenario: '' as PlanScenario | '',
   goal: '',
@@ -117,7 +122,6 @@ const form = reactive({
   preference: '',
   timeInvestment: 'none',
   timeInvestmentCustomHours: '',
-  outputMode: 'daily' as OutputMode,
   granularityMode: 'smart' as GranularityMode,
   reminderMode: 'standard' as ReminderMode,
   aiDepth: 'basic' as AiDepth,
@@ -190,12 +194,6 @@ const timeInvestmentOptions = [
   { label: '自定义', value: 'custom' },
 ] as const;
 
-const outputModeOptions = [
-  { label: '精确到每天任务', value: 'daily' },
-  { label: '分阶段（周）', value: 'phase-weekly' },
-  { label: '分阶段（月）', value: 'phase-monthly' },
-] as const;
-
 const granularityOptions = [
   { label: '智能推荐', value: 'smart' },
   { label: '深度计划', value: 'deep' },
@@ -206,6 +204,25 @@ const effectiveDeadline = computed(() => {
   if (form.cycle === 'custom') return form.customEndDate;
   return computeDeadlineByCycle(form.startDate, form.cycle);
 });
+
+watch(
+  () => [form.startDate, form.cycle, effectiveDeadline.value, form.granularityMode],
+  () => {
+    assistantSchedule.value = null;
+  }
+);
+
+function attachScheduleJsonToRequirement(text: string, schedule: AssistantSchedule | null) {
+  const trimmed = text.trim();
+  if (!schedule) return trimmed;
+  const payload = {
+    schedule: {
+      granularity: schedule.granularity,
+      slots: schedule.slots.map((s) => ({ slotKey: s.slotKey, content: s.content })),
+    },
+  };
+  return `${trimmed}\n\n\`\`\`json\n${JSON.stringify(payload, null, 2)}\n\`\`\``;
+}
 
 const recommendedMode = computed<GranularityMode>(() => {
   const endDate = effectiveDeadline.value || form.startDate;
@@ -309,7 +326,7 @@ const generatedPrompt = computed(() => {
   } else if (form.timeInvestment !== 'none') {
     contextLines.push(`- 可投入时间：${form.timeInvestment}`);
   }
-  contextLines.push(`- 输出形式偏好：${form.outputMode}`);
+  contextLines.push(`- 计划颗粒度：${form.granularityMode}`);
 
   return `你是一名资深 AI 计划顾问与执行教练。
 
@@ -387,6 +404,7 @@ async function handleSubmit() {
   const client = getApiClient();
   /** 先落库用户填写的正文；第三方 AI 在草稿页流式生成后写回 v1 */
   const finalRequirement = form.requirement.trim();
+  const finalRequirementForSubmit = attachScheduleJsonToRequirement(finalRequirement, assistantSchedule.value);
 
   const profile = {
     planMode: planTierMode.value,
@@ -407,7 +425,6 @@ async function handleSubmit() {
           : form.timeInvestment,
       timeInvestmentCustomHours:
         form.timeInvestment === 'custom' ? Number(form.timeInvestmentCustomHours) : undefined,
-      outputMode: form.outputMode,
       granularityMode: form.granularityMode,
     },
     proSettings: isProMode.value
@@ -421,7 +438,7 @@ async function handleSubmit() {
   const planPayloadDraft = {
     basic: {
       planScenario,
-      goal: form.goal,
+    goal: form.goal,
       requirement: finalRequirement,
       startDate: form.startDate,
       cycle: form.cycle,
@@ -433,7 +450,6 @@ async function handleSubmit() {
         form.timeInvestment === 'custom'
           ? `custom:${Number(form.timeInvestmentCustomHours)}h_weekly`
           : form.timeInvestment,
-      outputMode: form.outputMode,
       granularityMode: form.granularityMode,
     },
     advanced:
@@ -452,7 +468,7 @@ async function handleSubmit() {
     plan = await client.createPlan({
       goal: form.goal,
       deadline,
-      requirement: finalRequirement,
+      requirement: finalRequirementForSubmit,
       type: 'general',
       token: authState.token,
       profile,
@@ -464,7 +480,7 @@ async function handleSubmit() {
       plan = await client.createPlan({
         goal: form.goal,
         deadline,
-        requirement: finalRequirement,
+        requirement: finalRequirementForSubmit,
         type: 'general',
         token: authState.token,
       });
@@ -526,6 +542,7 @@ async function handleGenerateAiDraft() {
             startDate: form.startDate,
             cycle: form.cycle,
             endDate: effectiveDeadline.value || form.startDate,
+            granularityMode: form.granularityMode,
           })
         : {
             reply: '已为你生成一版初稿，你可以继续让我按周/按天细化。',
@@ -533,6 +550,12 @@ async function handleGenerateAiDraft() {
           };
 
     form.requirement = response.suggestedContent;
+    assistantSchedule.value = response.schedule
+      ? {
+          granularity: response.schedule.granularity,
+          slots: response.schedule.slots.map((s) => ({ slotKey: s.slotKey, content: s.content })),
+        }
+      : null;
     errors.requirement = '';
     chatMessages.value.push({
       id: `chat-draft-${Date.now()}`,
@@ -573,10 +596,11 @@ async function handleChatSend() {
             token: authState.token,
             mode: 'chat',
             goal: form.goal || '未命名计划',
-            requirement: form.requirement,
+    requirement: form.requirement,
             startDate: form.startDate || today,
             cycle: form.cycle,
             endDate: effectiveDeadline.value || form.startDate || today,
+            granularityMode: form.granularityMode,
             message: content,
           })
         : {
@@ -679,7 +703,7 @@ async function handlePlanFileChange(event: Event) {
       return;
     }
     const parsed = await client.parsePlanFile({
-      token: authState.token,
+    token: authState.token,
       fileName: file.name,
       contentBase64: base64,
     });
@@ -893,7 +917,7 @@ watch(
                   </UiSunriseSelect>
                 </div>
                 <p v-if="errors.planScenario" class="mt-2 text-xs font-semibold text-[#cc4338]">{{ errors.planScenario }}</p>
-              </label>
+    </label>
 
               <label class="flex min-w-0 flex-col">
                 <p class="field-label"><span class="field-icon required">✦</span>计划名称</p>
@@ -904,7 +928,7 @@ watch(
                   placeholder="例如，学习一门新语言"
                 />
                 <p v-if="errors.goal" class="mt-2 text-xs font-semibold text-[#cc4338]">{{ errors.goal }}</p>
-              </label>
+    </label>
 
               <label class="flex flex-col md:col-span-2">
                 <p class="field-label"><span class="field-icon required">✦</span>计划内容</p>
@@ -915,7 +939,7 @@ watch(
                   placeholder="在这里描述你希望通过这个计划达成的具体成果..."
                 />
                 <p v-if="errors.requirement" class="mt-2 text-xs font-semibold text-[#cc4338]">{{ errors.requirement }}</p>
-              </label>
+    </label>
 
               <label class="flex flex-col md:min-w-0">
                 <p class="field-label"><span class="field-icon required">✦</span>计划开始时间</p>
@@ -931,7 +955,7 @@ watch(
                   />
                 </div>
                 <p v-if="errors.startDate" class="mt-2 text-xs font-semibold text-[#cc4338]">{{ errors.startDate }}</p>
-              </label>
+    </label>
 
               <label class="flex flex-col md:min-w-0">
                 <p class="field-label"><span class="field-icon required">✦</span>计划周期</p>
@@ -960,24 +984,6 @@ watch(
                   />
                 </div>
                 <p v-if="errors.customEndDate" class="mt-2 text-xs font-semibold text-[#cc4338]">{{ errors.customEndDate }}</p>
-              </label>
-
-              <label class="flex flex-col md:min-w-0">
-                <p class="field-label"><span class="field-icon required">✦</span>输出形式</p>
-                <div data-testid="field-output-mode" class="ui-sunrise-select-shell w-full">
-                  <UiSunriseSelect
-                    v-model="form.outputMode"
-                    aria-label="输出形式"
-                    size="large"
-                  >
-                    <ElOption
-                      v-for="option in outputModeOptions"
-                      :key="option.value"
-                      :label="option.label"
-                      :value="option.value"
-                    />
-                  </UiSunriseSelect>
-                </div>
               </label>
 
               <div
@@ -1336,7 +1342,7 @@ watch(
             </div>
           </section>
 
-          </form>
+  </form>
         </div>
       </main>
     </div>

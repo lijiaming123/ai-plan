@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
+import PageSectionHeading from '../../components/PageSectionHeading.vue';
 
 type FaqCategory = 'plan' | 'task' | 'template' | 'account';
 
@@ -140,18 +141,11 @@ function submitFeedback() {
     />
 
     <div class="relative pb-12 pt-0.5">
-      <!-- 压缩首屏：标题 + 统计徽章同一行 -->
-      <header class="help-hero mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h1
-            class="font-editorial text-[clamp(2.25rem,4.2vw,2.85rem)] font-semibold italic leading-[1.05] tracking-[-0.02em] text-[#0f1f16]"
-          >
-            帮助与反馈
-          </h1>
-          <p class="mt-2 max-w-xl text-sm leading-snug text-[#5a6b62]">
-            搜索或按分类浏览常见问题；底部可发邮件反馈。
-          </p>
-        </div>
+      <!-- 页头：与设置页同系的紧凑标题（正文字体、无展示斜体） -->
+      <header class="help-hero mb-4 flex flex-col gap-2.5 sm:flex-row sm:items-end sm:justify-between">
+        <PageSectionHeading kicker="帮助中心" title="帮助与反馈">
+          <p class="leading-snug">搜索或按分类浏览常见问题；底部可发邮件反馈。</p>
+        </PageSectionHeading>
         <div
           class="flex shrink-0 items-center gap-2 rounded-2xl border border-emerald-200/55 bg-white/65 px-3 py-2 text-xs font-semibold text-emerald-900 shadow-sm ring-1 ring-white/90 backdrop-blur-md"
         >

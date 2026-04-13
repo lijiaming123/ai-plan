@@ -5,6 +5,7 @@ import { createAppRouter } from '../src/router';
 import SettingsPage from '../src/features/settings/SettingsPage.vue';
 import { createApiClient, getApiClient, setApiClient } from '../src/lib/api-client';
 import { clearAuthToken, setAuthToken, setUserEmail } from '../src/stores/auth';
+import { resetDisplayProfileForTests } from '../src/stores/display-profile';
 import {
   resetUserPreferencesForTests,
   USER_PREFS_STORAGE_KEY,
@@ -20,7 +21,7 @@ describe('SettingsPage 用户中心', () => {
   beforeEach(() => {
     clearAuthToken();
     resetUserPreferencesForTests();
-    localStorage.removeItem('ai-plan-display-name');
+    resetDisplayProfileForTests();
     const noopFetch = vi.fn(() => Promise.reject(new Error('unexpected fetch'))) as unknown as typeof fetch;
     const base = createApiClient({ baseURL: 'http://test.local', fetchImpl: noopFetch });
     setApiClient({

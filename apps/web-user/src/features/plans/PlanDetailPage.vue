@@ -77,6 +77,66 @@ const executionSnapshot = computed(() => {
   return d.versions[d.versions.length - 1];
 });
 
+const checkinSchedule = computed(() => executionSnapshot.value?.schedule ?? null);
+
+const scheduleEditOpen = ref(false);
+const scheduleEditSlotKey = ref('');
+const scheduleEditContent = ref('');
+const scheduleSaving = ref(false);
+
+function openScheduleEdit(slotKey: string, content: string) {
+  scheduleEditSlotKey.value = slotKey;
+  scheduleEditContent.value = content;
+  scheduleEditOpen.value = true;
+}
+
+async function saveScheduleEdit() {
+  if (!authState.token) return;
+  const slotKey = scheduleEditSlotKey.value;
+  if (!slotKey) return;
+  scheduleSaving.value = true;
+  try {
+    const res = await getApiClient().patchPlanScheduleSlot({
+      id: planId.value,
+      slotKey,
+      token: authState.token,
+      content: scheduleEditContent.value,
+    });
+    if (plan.value?.draft?.versions?.length && executionSnapshot.value) {
+      const targetVersion = executionSnapshot.value.version;
+      const idx = plan.value.draft.versions.findIndex((v) => v.version === targetVersion);
+      if (idx >= 0) plan.value.draft.versions[idx] = { ...plan.value.draft.versions[idx], schedule: res.schedule };
+    }
+    scheduleEditOpen.value = false;
+  } catch (e) {
+    showError(e instanceof Error ? e.message : '保存失败');
+  } finally {
+    scheduleSaving.value = false;
+  }
+}
+
+async function restoreScheduleSlot(slotKey: string) {
+  if (!authState.token) return;
+  scheduleSaving.value = true;
+  try {
+    const res = await getApiClient().patchPlanScheduleSlot({
+      id: planId.value,
+      slotKey,
+      token: authState.token,
+      restore: true,
+    });
+    if (plan.value?.draft?.versions?.length && executionSnapshot.value) {
+      const targetVersion = executionSnapshot.value.version;
+      const idx = plan.value.draft.versions.findIndex((v) => v.version === targetVersion);
+      if (idx >= 0) plan.value.draft.versions[idx] = { ...plan.value.draft.versions[idx], schedule: res.schedule };
+    }
+  } catch (e) {
+    showError(e instanceof Error ? e.message : '恢复失败');
+  } finally {
+    scheduleSaving.value = false;
+  }
+}
+
 const taskRows = computed(() => {
   if (isDraft.value) return [];
   if (!executionSnapshot.value) return [];
@@ -156,6 +216,111 @@ watch(
             </button>
           </div>
         </section>
+
+        <section
+          v-if="checkinSchedule"
+          class="mb-6 rounded-xl border border-[#dfe9e3] bg-white p-5 shadow-sm"
+          data-testid="plan-schedule-panel"
+        >
+          <div class="flex flex-wrap items-end justify-between gap-3">
+            <div class="min-w-0">
+              <p class="text-sm font-semibold text-[#2a3832]">打卡计划</p>
+              <p class="mt-1 text-xs text-[#61896f]">
+                颗粒度：{{ checkinSchedule.granularity === 'day' ? '按天' : '按周' }} · 仅支持编辑内容文本（不改时间槽）
+              </p>
+            </div>
+            <p class="text-xs text-[#61896f]">共 {{ checkinSchedule.slots.length }} 个时间槽</p>
+          </div>
+
+          <div class="mt-4 grid gap-3 sm:grid-cols-2">
+            <article
+              v-for="slot in checkinSchedule.slots"
+              :key="slot.slotKey"
+              class="rounded-xl border border-slate-100 bg-[#fbfcfb] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]"
+            >
+              <div class="flex items-start justify-between gap-3">
+                <div class="min-w-0">
+                  <p class="text-xs font-semibold tracking-[0.08em] text-[#61896f]">
+                    {{ slot.slotKey }}
+                    <span
+                      v-if="slot.contentSource === 'edited'"
+                      class="ml-2 inline-flex rounded-full bg-[#f1f5f3] px-2 py-0.5 text-[10px] font-bold text-[#2a3832]"
+                    >
+                      已编辑
+                    </span>
+                  </p>
+                  <p class="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-[#111813]">{{ slot.content }}</p>
+                </div>
+                <div class="flex flex-col gap-2">
+                  <button
+                    type="button"
+                    class="rounded-lg border border-[#dbe6df] bg-white px-3 py-1.5 text-xs font-semibold text-[#111813] hover:bg-[#f6f8f6] disabled:opacity-50"
+                    :disabled="scheduleSaving"
+                    @click="openScheduleEdit(slot.slotKey, slot.content)"
+                  >
+                    编辑
+                  </button>
+                  <button
+                    type="button"
+                    class="rounded-lg border border-[#f0d8d6] bg-white px-3 py-1.5 text-xs font-semibold text-[#7b2f28] hover:bg-[#fff7f6] disabled:opacity-50"
+                    :disabled="scheduleSaving"
+                    @click="restoreScheduleSlot(slot.slotKey)"
+                  >
+                    恢复
+                  </button>
+                </div>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <div
+          v-if="scheduleEditOpen"
+          class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          data-testid="schedule-edit-dialog"
+          @click.self="scheduleEditOpen = false"
+        >
+          <div class="w-full max-w-xl rounded-2xl bg-white p-6 shadow-xl" @click.stop>
+            <div class="flex items-start justify-between gap-4">
+              <div>
+                <h3 class="text-base font-bold">编辑打卡内容</h3>
+                <p class="mt-1 text-xs text-[#61896f]">时间槽：{{ scheduleEditSlotKey }}</p>
+              </div>
+              <button
+                type="button"
+                class="rounded-lg px-3 py-1.5 text-xs font-semibold text-[#61896f] hover:bg-white/60"
+                @click="scheduleEditOpen = false"
+              >
+                关闭
+              </button>
+            </div>
+            <textarea
+              v-model="scheduleEditContent"
+              rows="6"
+              class="mt-4 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm leading-relaxed"
+              placeholder="仅编辑内容文本，不改变 slotKey"
+            />
+            <div class="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                class="rounded-lg px-4 py-2 text-sm font-semibold text-[#61896f]"
+                :disabled="scheduleSaving"
+                @click="scheduleEditOpen = false"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                class="rounded-lg bg-[#111813] px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
+                :disabled="scheduleSaving"
+                data-testid="schedule-edit-save"
+                @click="saveScheduleEdit"
+              >
+                {{ scheduleSaving ? '保存中…' : '保存' }}
+              </button>
+            </div>
+          </div>
+        </div>
 
         <div
           v-if="showPublishForm"

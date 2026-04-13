@@ -1,3 +1,10 @@
+/**
+ * 市场模板（用户 UGC，MarketTemplate 及相关点赞/收藏表）。
+ *
+ * 列表查询参数由 packages/shared 中 Zod schema 解析；Prisma where 在 publishedMarketBase 等函数拼装。
+ * authorLabel 为演示环境写死映射，生产可换查用户表昵称。
+ * apply 与 preset 类似：校验 payload 后 createGeneratedPlan。
+ */
 import type { Prisma } from '@prisma/client';
 import type { InputJsonValue } from '@prisma/client/runtime/library';
 import {

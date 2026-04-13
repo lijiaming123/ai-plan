@@ -1,6 +1,4 @@
 <script setup lang="ts">
-import { ElSelect } from 'element-plus';
-
 defineOptions({ inheritAttrs: false });
 
 const model = defineModel<unknown>();

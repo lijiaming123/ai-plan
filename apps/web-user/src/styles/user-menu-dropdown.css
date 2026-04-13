@@ -1,0 +1,187 @@
+/* 顶栏用户菜单：与 PlanMaster 绿灰壳层一致，精密分层、无嵌套「盒中盒」 */
+
+.user-menu-popper.el-popper {
+  --user-menu-border: rgba(220, 228, 223, 0.98);
+  --user-menu-shadow:
+    0 24px 56px -32px rgba(8, 40, 28, 0.35),
+    0 0 0 1px rgba(255, 255, 255, 0.9);
+
+  margin-top: 0.45rem !important;
+  padding: 0.5rem 0.45rem 0.55rem;
+  overflow: hidden;
+  border-radius: 1rem;
+  border: 1px solid var(--user-menu-border);
+  background:
+    radial-gradient(ellipse 140% 80% at 0% 0%, rgba(16, 185, 129, 0.07), transparent 55%),
+    radial-gradient(ellipse 100% 60% at 100% 100%, rgba(253, 230, 138, 0.06), transparent 45%),
+    linear-gradient(168deg, rgba(255, 255, 255, 0.99) 0%, rgba(248, 251, 249, 0.98) 100%);
+  box-shadow: var(--user-menu-shadow);
+  backdrop-filter: blur(12px);
+}
+
+.user-menu-popper .el-dropdown-menu {
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+/* —— 账号摘要：单行 flex + 垂直居中，信息列固定字阶与间距 —— */
+.user-menu-popper .user-menu-dropdown-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  max-width: 100%;
+  padding: 0.2rem 0.3rem 0.85rem;
+  margin-bottom: 0.4rem;
+  border-bottom: 1px solid rgba(226, 232, 228, 0.95);
+}
+
+.user-menu-popper .user-menu-dropdown-avatar-wrap {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.user-menu-popper .user-menu-dropdown-identity {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding-top: 0.05rem;
+}
+
+.user-menu-popper .user-menu-dropdown-kicker {
+  margin: 0;
+  font-size: 0.625rem;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: 0.14em;
+  color: rgba(74, 110, 95, 0.88);
+}
+
+.user-menu-popper .user-menu-dropdown-email {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  line-height: 1.35;
+  color: #0f1f16;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-menu-popper .user-menu-dropdown-tier-row {
+  margin: 0.1rem 0 0;
+  line-height: 1;
+}
+
+.user-menu-popper .user-menu-dropdown-tier {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.5rem;
+  border-radius: 9999px;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #065f46;
+  background: rgba(209, 250, 229, 0.72);
+  border: 1px solid rgba(167, 243, 208, 0.9);
+}
+
+/* —— 操作区：轻底 + 图标岛 —— */
+.user-menu-popper .user-menu-dropdown-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.1rem 0.05rem 0.15rem;
+  border-radius: 0.65rem;
+  background: rgba(255, 255, 255, 0.45);
+}
+
+.user-menu-popper .user-menu-nav-item {
+  margin: 0 !important;
+  padding: 0.45rem 0.4rem !important;
+  border-radius: 0.6rem !important;
+  font-size: 0.8125rem !important;
+  font-weight: 600 !important;
+  line-height: 1.35 !important;
+  color: #15251c !important;
+}
+
+.user-menu-popper .user-menu-nav-item .user-menu-item-inner {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+}
+
+.user-menu-popper .user-menu-nav-item .user-menu-item-icon {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 2.1rem;
+  height: 2.1rem;
+  border-radius: 0.55rem;
+  background: rgba(16, 185, 129, 0.1);
+  color: #0a8f4a;
+}
+
+.user-menu-popper .user-menu-nav-item .user-menu-item-icon .material-symbols-outlined {
+  font-size: 1.125rem;
+  opacity: 1;
+}
+
+.user-menu-popper .user-menu-nav-item .user-menu-item-label {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+}
+
+.user-menu-popper .user-menu-nav-item:not(.is-disabled):focus {
+  background: transparent !important;
+}
+
+.user-menu-popper .user-menu-nav-item:not(.is-disabled):hover {
+  background: rgba(16, 185, 129, 0.11) !important;
+  color: #047857 !important;
+}
+
+.user-menu-popper .user-menu-nav-item--divided.user-menu-logout-item,
+.user-menu-popper .user-menu-logout-item {
+  margin-top: 0.2rem !important;
+  color: #9f1239 !important;
+}
+
+.user-menu-popper .user-menu-logout-item:not(.is-disabled):hover {
+  background: rgba(254, 226, 226, 0.55) !important;
+  color: #881337 !important;
+}
+
+.user-menu-popper .user-menu-logout-item .user-menu-item-icon--danger {
+  background: rgba(254, 202, 202, 0.45);
+}
+
+.user-menu-popper .user-menu-logout-icon {
+  color: #e11d48 !important;
+  opacity: 1 !important;
+}
+
+.user-menu-popper .el-dropdown-menu__item--divided {
+  margin-top: 0.25rem;
+}
+
+.user-menu-popper .el-dropdown-menu__item--divided::before {
+  height: 1px;
+  margin: 0 0 0.2rem;
+  background: rgba(230, 235, 232, 0.95);
+}
+
+.user-menu-popper .el-dropdown-menu__item--divided:hover::before {
+  background: rgba(230, 235, 232, 0.95);
+}

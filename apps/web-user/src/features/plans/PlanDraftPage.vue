@@ -14,7 +14,6 @@ import { authState } from '../../stores/auth';
 
 type DraftBundle = NonNullable<PlanRecord['draft']>;
 type DraftVersionSnapshot = DraftBundle['versions'][number];
-type FlatDraftTask = DraftVersionSnapshot['stages'][number]['tasks'][number] & { stageName: string };
 type GranularityMode = 'smart' | 'deep' | 'rough';
 type VersionDiffMeta = {
   addedStages: number;
@@ -135,15 +134,35 @@ async function goToDetail(targetId: string) {
 function requirementForDisplay(ver: { version: number; requirement: string }) {
   if (assistantStreaming.value && ver.version === 1 && v1StreamText.value !== null) {
     const streamed = v1StreamText.value;
-    return streamed.length > 0 ? streamed : ver.requirement;
+    // 流式阶段可能会在尾部逐步输出 ```json；前端展示需要隐藏协议块，避免污染正文区域
+    return streamed.length > 0 ? stripLastJsonCodeBlock(streamed) : ver.requirement;
   }
   return ver.requirement;
 }
 
-function flatDraftTasks(ver: DraftVersionSnapshot): FlatDraftTask[] {
-  return [...ver.stages]
-    .sort((a, b) => a.sortOrder - b.sortOrder)
-    .flatMap((stage) => stage.tasks.map((task) => ({ ...task, stageName: stage.name })));
+function stripLastJsonCodeBlock(text: string) {
+  if (!text) return '';
+  const re = /```json\s*[\s\S]*?\s*```/gi;
+  let m: RegExpExecArray | null = null;
+  let last: { start: number; end: number } | null = null;
+  while ((m = re.exec(text)) !== null) {
+    last = { start: m.index, end: m.index + m[0].length };
+  }
+  if (!last) return text;
+  return `${text.slice(0, last.start)}\n\n${text.slice(last.end)}`.trim();
+}
+
+const checkinSchedule = computed(() => selectedSnapshot.value?.schedule ?? null);
+
+const scheduleEditOpen = ref(false);
+const scheduleEditSlotKey = ref('');
+const scheduleEditContent = ref('');
+const scheduleSaving = ref(false);
+
+function openScheduleEdit(slotKey: string, content: string) {
+  scheduleEditSlotKey.value = slotKey;
+  scheduleEditContent.value = content;
+  scheduleEditOpen.value = true;
 }
 
 async function refreshDraftBundleOnly(capturedSeq: number) {
@@ -158,6 +177,53 @@ async function refreshDraftBundleOnly(capturedSeq: number) {
   } catch (error) {
     if (capturedSeq !== loadDraftSeq) return;
     showError(error instanceof Error ? error.message : '刷新草稿失败');
+  }
+}
+
+async function saveScheduleEdit() {
+  if (!authState.token) return;
+  const slotKey = scheduleEditSlotKey.value;
+  if (!slotKey) return;
+  scheduleSaving.value = true;
+  try {
+    const res = await getApiClient().patchPlanScheduleSlot({
+      id: planId.value,
+      slotKey,
+      token: authState.token,
+      content: scheduleEditContent.value,
+    });
+    const snap = selectedSnapshot.value;
+    if (draftMeta.value?.versions?.length && snap) {
+      const idx = draftMeta.value.versions.findIndex((v) => v.version === snap.version);
+      if (idx >= 0) draftMeta.value.versions[idx] = { ...draftMeta.value.versions[idx], schedule: res.schedule };
+    }
+    scheduleEditOpen.value = false;
+  } catch (e) {
+    showError(e instanceof Error ? e.message : '保存失败');
+  } finally {
+    scheduleSaving.value = false;
+  }
+}
+
+async function restoreScheduleSlot(slotKey: string) {
+  if (!authState.token) return;
+  scheduleSaving.value = true;
+  try {
+    const res = await getApiClient().patchPlanScheduleSlot({
+      id: planId.value,
+      slotKey,
+      token: authState.token,
+      restore: true,
+    });
+    const snap = selectedSnapshot.value;
+    if (draftMeta.value?.versions?.length && snap) {
+      const idx = draftMeta.value.versions.findIndex((v) => v.version === snap.version);
+      if (idx >= 0) draftMeta.value.versions[idx] = { ...draftMeta.value.versions[idx], schedule: res.schedule };
+    }
+  } catch (e) {
+    showError(e instanceof Error ? e.message : '恢复失败');
+  } finally {
+    scheduleSaving.value = false;
   }
 }
 
@@ -480,76 +546,121 @@ watch(
         <p class="text-sm font-bold tracking-tight text-[#4a7a63]">加载草稿中…</p>
       </div>
 
-      <div v-else class="draft-main-enter mx-auto flex h-full min-h-0 w-full max-w-[1600px] flex-col">
-        <div
-          class="draft-version-grid hidden h-full min-h-0 auto-rows-fr gap-4 md:grid md:gap-4 md:pb-0 md:pt-1"
-          :style="{ gridTemplateColumns: `repeat(${Math.max(versions.length, 1)}, minmax(0, 1fr))` }"
+      <div v-else class="draft-main-enter mx-auto flex w-full max-w-[1600px] flex-1 min-h-0 flex-col">
+        <section
+          v-if="checkinSchedule && !assistantStreaming"
+          class="mb-4 w-full rounded-2xl border border-[#dfe9e3] bg-white/90 p-5 shadow-[0_12px_40px_-22px_rgba(18,74,49,0.22)] backdrop-blur-sm"
+          data-testid="draft-schedule-panel"
         >
-          <button
-            v-for="(ver, idx) in versions"
-            :key="ver.version"
-            type="button"
-            class="draft-version-card group relative flex h-full min-h-0 min-w-0 flex-col rounded-2xl text-left outline-none"
-            :class="[
-              selectedVersion === ver.version ? 'draft-version-card--selected draft-card-active' : 'draft-version-card--idle',
-            ]"
-            :style="{ animationDelay: `${idx * 75}ms` }"
-            :data-testid="`draft-card-v${ver.version}`"
-            @click="selectVersion(ver.version)"
-          >
-            <div class="draft-card-head sticky top-0 z-10 rounded-t-2xl px-4 py-3.5">
-              <div class="flex items-center justify-between gap-2">
-                <p class="draft-card-version-label text-lg font-black tracking-tight">v{{ ver.version }}</p>
-                <span
-                  class="draft-card-status inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-bold transition-[background,color,box-shadow] duration-300"
-                  :class="selectedVersion === ver.version ? 'draft-card-status--on' : 'draft-card-status--off'"
-                >
-                  <span class="draft-card-status-dot" aria-hidden="true"></span>
-                  {{ selectedVersion === ver.version ? '当前选中' : '待评估' }}
-                </span>
-              </div>
-              <p class="mt-1.5 text-xs font-medium text-[#61896f]">{{ formatCreatedAt(ver.createdAt) }}</p>
-              <div class="mt-2 flex flex-wrap gap-1.5 text-[11px] font-bold">
-                <template v-if="ver.version === versions[0]?.version">
-                  <span class="rounded-full bg-[#edf4f0] px-2 py-0.5 text-[#5d786b] ring-1 ring-[#dbe8e2]">基线版本</span>
-                </template>
-                <template v-else>
-                  <span class="rounded-full bg-[#e8f7ee] px-2 py-0.5 text-[#0f8b4e]">+阶段 {{ getDiffMeta(ver.version)?.addedStages ?? 0 }}</span>
-                  <span class="rounded-full bg-[#e8f7ee] px-2 py-0.5 text-[#0f8b4e]">+任务 {{ getDiffMeta(ver.version)?.addedTasks ?? 0 }}</span>
-                  <span class="rounded-full bg-[#fff4f2] px-2 py-0.5 text-[#a34e45]">-阶段 {{ getDiffMeta(ver.version)?.removedStages ?? 0 }}</span>
-                  <span class="rounded-full bg-[#fff4f2] px-2 py-0.5 text-[#a34e45]">-任务 {{ getDiffMeta(ver.version)?.removedTasks ?? 0 }}</span>
-                </template>
-              </div>
+          <div class="flex flex-wrap items-end justify-between gap-3">
+            <div class="min-w-0">
+              <p class="text-sm font-black tracking-tight text-[#111813]">打卡计划</p>
+              <p class="mt-1 text-xs font-semibold text-[#61896f]">
+                颗粒度：{{ checkinSchedule.granularity === 'day' ? '按天' : '按周' }} · 等 AI 返回完整 JSON 后生成表格
+              </p>
             </div>
-            <div class="draft-card-scroll ui-scrollbar min-h-0 flex-1 overflow-y-auto rounded-b-2xl px-4 py-4">
-              <div class="draft-requirement-sheet mb-5">
-                <p class="draft-requirement-label">版本说明</p>
-                <div class="relative inline-block max-w-full">
-                  <div class="draft-md" v-html="renderRequirementMd(requirementForDisplay(ver))"></div>
-                  <span
-                    v-if="assistantStreaming && ver.version === 1"
-                    class="draft-stream-caret ml-0.5 inline-block h-4 w-0.5 animate-pulse rounded-sm bg-[#0f8b4e] align-[-0.15em]"
-                    aria-hidden="true"
-                  />
+            <p class="text-xs font-semibold text-[#61896f]">共 {{ checkinSchedule.slots.length }} 个时间槽</p>
+          </div>
+          <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <article
+              v-for="slot in checkinSchedule.slots"
+              :key="slot.slotKey"
+              class="rounded-xl border border-slate-100 bg-[#fbfcfb] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]"
+            >
+              <div class="flex items-start justify-between gap-3">
+                <div class="min-w-0">
+                  <p class="text-xs font-semibold tracking-[0.08em] text-[#61896f]">
+                    {{ slot.slotKey }}
+                    <span
+                      v-if="slot.contentSource === 'edited'"
+                      class="ml-2 inline-flex rounded-full bg-[#f1f5f3] px-2 py-0.5 text-[10px] font-bold text-[#2a3832]"
+                    >
+                      已编辑
+                    </span>
+                  </p>
+                  <p class="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-[#111813]">{{ slot.content }}</p>
+                </div>
+                <div class="flex flex-col gap-2">
+                  <button
+                    type="button"
+                    class="rounded-lg border border-[#dbe6df] bg-white px-3 py-1.5 text-xs font-semibold text-[#111813] hover:bg-[#f6f8f6] disabled:opacity-50"
+                    :disabled="scheduleSaving"
+                    @click="openScheduleEdit(slot.slotKey, slot.content)"
+                  >
+                    编辑
+                  </button>
+                  <button
+                    type="button"
+                    class="rounded-lg border border-[#f0d8d6] bg-white px-3 py-1.5 text-xs font-semibold text-[#7b2f28] hover:bg-[#fff7f6] disabled:opacity-50"
+                    :disabled="scheduleSaving"
+                    @click="restoreScheduleSlot(slot.slotKey)"
+                  >
+                    恢复
+                  </button>
                 </div>
               </div>
-              <ul class="draft-task-list space-y-2.5 text-sm text-[#41534a]">
-                <li
-                  v-for="task in flatDraftTasks(ver)"
-                  :key="task.id"
-                  class="draft-task-item group/task rounded-xl border border-[#e2ece7] bg-[linear-gradient(180deg,#ffffff_0%,#f9fdfb_100%)] px-3.5 py-2.5 leading-relaxed shadow-[inset_0_1px_0_rgba(255,255,255,0.9)] transition duration-200 hover:border-[#a8d4bc] hover:shadow-[0_4px_14px_-6px_rgba(15,139,78,0.2)]"
-                >
-                  <div class="flex items-start justify-between gap-2">
-                    <span class="font-medium text-[#2a3832]">{{ task.title }}</span>
-                    <span v-if="isAddedTask(ver.version, task.stageName, task.title)" class="draft-tag-new shrink-0">新增</span>
-                  </div>
-                </li>
-              </ul>
-            </div>
-          </button>
-        </div>
+            </article>
+          </div>
+        </section>
 
-        <div v-if="selectedSnapshot" class="min-h-0 md:hidden">
+        <div class="min-h-0 flex-1">
+          <div
+            class="draft-version-grid hidden h-full min-h-0 auto-rows-fr gap-4 md:grid md:gap-4 md:pb-0 md:pt-1"
+            :style="{ gridTemplateColumns: `repeat(${Math.max(versions.length, 1)}, minmax(0, 1fr))` }"
+          >
+            <button
+              v-for="(ver, idx) in versions"
+              :key="ver.version"
+              type="button"
+              class="draft-version-card group relative flex h-full min-h-0 min-w-0 flex-col rounded-2xl text-left outline-none"
+              :class="[
+                selectedVersion === ver.version ? 'draft-version-card--selected draft-card-active' : 'draft-version-card--idle',
+              ]"
+              :style="{ animationDelay: `${idx * 75}ms` }"
+              :data-testid="`draft-card-v${ver.version}`"
+              @click="selectVersion(ver.version)"
+            >
+              <div class="draft-card-head sticky top-0 z-10 rounded-t-2xl px-4 py-3.5">
+                <div class="flex items-center justify-between gap-2">
+                  <p class="draft-card-version-label text-lg font-black tracking-tight">v{{ ver.version }}</p>
+                  <span
+                    class="draft-card-status inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-bold transition-[background,color,box-shadow] duration-300"
+                    :class="selectedVersion === ver.version ? 'draft-card-status--on' : 'draft-card-status--off'"
+                  >
+                    <span class="draft-card-status-dot" aria-hidden="true"></span>
+                    {{ selectedVersion === ver.version ? '当前选中' : '待评估' }}
+                  </span>
+                </div>
+                <p class="mt-1.5 text-xs font-medium text-[#61896f]">{{ formatCreatedAt(ver.createdAt) }}</p>
+                <div class="mt-2 flex flex-wrap gap-1.5 text-[11px] font-bold">
+                  <template v-if="ver.version === versions[0]?.version">
+                    <span class="rounded-full bg-[#edf4f0] px-2 py-0.5 text-[#5d786b] ring-1 ring-[#dbe8e2]">基线版本</span>
+                  </template>
+                  <template v-else>
+                    <span class="rounded-full bg-[#e8f7ee] px-2 py-0.5 text-[#0f8b4e]">+阶段 {{ getDiffMeta(ver.version)?.addedStages ?? 0 }}</span>
+                    <span class="rounded-full bg-[#e8f7ee] px-2 py-0.5 text-[#0f8b4e]">+任务 {{ getDiffMeta(ver.version)?.addedTasks ?? 0 }}</span>
+                    <span class="rounded-full bg-[#fff4f2] px-2 py-0.5 text-[#a34e45]">-阶段 {{ getDiffMeta(ver.version)?.removedStages ?? 0 }}</span>
+                    <span class="rounded-full bg-[#fff4f2] px-2 py-0.5 text-[#a34e45]">-任务 {{ getDiffMeta(ver.version)?.removedTasks ?? 0 }}</span>
+                  </template>
+                </div>
+              </div>
+              <div class="draft-card-scroll ui-scrollbar min-h-0 flex-1 overflow-y-auto rounded-b-2xl px-4 py-4">
+                <div class="draft-requirement-sheet mb-5">
+                  <p class="draft-requirement-label">版本说明</p>
+                  <div class="relative inline-block max-w-full">
+                    <div class="draft-md" v-html="renderRequirementMd(requirementForDisplay(ver))"></div>
+                    <span
+                      v-if="assistantStreaming && ver.version === 1"
+                      class="draft-stream-caret ml-0.5 inline-block h-4 w-0.5 animate-pulse rounded-sm bg-[#0f8b4e] align-[-0.15em]"
+                      aria-hidden="true"
+                    />
+                  </div>
+                </div>
+              </div>
+            </button>
+          </div>
+
+          <div v-if="selectedSnapshot" class="min-h-0 md:hidden">
           <article
             class="draft-mobile-card flex flex-col overflow-hidden rounded-2xl border-2 border-[#0f8b4e] bg-white shadow-[0_12px_40px_-14px_rgba(15,139,78,0.35)] ring-2 ring-[#0f8b4e]/18"
             :data-testid="`draft-card-v${selectedSnapshot.version}`"
@@ -570,17 +681,9 @@ watch(
                   />
                 </div>
               </div>
-              <ul class="draft-task-list space-y-2 text-sm">
-                <li
-                  v-for="task in flatDraftTasks(selectedSnapshot)"
-                  :key="task.id"
-                  class="draft-task-item rounded-xl bg-[#f4faf7] px-3.5 py-2.5 font-medium text-[#2a3832] ring-1 ring-[#e2ece7]"
-                >
-                  {{ task.title }}
-                </li>
-              </ul>
             </div>
           </article>
+        </div>
         </div>
 
         <div
@@ -592,6 +695,37 @@ watch(
         </div>
       </div>
     </main>
+
+    <Teleport to="body">
+      <div
+        v-if="scheduleEditOpen"
+        class="draft-modal-backdrop fixed inset-0 z-50 flex items-center justify-center p-4"
+        data-testid="draft-schedule-edit-dialog"
+        @click.self="scheduleEditOpen = false"
+      >
+        <div class="draft-modal-panel w-full max-w-xl rounded-2xl border border-[#d5e8df] bg-[linear-gradient(165deg,#ffffff_0%,#f6fcf9_100%)] p-6 shadow-[0_24px_64px_-24px_rgba(18,74,49,0.45)]" role="dialog" aria-modal="true">
+          <div class="flex items-start justify-between gap-4">
+            <div>
+              <h2 class="text-base font-black tracking-tight text-[#111813]">编辑打卡内容</h2>
+              <p class="mt-1 text-xs font-semibold text-[#61896f]">时间槽：{{ scheduleEditSlotKey }}</p>
+            </div>
+            <button type="button" class="draft-btn draft-btn--ghost h-9 px-3" @click="scheduleEditOpen = false">关闭</button>
+          </div>
+          <textarea
+            v-model="scheduleEditContent"
+            rows="7"
+            class="mt-4 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm leading-relaxed"
+            placeholder="仅编辑内容文本，不改变 slotKey"
+          />
+          <div class="mt-6 flex justify-end gap-2">
+            <button type="button" class="draft-btn draft-btn--ghost h-10 px-4" :disabled="scheduleSaving" @click="scheduleEditOpen = false">取消</button>
+            <button type="button" class="draft-btn draft-btn--primary h-10 px-4 disabled:opacity-60" :disabled="scheduleSaving" @click="saveScheduleEdit">
+              {{ scheduleSaving ? '保存中…' : '保存' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
 
     <!-- 二次确认 -->
     <Teleport to="body">

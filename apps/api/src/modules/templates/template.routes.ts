@@ -1,3 +1,10 @@
+/**
+ * 模板域路由：内置预设（Preset）与社区市场（Market）。
+ *
+ * Preset：运营在库中配置 JSON payload，用户 apply 后调用 createGeneratedPlan 得到新计划。
+ * Market：用户可发布/下架/点赞/收藏；公开列表 optionalViewerUserId 用于在登录时合并「当前用户是否已点赞」等状态。
+ * 具体校验与分页见 market-template.service 内 Zod schema（packages/shared）。
+ */
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { applyPresetTemplate, listPresets } from './preset-template.service';
 import {
@@ -12,6 +19,7 @@ import {
   unlikeMarketTemplate,
 } from './market-template.service';
 
+/** 带 Bearer 则尝试解析 JWT 得到用户 id；失败或匿名则 undefined（用于市场列表是否展示「已点赞」等） */
 async function optionalViewerUserId(request: FastifyRequest): Promise<string | undefined> {
   const auth = request.headers.authorization;
   if (!auth?.startsWith('Bearer ')) {

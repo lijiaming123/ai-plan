@@ -29,6 +29,8 @@ model PlanVersion {
   requirement String
   deadline   DateTime
   snapshot   Json
+  /** 打卡表（按天/按周），与版本绑定；由 DeepSeek 生成并可被用户编辑覆盖 */
+  schedule   Json?
   createdAt  DateTime @default(now())
 
   plan Plan @relation(fields: [planId], references: [id], onDelete: Cascade)

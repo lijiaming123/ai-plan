@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PageSectionHeading from "../../components/PageSectionHeading.vue";
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import type { MarketTemplateBrief, PresetTemplateBrief } from '../../lib/api-client';
@@ -275,12 +276,9 @@ const myScopeOptions: MyScope[] = ['created', 'favorited', 'liked'];
     </div>
 
     <header class="mb-4 flex flex-col gap-4 sm:mb-5 lg:flex-row lg:items-start lg:justify-between">
-      <div class="min-w-0">
-        <h1 class="text-[46px] font-black leading-none tracking-[-0.03em] text-stone-900">模板</h1>
-        <p class="mt-2 max-w-xl text-sm leading-snug text-[#5d6a64]">
-          套用系统预设或社区模板；在「我的模板」查看已发布、收藏与点赞。
-        </p>
-      </div>
+      <PageSectionHeading class="min-w-0 lg:max-w-[min(100%,28rem)]" kicker="模板与复用" title="模板">
+        <p>套用系统预设或社区模板；在「我的模板」查看已发布、收藏与点赞。</p>
+      </PageSectionHeading>
       <div
         class="flex w-full shrink-0 rounded-2xl border border-stone-200/80 bg-stone-50/90 p-1 shadow-sm sm:w-auto"
         role="tablist"

@@ -93,7 +93,6 @@ describe('PlanCreatePage', () => {
             cycle: '1m',
             currentLevel: 'none',
             startingPoint: '',
-            outputMode: 'daily',
             granularityMode: 'smart',
           }),
         }),

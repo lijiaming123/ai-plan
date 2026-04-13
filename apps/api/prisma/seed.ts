@@ -1,3 +1,10 @@
+/**
+ * Prisma seed 入口（`pnpm db:seed` / dev-up 调用）。
+ *
+ * 从 `prisma/seeds/preset-templates.json` 读取数组，对每条按 slug upsert：
+ * 不存在则 create，存在则 update 标题摘要等展示字段并保持 isActive。
+ * 不删除库中已有但 JSON 已移除的预设（需手工清理）。
+ */
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';

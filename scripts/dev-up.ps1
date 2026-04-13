@@ -4,6 +4,12 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $projectRoot = Split-Path -Parent $scriptDir
 Set-Location $projectRoot
 
+# 与仓库 packageManager 一致；未全局安装 pnpm 时由 Node 自带的 corepack 提供
+function Invoke-RepoPnpm {
+  param([Parameter(ValueFromRemainingArguments = $true)] [string[]]$Args)
+  & corepack pnpm @Args
+}
+
 $containerName = "ai-plan-postgres"
 $databaseUrl = "postgresql://postgres:postgres@localhost:5432/ai_plan?schema=public"
 $apiPortCandidates = @(4100, 4200, 4300, 5100, 6100, 7100, 8100, 9100, 12000, 18080)
@@ -85,12 +91,20 @@ if (-not $pgReady) {
 }
 
 $nodeModulesRoot = Join-Path $projectRoot "node_modules"
-if (-not (Test-Path $nodeModulesRoot)) {
-  Write-Host "[dev-up] Installing workspace dependencies..."
-  pnpm install
-}
+
+Write-Host "[dev-up] Installing workspace dependencies (pnpm)..."
+Invoke-RepoPnpm install
 
 & (Join-Path $scriptDir "sync-workspace-packages.ps1")
+
+$prismaEntry = Join-Path $nodeModulesRoot "prisma\build\index.js"
+$tsxEntry = Join-Path $nodeModulesRoot "tsx\dist\cli.mjs"
+if (-not (Test-Path $prismaEntry)) {
+  throw "依赖不完整：缺少 $prismaEntry 。请删除仓库根目录 node_modules 后重新执行 corepack pnpm install"
+}
+if (-not (Test-Path $tsxEntry)) {
+  throw "依赖不完整：缺少 $tsxEntry 。请删除仓库根目录 node_modules 后重新执行 corepack pnpm install"
+}
 
 $env:DATABASE_URL = $databaseUrl
 
@@ -123,20 +137,25 @@ $env:PORT = "$apiPort"
 $env:VITE_API_BASE_URL = $apiBaseUrl
 
 Write-Host "[dev-up] Applying database migrations..."
-pnpm --filter @ai-plan/api prisma migrate dev --name dev_bootstrap
+Push-Location (Join-Path $projectRoot "apps\api")
+try {
+  & node $prismaEntry migrate dev --name dev_bootstrap
+} finally {
+  Pop-Location
+}
 
 Write-Host "[dev-up] Seeding preset templates (idempotent)..."
-pnpm --filter @ai-plan/api db:seed
+Invoke-RepoPnpm --filter @ai-plan/api db:seed
 
 Write-Host "[dev-up] Starting services..."
 Write-Host "  API:       $apiBaseUrl"
 Write-Host "  Web User:  http://localhost:5173"
 Write-Host "  Web Admin: http://localhost:5174"
 
-pnpm exec concurrently `
+Invoke-RepoPnpm exec concurrently `
   -k `
   --names "api,web-user,web-admin" `
   --prefix-colors "cyan,green,magenta" `
-  "pnpm --filter @ai-plan/api dev" `
-  "pnpm --filter @ai-plan/web-user run dev" `
-  "pnpm --filter @ai-plan/web-admin run dev"
+  "corepack pnpm --filter @ai-plan/api dev" `
+  "corepack pnpm --filter @ai-plan/web-user run dev" `
+  "corepack pnpm --filter @ai-plan/web-admin run dev"

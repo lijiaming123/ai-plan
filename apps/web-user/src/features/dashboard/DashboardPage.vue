@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useRouter } from 'vue-router';
+import PageSectionHeading from '../../components/PageSectionHeading.vue';
 import { authState } from '../../stores/auth';
 
 const router = useRouter();
@@ -14,8 +15,11 @@ const greeting = computed(() => {
 
 <template>
   <div class="ui-scrollbar h-full overflow-y-auto pr-1">
-    <h1 class="mb-2 text-[46px] font-black leading-none tracking-[-0.03em]">仪表盘</h1>
-    <p class="mb-8 text-sm text-[#5d6a64]">你好，{{ greeting }}。从这里快速进入计划与设置。</p>
+    <header class="mb-8">
+      <PageSectionHeading kicker="快速开始" title="仪表盘">
+        <p>你好，{{ greeting }}。从这里快速进入计划与设置。</p>
+      </PageSectionHeading>
+    </header>
 
     <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
       <router-link

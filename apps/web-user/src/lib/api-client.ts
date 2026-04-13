@@ -35,7 +35,6 @@ export type CreatePlanInput = {
       focusAreas?: string[];
       timeInvestment: string;
       timeInvestmentCustomHours?: number;
-      outputMode: 'daily' | 'phase-weekly' | 'phase-monthly';
       granularityMode?: 'smart' | 'deep' | 'rough';
     };
     proSettings?: {
@@ -60,12 +59,24 @@ export type PlanAssistantInput = {
   startDate: string;
   cycle: '1w' | '1m' | '3m' | '6m' | 'custom';
   endDate: string;
+  granularityMode?: 'smart' | 'deep' | 'rough';
   message?: string;
 };
 
 export type PlanAssistantResult = {
   reply: string;
   suggestedContent: string;
+  schedule?: {
+    granularity: 'day' | 'week';
+    slots: Array<{
+      slotKey: string;
+      generatedContent: string;
+      content: string;
+      contentSource: 'generated' | 'edited';
+      editedAt?: string;
+      editedByUserId?: string;
+    }>;
+  };
 };
 
 export type ParsePlanFileInput = {
@@ -92,6 +103,17 @@ export type PlanRecord = {
       requirement: string;
       deadline: string;
       createdAt: string;
+      schedule?: {
+        granularity: 'day' | 'week';
+        slots: Array<{
+          slotKey: string;
+          generatedContent: string;
+          content: string;
+          contentSource: 'generated' | 'edited';
+          editedAt?: string;
+          editedByUserId?: string;
+        }>;
+      };
       stages: Array<{
         name: string;
         sortOrder: number;
@@ -178,6 +200,16 @@ export type ApiClient = {
   parsePlanFile(input: ParsePlanFileInput): Promise<ParsePlanFileResult>;
   getPlan(input: { id: string; token: string }): Promise<PlanRecord>;
   getPlanDraft(input: { id: string; token: string }): Promise<NonNullable<PlanRecord['draft']>>;
+  patchPlanScheduleSlot(input: {
+    id: string;
+    slotKey: string;
+    token: string;
+    content?: string;
+    restore?: boolean;
+  }): Promise<{
+    schedule: NonNullable<NonNullable<PlanRecord['draft']>['versions'][number]['schedule']>;
+    slot: NonNullable<NonNullable<PlanRecord['draft']>['versions'][number]['schedule']>['slots'][number];
+  }>;
   regeneratePlan(input: {
     id: string;
     token: string;
@@ -346,6 +378,7 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
           startDate: input.startDate,
           cycle: input.cycle,
           endDate: input.endDate,
+          granularityMode: input.granularityMode,
           message: input.message,
         }),
       });
@@ -376,6 +409,21 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
         headers: {
           Authorization: `Bearer ${input.token}`,
         },
+      });
+    },
+    patchPlanScheduleSlot(input) {
+      return request<{
+        schedule: NonNullable<NonNullable<PlanRecord['draft']>['versions'][number]['schedule']>;
+        slot: NonNullable<NonNullable<PlanRecord['draft']>['versions'][number]['schedule']>['slots'][number];
+      }>(`/plans/${input.id}/schedule/slots/${encodeURIComponent(input.slotKey)}`, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${input.token}`,
+        },
+        body: JSON.stringify({
+          content: input.content,
+          restore: input.restore,
+        }),
       });
     },
     regeneratePlan(input) {

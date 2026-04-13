@@ -1,6 +1,9 @@
 import type { IncomingMessage } from 'node:http';
 import { defineConfig, loadEnv } from 'vite';
 import vue from '@vitejs/plugin-vue';
+import AutoImport from 'unplugin-auto-import/vite';
+import Components from 'unplugin-vue-components/vite';
+import { ElementPlusResolver } from 'unplugin-vue-components/resolvers';
 
 /**
  * 浏览器刷新 /plans、/auth/login 等前端路由时，请求为 GET + HTML 文档；
@@ -31,7 +34,21 @@ export default defineConfig(({ mode }) => {
   };
 
   return {
-    plugins: [vue()],
+    plugins: [
+      vue(),
+      AutoImport({
+        resolvers: [ElementPlusResolver()],
+        dts: 'src/auto-imports.d.ts',
+      }),
+      Components({
+        resolvers: [
+          ElementPlusResolver({
+            importStyle: 'css',
+          }),
+        ],
+        dts: 'src/components.d.ts',
+      }),
+    ],
     server: {
       proxy: {
         '/plans': apiProxy,
@@ -43,6 +60,14 @@ export default defineConfig(({ mode }) => {
       environment: 'jsdom',
       globals: true,
       setupFiles: [],
+      // 路由懒加载会触发更多动态编译/预处理，CI 或冷启动下可能超过默认 5s
+      testTimeout: 15000,
+      server: {
+        deps: {
+          // 按需样式会 import .css；inline 后走 Vite 转换，避免 Node 直接读 .css 报错
+          inline: ['element-plus'],
+        },
+      },
     },
   };
 });

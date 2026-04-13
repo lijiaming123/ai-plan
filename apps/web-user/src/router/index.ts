@@ -1,21 +1,61 @@
 import { createRouter, createWebHistory, createMemoryHistory, type RouterHistory } from 'vue-router';
 import { authState } from '../stores/auth';
-import UserShellLayout from '../layouts/UserShellLayout.vue';
-import LoginPage from '../features/auth/LoginPage.vue';
-import ForgotPasswordPage from '../features/auth/ForgotPasswordPage.vue';
-import DashboardPage from '../features/dashboard/DashboardPage.vue';
-import PlanOverviewPage from '../features/plans/PlanOverviewPage.vue';
-import PlanCreatePage from '../features/plans/PlanCreatePage.vue';
-import PlanDetailPage from '../features/plans/PlanDetailPage.vue';
-import PlanDraftPage from '../features/plans/PlanDraftPage.vue';
-import TemplatesPage from '../features/templates/TemplatesPage.vue';
-import SettingsPage from '../features/settings/SettingsPage.vue';
-import ArchivePage from '../features/archive/ArchivePage.vue';
-import InsightsPage from '../features/insights/InsightsPage.vue';
-import HelpPage from '../features/help/HelpPage.vue';
-import NotificationsPage from '../features/notifications/NotificationsPage.vue';
-import TaskSubmitPage from '../features/submissions/TaskSubmitPage.vue';
-import SubmissionResultPage from '../features/submissions/SubmissionResultPage.vue';
+
+// 路由懒加载：首屏只加载壳层与必要代码，页面按需拉取
+const isTest = import.meta.env.MODE === 'test';
+
+const UserShellLayout = isTest
+  ? (await import('../layouts/UserShellLayout.vue')).default
+  : () => import('../layouts/UserShellLayout.vue');
+
+const LoginPage = isTest
+  ? (await import('../features/auth/LoginPage.vue')).default
+  : () => import('../features/auth/LoginPage.vue');
+const ForgotPasswordPage = isTest
+  ? (await import('../features/auth/ForgotPasswordPage.vue')).default
+  : () => import('../features/auth/ForgotPasswordPage.vue');
+
+const DashboardPage = isTest
+  ? (await import('../features/dashboard/DashboardPage.vue')).default
+  : () => import('../features/dashboard/DashboardPage.vue');
+const PlanOverviewPage = isTest
+  ? (await import('../features/plans/PlanOverviewPage.vue')).default
+  : () => import('../features/plans/PlanOverviewPage.vue');
+const PlanCreatePage = isTest
+  ? (await import('../features/plans/PlanCreatePage.vue')).default
+  : () => import('../features/plans/PlanCreatePage.vue');
+const PlanDetailPage = isTest
+  ? (await import('../features/plans/PlanDetailPage.vue')).default
+  : () => import('../features/plans/PlanDetailPage.vue');
+const PlanDraftPage = isTest
+  ? (await import('../features/plans/PlanDraftPage.vue')).default
+  : () => import('../features/plans/PlanDraftPage.vue');
+
+const TemplatesPage = isTest
+  ? (await import('../features/templates/TemplatesPage.vue')).default
+  : () => import('../features/templates/TemplatesPage.vue');
+const SettingsPage = isTest
+  ? (await import('../features/settings/SettingsPage.vue')).default
+  : () => import('../features/settings/SettingsPage.vue');
+const ArchivePage = isTest
+  ? (await import('../features/archive/ArchivePage.vue')).default
+  : () => import('../features/archive/ArchivePage.vue');
+const InsightsPage = isTest
+  ? (await import('../features/insights/InsightsPage.vue')).default
+  : () => import('../features/insights/InsightsPage.vue');
+const HelpPage = isTest
+  ? (await import('../features/help/HelpPage.vue')).default
+  : () => import('../features/help/HelpPage.vue');
+const NotificationsPage = isTest
+  ? (await import('../features/notifications/NotificationsPage.vue')).default
+  : () => import('../features/notifications/NotificationsPage.vue');
+
+const TaskSubmitPage = isTest
+  ? (await import('../features/submissions/TaskSubmitPage.vue')).default
+  : () => import('../features/submissions/TaskSubmitPage.vue');
+const SubmissionResultPage = isTest
+  ? (await import('../features/submissions/SubmissionResultPage.vue')).default
+  : () => import('../features/submissions/SubmissionResultPage.vue');
 
 export function createAppRouter(history: RouterHistory = createWebHistory()) {
   const router = createRouter({

@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { ElDropdown, ElDropdownMenu, ElDropdownItem } from 'element-plus';
+import UserAvatarBadge from '../components/UserAvatarBadge.vue';
+import { avatarLabel, refreshDisplayProfileFromStorage } from '../stores/display-profile';
 import { authState, clearAuthToken } from '../stores/auth';
 import { planListSearchQuery } from '../stores/plan-search-query';
 
@@ -40,6 +41,10 @@ function logout() {
   planListSearchQuery.value = '';
   void router.push('/auth/login');
 }
+
+onMounted(() => {
+  refreshDisplayProfileFromStorage();
+});
 </script>
 
 <template>
@@ -137,32 +142,68 @@ function logout() {
             <ElDropdown trigger="click" data-testid="header-user-menu" popper-class="user-menu-popper">
               <button
                 type="button"
-                class="flex h-11 max-w-[200px] items-center gap-2 rounded-xl border border-[#e5ebe7] bg-white px-2.5 pl-2 hover:border-primary/30"
+                class="group flex h-11 max-w-[220px] items-center gap-2 rounded-xl border border-[#e5ebe7] bg-white/95 px-2 pl-2 shadow-sm ring-1 ring-white/80 transition hover:border-[#0a8f4a]/35 hover:shadow-md"
                 aria-label="用户菜单"
               >
-                <img
-                  alt=""
-                  class="h-8 w-8 shrink-0 rounded-full object-cover"
-                  src="https://images.unsplash.com/photo-1633332755192-727a05c4013d?auto=format&fit=crop&w=120&q=80"
-                />
+                <UserAvatarBadge variant="header" :label="avatarLabel" />
                 <div class="hidden min-w-0 flex-1 text-left sm:block">
                   <p class="truncate text-xs font-semibold leading-tight text-[#111813]">{{ displayEmail }}</p>
                   <p class="text-[10px] leading-tight text-[#7c8a84]">{{ tierLabel }}</p>
                 </div>
-                <span class="material-symbols-outlined hidden text-[20px] text-[#555] sm:inline">expand_more</span>
+                <span
+                  class="material-symbols-outlined hidden shrink-0 text-[20px] text-[#8d9993] transition group-hover:text-[#0a8f4a] sm:inline"
+                  >expand_more</span
+                >
               </button>
               <template #dropdown>
-                <ElDropdownMenu>
-                  <div class="pointer-events-none max-w-[240px] border-b border-[#eef1ef] px-3 py-2.5" data-testid="dropdown-user-summary">
-                    <p class="text-[10px] font-medium uppercase tracking-wide text-[#8d9993]">当前账号</p>
-                    <p class="mt-0.5 truncate text-sm font-semibold text-[#111813]">{{ displayEmail }}</p>
-                    <p class="mt-0.5 text-xs text-[#5d6a64]">{{ tierLabel }}</p>
+                <ElDropdownMenu
+                  class="user-menu-dropdown-list !max-w-[min(19rem,calc(100vw-1.5rem))] !border-0 !bg-transparent !p-0 !shadow-none"
+                >
+                  <div class="user-menu-dropdown-summary" data-testid="dropdown-user-summary">
+                    <div class="user-menu-dropdown-avatar-wrap">
+                      <!-- :key 避免 Teleport 复用节点时与顶栏头像首字不同步 -->
+                      <UserAvatarBadge :key="avatarLabel" variant="menu" :label="avatarLabel" />
+                    </div>
+                    <div class="user-menu-dropdown-identity">
+                      <p class="user-menu-dropdown-kicker">当前登录</p>
+                      <p class="user-menu-dropdown-email" :title="displayEmail">{{ displayEmail }}</p>
+                      <p class="user-menu-dropdown-tier-row">
+                        <span class="user-menu-dropdown-tier">{{ tierLabel }}</span>
+                      </p>
+                    </div>
                   </div>
-                  <ElDropdownItem data-testid="dropdown-account" @click="router.push('/settings')">
-                    用户中心
-                  </ElDropdownItem>
-                  <ElDropdownItem data-testid="dropdown-help" @click="router.push('/help')">帮助与反馈</ElDropdownItem>
-                  <ElDropdownItem divided data-testid="dropdown-logout" @click="logout">退出登录</ElDropdownItem>
+
+                  <div class="user-menu-dropdown-nav" role="group" aria-label="账户操作">
+                    <ElDropdownItem class="user-menu-nav-item" data-testid="dropdown-account" @click="router.push('/settings')">
+                      <span class="user-menu-item-inner">
+                        <span class="user-menu-item-icon" aria-hidden="true">
+                          <span class="material-symbols-outlined">person</span>
+                        </span>
+                        <span class="user-menu-item-label">用户中心</span>
+                      </span>
+                    </ElDropdownItem>
+                    <ElDropdownItem class="user-menu-nav-item" data-testid="dropdown-help" @click="router.push('/help')">
+                      <span class="user-menu-item-inner">
+                        <span class="user-menu-item-icon" aria-hidden="true">
+                          <span class="material-symbols-outlined">help</span>
+                        </span>
+                        <span class="user-menu-item-label">帮助与反馈</span>
+                      </span>
+                    </ElDropdownItem>
+                    <ElDropdownItem
+                      divided
+                      class="user-menu-nav-item user-menu-logout-item"
+                      data-testid="dropdown-logout"
+                      @click="logout"
+                    >
+                      <span class="user-menu-item-inner">
+                        <span class="user-menu-item-icon user-menu-item-icon--danger" aria-hidden="true">
+                          <span class="material-symbols-outlined user-menu-logout-icon">logout</span>
+                        </span>
+                        <span class="user-menu-item-label">退出登录</span>
+                      </span>
+                    </ElDropdownItem>
+                  </div>
                 </ElDropdownMenu>
               </template>
             </ElDropdown>

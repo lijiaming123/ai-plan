@@ -66,4 +66,5 @@ export function clearAuthToken() {
   localStorage.removeItem(tierStorageKey);
   localStorage.removeItem(emailStorageKey);
   localStorage.removeItem(userIdStorageKey);
+  localStorage.removeItem('ai-plan-display-name');
 }

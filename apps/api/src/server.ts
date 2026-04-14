@@ -6,7 +6,8 @@
  * 2. 非生产环境打印 DeepSeek 是否已配置，避免误以为 AI 路由异常实为未配 KEY。
  * 3. `buildApp()` 创建 Fastify 实例并注册全部插件与路由；最后 `listen` 绑定 `0.0.0.0` 便于容器/局域网访问。
  *
- * 常用环境变量：PORT、DATABASE_URL、JWT_SECRET、DEEPSEEK_*（见 lib/deepseek.ts）。
+ * 常用环境变量：PORT、DATABASE_URL、JWT_SECRET、DEEPSEEK_*（见 lib/deepseek.ts）、
+ * UPLOAD_DIR（可选，用户上传文件目录，默认 apps/api/data/uploads）。
  */
 import { config as loadEnv } from 'dotenv';
 import { dirname, resolve } from 'node:path';

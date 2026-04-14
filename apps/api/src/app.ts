@@ -16,6 +16,8 @@ import { registerAdminRoutes } from './modules/admin/admin.routes';
 import { registerPlanRoutes } from './modules/plans/plan.routes';
 import { registerSubmissionRoutes } from './modules/submissions/submission.routes';
 import { registerTemplateRoutes } from './modules/templates/template.routes';
+import multipart from '@fastify/multipart';
+import { registerUploadRoutes } from './modules/uploads/upload.routes';
 
 export function buildApp() {
   // logger: false 减少默认控制台噪音；需要排障时可改为 true 或接 pino 目标
@@ -33,6 +35,10 @@ export function buildApp() {
       secret: process.env.JWT_SECRET ?? 'dev-secret',
     });
     await authPlugin(fastify);
+    await fastify.register(multipart, {
+      limits: { fileSize: 15 * 1024 * 1024, files: 1 },
+    });
+    await registerUploadRoutes(fastify);
     await registerAuthRoutes(fastify);
     await registerAdminRoutes(fastify);
     await registerPlanRoutes(fastify);

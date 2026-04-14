@@ -215,6 +215,7 @@ const checkinSlotKey = ref('');
 const checkinContent = ref('');
 const checkinAttachments = ref<Array<{ url: string; fileName: string }>>([{ url: '', fileName: '' }]);
 const checkinSaving = ref(false);
+const checkinFileUploading = ref(false);
 
 function openCheckinSubmit(slotKey: string) {
   checkinSlotKey.value = slotKey;
@@ -227,10 +228,18 @@ function addCheckinAttachmentRow() {
   checkinAttachments.value.push({ url: '', fileName: '' });
 }
 
-function onCheckinFilesPicked(files: FileList | null) {
-  if (!files?.length) return;
-  for (const f of Array.from(files)) {
-    checkinAttachments.value.push({ url: `local://${f.name}`, fileName: f.name });
+async function onCheckinFilesPicked(files: FileList | null) {
+  if (!files?.length || !authState.token) return;
+  checkinFileUploading.value = true;
+  try {
+    for (const f of Array.from(files)) {
+      const res = await getApiClient().uploadUserFile({ token: authState.token, file: f });
+      checkinAttachments.value.push({ url: res.url, fileName: res.fileName || f.name });
+    }
+  } catch (e) {
+    showError(e instanceof Error ? e.message : '文件上传失败');
+  } finally {
+    checkinFileUploading.value = false;
   }
 }
 
@@ -589,7 +598,7 @@ watch(
                 <h3 class="text-base font-bold">提交完成证明</h3>
                 <p class="mt-1 text-xs text-[#61896f]">时间槽：{{ checkinSlotKey }}</p>
                 <p class="mt-1 text-xs text-[#61896f]">
-                  请填写说明，并添加可访问的附件链接（图片、PDF、文档等）。与任务页一致，本地演示可使用「选择文件」生成占位链接。
+                  可选：直接选择文件上传至服务器；或手动填写已托管的文件链接（图片、PDF、文档等）。
                 </p>
               </div>
               <button
@@ -637,15 +646,20 @@ watch(
                 增加一行链接
               </button>
               <label
-                class="inline-flex cursor-pointer items-center rounded-lg border border-[#dbe6df] bg-white px-3 py-1.5 text-xs font-semibold text-[#111813] hover:bg-[#f6f8f6]"
+                class="inline-flex cursor-pointer items-center rounded-lg border border-[#dbe6df] bg-white px-3 py-1.5 text-xs font-semibold text-[#111813] hover:bg-[#f6f8f6] disabled:opacity-50"
+                :class="{ 'pointer-events-none opacity-50': checkinFileUploading }"
               >
-                选择文件（占位）
+                {{ checkinFileUploading ? '上传中…' : '选择文件上传' }}
                 <input
                   type="file"
                   class="sr-only"
                   multiple
-                  accept="image/*,.pdf,.doc,.docx,.txt,.md"
-                  @change="onCheckinFilesPicked(($event.target as HTMLInputElement).files)"
+                  accept="image/*,.pdf,.doc,.docx,.txt,.md,.csv"
+                  :disabled="checkinFileUploading"
+                  @change="
+                    void onCheckinFilesPicked(($event.target as HTMLInputElement).files);
+                    (($event.target as HTMLInputElement).value = '')
+                  "
                 />
               </label>
             </div>
@@ -661,7 +675,7 @@ watch(
               <button
                 type="button"
                 class="rounded-lg bg-[#111813] px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
-                :disabled="checkinSaving"
+                :disabled="checkinSaving || checkinFileUploading"
                 data-testid="schedule-checkin-submit"
                 @click="submitCheckin"
               >

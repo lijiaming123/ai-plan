@@ -147,4 +147,4 @@
 | 前端 | `PlanDetailPage.vue`：去任务表、打卡表格/卡片、提交弹窗、`postPlanScheduleSlotCheckin` |
 | 测试 | `web-user`：`plan-detail-page.test.ts`；`api`：`tests/schedule-slot-checkin.test.ts`（需本地 PostgreSQL 已 migrate 且 `prisma generate` 成功） |
 
-附件仍为 **客户端可访问 URL** 入库；未接对象存储时大文件需用户自行托管后填链接。
+附件仍为 **可访问 URL** 入库；已支持 **`POST /uploads` 真文件上传** 落盘至 `UPLOAD_DIR`（默认 `apps/api/data/uploads`），并通过 **`GET /files/:name`** 公开读取（不可猜测的文件名）。跨域部署时前端应配置 `VITE_API_BASE_URL` 指向 API，并在网关将 `/files` 反代到同一 API。

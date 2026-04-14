@@ -447,3 +447,26 @@
 - apps/web-user/tests/plan-draft-page.test.ts
 - docs/superpowers/specs/2026-04-14-plan-detail-page-revision-design.md
 - .ai/logs/operation-log.md
+
+## 2026-04-14 17:53:19
+
+- 操作人：AI
+- 操作：Story实施
+- 提示词：响应用户「希望实现真文件上传」
+- 内容：接入 @fastify/multipart：`POST /uploads`（JWT）单文件字段 `file`，白名单 MIME、15MB 限制，落盘 `UPLOAD_DIR`（默认 apps/api/data/uploads）；`GET /files/:name` 公开流式下载（UUID+扩展名校验防穿越）；web-user 增加 `uploadUserFile`（FormData）；打卡弹窗与任务提交页选文件后实际上传并写入返回 URL；Vite 代理 `/uploads`、`/files`；新增 `tests/file-upload.test.ts` 与更新 submission/plan-detail 测试。
+- 状态：成功
+- 相关文件：
+- apps/api/src/app.ts
+- apps/api/src/modules/uploads/upload.service.ts
+- apps/api/src/modules/uploads/upload.routes.ts
+- apps/api/tests/file-upload.test.ts
+- apps/api/data/uploads/.gitkeep
+- apps/web-user/vite.config.ts
+- apps/web-user/src/lib/api-client.ts
+- apps/web-user/src/features/plans/PlanDetailPage.vue
+- apps/web-user/src/features/submissions/TaskSubmitPage.vue
+- apps/web-user/tests/submission-flow.test.ts
+- apps/web-user/tests/plan-detail-page.test.ts
+- docs/superpowers/specs/2026-04-14-plan-detail-page-revision-design.md
+- .gitignore
+- .ai/logs/operation-log.md

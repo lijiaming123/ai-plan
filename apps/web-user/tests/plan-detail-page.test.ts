@@ -4,7 +4,7 @@ import { createMemoryHistory } from 'vue-router';
 import PlanDetailPage from '../src/features/plans/PlanDetailPage.vue';
 import { createAppRouter } from '../src/router';
 import { clearAuthToken, setAuthToken } from '../src/stores/auth';
-import { setApiClient } from '../src/lib/api-client';
+import { createApiClient, setApiClient } from '../src/lib/api-client';
 
 describe('PlanDetailPage schedule', () => {
   const getPlanMock = vi.fn();
@@ -84,29 +84,10 @@ describe('PlanDetailPage schedule', () => {
     });
 
     setApiClient({
-      login: vi.fn(),
-      getAuthMe: vi.fn(),
-      createPlan: vi.fn(),
-      createSubmission: vi.fn(),
-      planAssistant: vi.fn(),
-      parsePlanFile: vi.fn(),
+      ...createApiClient(),
       getPlan: getPlanMock,
-      getPlanDraft: vi.fn(),
       patchPlanScheduleSlot: patchSlotMock,
       postPlanScheduleSlotCheckin: postCheckinMock,
-      regeneratePlan: vi.fn(),
-      confirmPlan: vi.fn(),
-      comparePlanVersions: vi.fn(),
-      listPresets: vi.fn(),
-      listMarketTemplates: vi.fn(),
-      listMyMarketTemplates: vi.fn(),
-      publishMarketTemplate: vi.fn(),
-      likeMarketTemplate: vi.fn(),
-      unlikeMarketTemplate: vi.fn(),
-      favoriteMarketTemplate: vi.fn(),
-      unfavoriteMarketTemplate: vi.fn(),
-      applyPresetTemplate: vi.fn(),
-      applyMarketTemplate: vi.fn(),
     });
   });
 

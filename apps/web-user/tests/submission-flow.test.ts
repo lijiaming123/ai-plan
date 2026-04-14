@@ -5,30 +5,31 @@ import TaskSubmitPage from '../src/features/submissions/TaskSubmitPage.vue';
 import SubmissionResultPage from '../src/features/submissions/SubmissionResultPage.vue';
 import { createAppRouter } from '../src/router';
 import { clearAuthToken, setAuthToken } from '../src/stores/auth';
-import { setApiClient } from '../src/lib/api-client';
+import { createApiClient, setApiClient } from '../src/lib/api-client';
 
 describe('submission flow', () => {
   const createSubmissionMock = vi.fn();
+  const uploadUserFileMock = vi.fn();
 
   beforeEach(() => {
     clearAuthToken();
     createSubmissionMock.mockReset();
+    uploadUserFileMock.mockReset();
     createSubmissionMock.mockResolvedValue({
       id: 's1',
       content: '完成第 1 阶段任务',
-      images: [{ id: 'img_1', url: 'local://evidence.png', hash: 'hash_1' }],
+      images: [{ id: 'img_1', url: 'https://api.test/files/u1.png', hash: 'hash_1' }],
+    });
+    uploadUserFileMock.mockResolvedValue({
+      path: '/files/u1.png',
+      url: 'https://api.test/files/u1.png',
+      fileName: 'evidence.png',
+      kind: 'image',
     });
     setApiClient({
-      login: vi.fn(),
-      createPlan: vi.fn(),
+      ...createApiClient(),
       createSubmission: createSubmissionMock,
-      planAssistant: vi.fn(),
-      parsePlanFile: vi.fn(),
-      getPlan: vi.fn(),
-      getPlanDraft: vi.fn(),
-      regeneratePlan: vi.fn(),
-      confirmPlan: vi.fn(),
-      comparePlanVersions: vi.fn(),
+      uploadUserFile: uploadUserFileMock,
     });
   });
 
@@ -42,11 +43,13 @@ describe('submission flow', () => {
 
     const file = new File(['image'], 'evidence.png', { type: 'image/png' });
     await wrapper.get('textarea[aria-label="完成说明"]').setValue('完成第 1 阶段任务');
-    const fileInput = wrapper.get('input[aria-label="上传图片"]');
+    const fileInput = wrapper.get('input[aria-label="上传附件"]');
     Object.defineProperty(fileInput.element, 'files', {
       value: [file],
     });
     await fileInput.trigger('change');
+    await flushPromises();
+    expect(uploadUserFileMock).toHaveBeenCalled();
     await wrapper.get('form').trigger('submit');
     await flushPromises();
 

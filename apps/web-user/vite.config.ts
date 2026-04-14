@@ -54,6 +54,8 @@ export default defineConfig(({ mode }) => {
         '/plans': apiProxy,
         '/auth': apiProxy,
         '/tasks': apiProxy,
+        '/uploads': apiProxy,
+        '/files': apiProxy,
       },
     },
     test: {

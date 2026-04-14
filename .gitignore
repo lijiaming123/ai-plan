@@ -1,4 +1,6 @@
 node_modules/
+apps/api/data/uploads/*
+!apps/api/data/uploads/.gitkeep
 apps/api/.env
 stitch_/
 apps/web-user/dist/

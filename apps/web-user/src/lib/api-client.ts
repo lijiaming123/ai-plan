@@ -317,6 +317,11 @@ export type ApiClient = {
   unfavoriteMarketTemplate(input: { id: string; token: string }): Promise<{ favorited: boolean }>;
   applyPresetTemplate(input: { id: string; token: string }): Promise<{ planId: string }>;
   applyMarketTemplate(input: { id: string; token: string }): Promise<{ planId: string }>;
+  /** multipart 单文件，字段名 `file`；返回可写入提交的公开 URL */
+  uploadUserFile(input: {
+    token: string;
+    file: File;
+  }): Promise<{ path: string; url: string; fileName: string; kind: string }>;
 };
 
 function joinUrl(baseURL: string, path: string) {
@@ -634,6 +639,42 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
         method: 'POST',
         headers: { Authorization: `Bearer ${input.token}` },
       });
+    },
+    async uploadUserFile(input) {
+      const fd = new FormData();
+      fd.append('file', input.file);
+      const response = await fetchImpl(joinUrl(baseURL, '/uploads'), {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${input.token}`,
+        },
+        body: fd,
+      });
+      if (!response.ok) {
+        let detail = '';
+        try {
+          const payload = await response.json();
+          if (payload && typeof payload === 'object' && 'message' in payload) {
+            detail = ` - ${(payload as { message?: string }).message ?? ''}`;
+          } else {
+            detail = ` - ${JSON.stringify(payload)}`;
+          }
+        } catch {
+          try {
+            const text = await response.text();
+            if (text) detail = ` - ${text}`;
+          } catch {
+            detail = '';
+          }
+        }
+        throw new Error(`Request failed: ${response.status}${detail}`);
+      }
+      return (await response.json()) as {
+        path: string;
+        url: string;
+        fileName: string;
+        kind: string;
+      };
     },
   };
 }

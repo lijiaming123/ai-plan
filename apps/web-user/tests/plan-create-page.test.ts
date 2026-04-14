@@ -6,7 +6,7 @@ import { createMemoryHistory } from 'vue-router';
 import PlanCreatePage from '../src/features/plans/PlanCreatePage.vue';
 import { createAppRouter } from '../src/router';
 import { clearAuthToken, setAuthTier, setAuthToken } from '../src/stores/auth';
-import { setApiClient } from '../src/lib/api-client';
+import { createApiClient, setApiClient } from '../src/lib/api-client';
 
 async function setPlanSelect(wrapper: VueWrapper, testId: string, value: string) {
   const root = wrapper.get(`[data-testid="${testId}"]`);
@@ -50,17 +50,14 @@ describe('PlanCreatePage', () => {
 
     clearAuthToken();
     setAuthTier('basic');
+    const noopFetch = vi.fn(() =>
+      Promise.reject(new Error('unexpected fetch')),
+    ) as unknown as typeof fetch;
     setApiClient({
-      login: vi.fn(),
+      ...createApiClient({ baseURL: 'http://test.local', fetchImpl: noopFetch }),
       createPlan: createPlanMock,
-      createSubmission: vi.fn(),
       planAssistant: planAssistantMock,
       parsePlanFile: parsePlanFileMock,
-      getPlan: vi.fn(),
-      getPlanDraft: vi.fn(),
-      regeneratePlan: vi.fn(),
-      confirmPlan: vi.fn(),
-      comparePlanVersions: vi.fn(),
     });
   });
 
@@ -378,7 +375,7 @@ describe('PlanCreatePage', () => {
     await wrapper.get('form').trigger('submit');
     await flushPromises();
 
-    expect(wrapper.get('[data-testid="error-toast"]').text()).toContain('Request failed: 400');
+    expect(wrapper.get('[data-testid="error-toast"]').text()).toContain('请求参数有误');
     await wrapper.get('button[aria-label="关闭错误提示"]').trigger('click');
     await flushPromises();
     expect(wrapper.find('[data-testid="error-toast"]').exists()).toBe(false);

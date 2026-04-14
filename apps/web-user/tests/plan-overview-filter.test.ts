@@ -152,4 +152,30 @@ describe("PlanOverviewPage filter", () => {
     await flushPromises();
     expect(wrapper.findAll('[data-testid="plan-card"]').length).toBe(5);
   });
+
+  it("列表加载失败时应使用右侧错误提示且正文为中文", async () => {
+    clearAuthToken();
+    planListSearchQuery.value = "";
+    setAuthToken("token_123");
+    setApiClient({
+      ...createApiClient(),
+      listPlans: vi.fn().mockRejectedValue(
+        new Error(
+          "Request failed: 500 - Can't reach database server at 'localhost:5432'",
+        ),
+      ),
+    });
+    const router = createAppRouter(createMemoryHistory());
+    await router.push("/plans");
+    await router.isReady();
+
+    const wrapper = mount(PlanOverviewPage, {
+      global: { plugins: [router] },
+    });
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="error-toast"]').exists()).toBe(true);
+    expect(wrapper.get('[data-testid="error-toast"]').text()).toContain("数据库");
+    expect(wrapper.text()).not.toMatch(/localhost:5432|prisma/i);
+  });
 });

@@ -1,3 +1,5 @@
+import { formatApiErrorForUser, formatHttpApiUserMessage } from './api-error-message';
+
 export type ApiClientOptions = {
   baseURL?: string;
   fetchImpl?: typeof fetch;
@@ -12,6 +14,18 @@ export type AuthMeResponse = {
   userId: string;
   email: string;
   role: 'user' | 'admin';
+};
+
+export type PlanHeatmapDay = {
+  date: string;
+  status: 'completed' | 'missed' | 'none';
+  summary?: { due: number; done: number };
+};
+
+export type PlanHeatmapResponse = {
+  year: number;
+  timeZone: string;
+  days: PlanHeatmapDay[];
 };
 
 export type CreatePlanInput = {
@@ -232,7 +246,12 @@ export type ScheduleSlotCheckinRecord = {
 export type ApiClient = {
   login(input: LoginInput): Promise<{ token: string }>;
   getAuthMe(input: { token: string }): Promise<AuthMeResponse>;
-  listPlans(input: { token: string }): Promise<{ plans: PlanListRow[] }>;
+  getPlanHeatmap(input: { token: string; year?: number }): Promise<PlanHeatmapResponse>;
+  listPlans(input: {
+    token: string;
+    /** `deadline`：按截止日期升序（更近的在前）。默认按创建时间倒序。 */
+    sort?: 'created' | 'deadline';
+  }): Promise<{ plans: PlanListRow[] }>;
   createPlan(input: CreatePlanInput): Promise<PlanRecord>;
   createSubmission(input: CreateSubmissionInput): Promise<SubmissionRecord>;
   planAssistant(input: PlanAssistantInput): Promise<PlanAssistantResult>;
@@ -330,6 +349,22 @@ function joinUrl(baseURL: string, path: string) {
   return `${normalizedBase}${normalizedPath}`;
 }
 
+async function readHttpErrorDetail(response: Response): Promise<string> {
+  try {
+    const payload = await response.json();
+    if (payload && typeof payload === 'object' && 'message' in payload) {
+      return String((payload as { message?: string }).message ?? '');
+    }
+    return typeof payload === 'string' ? payload : JSON.stringify(payload);
+  } catch {
+    try {
+      return (await response.text()) || '';
+    } catch {
+      return '';
+    }
+  }
+}
+
 /** 与 createApiClient 默认行为一致（去掉末尾 `/`），供流式 fetch 等与 JSON API 共用同一基址 */
 export function getApiBaseURL(): string {
   const raw = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '';
@@ -348,29 +383,19 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
     if (method !== 'GET' && method !== 'HEAD' && !headers['Content-Type']) {
       headers['Content-Type'] = 'application/json';
     }
-    const response = await fetchImpl(joinUrl(baseURL, path), {
-      headers,
-      ...init,
-    });
+    let response: Response;
+    try {
+      response = await fetchImpl(joinUrl(baseURL, path), {
+        headers,
+        ...init,
+      });
+    } catch (e) {
+      throw new Error(formatApiErrorForUser(e));
+    }
 
     if (!response.ok) {
-      let detail = '';
-      try {
-        const payload = await response.json();
-        if (payload && typeof payload === 'object' && 'message' in payload) {
-          detail = ` - ${(payload as { message?: string }).message ?? ''}`;
-        } else {
-          detail = ` - ${JSON.stringify(payload)}`;
-        }
-      } catch {
-        try {
-          const text = await response.text();
-          if (text) detail = ` - ${text}`;
-        } catch {
-          detail = '';
-        }
-      }
-      throw new Error(`Request failed: ${response.status}${detail}`);
+      const detail = await readHttpErrorDetail(response);
+      throw new Error(formatHttpApiUserMessage(response.status, detail));
     }
 
     return (await response.json()) as T;
@@ -391,8 +416,24 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
         },
       });
     },
+    getPlanHeatmap(input) {
+      const q = input.year != null ? `?year=${encodeURIComponent(String(input.year))}` : '';
+      return request<PlanHeatmapResponse>(`/me/plan-heatmap${q}`, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${input.token}`,
+        },
+      });
+    },
     listPlans(input) {
-      return request<{ plans: PlanListRow[] }>('/plans', {
+      const params = new URLSearchParams();
+      if (input.sort === 'deadline') {
+        params.set('sort', 'deadline');
+      } else if (input.sort === 'created') {
+        params.set('sort', 'created');
+      }
+      const qs = params.toString();
+      return request<{ plans: PlanListRow[] }>(`/plans${qs ? `?${qs}` : ''}`, {
         method: 'GET',
         headers: {
           Authorization: `Bearer ${input.token}`,
@@ -643,31 +684,21 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
     async uploadUserFile(input) {
       const fd = new FormData();
       fd.append('file', input.file);
-      const response = await fetchImpl(joinUrl(baseURL, '/uploads'), {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${input.token}`,
-        },
-        body: fd,
-      });
+      let response: Response;
+      try {
+        response = await fetchImpl(joinUrl(baseURL, '/uploads'), {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${input.token}`,
+          },
+          body: fd,
+        });
+      } catch (e) {
+        throw new Error(formatApiErrorForUser(e));
+      }
       if (!response.ok) {
-        let detail = '';
-        try {
-          const payload = await response.json();
-          if (payload && typeof payload === 'object' && 'message' in payload) {
-            detail = ` - ${(payload as { message?: string }).message ?? ''}`;
-          } else {
-            detail = ` - ${JSON.stringify(payload)}`;
-          }
-        } catch {
-          try {
-            const text = await response.text();
-            if (text) detail = ` - ${text}`;
-          } catch {
-            detail = '';
-          }
-        }
-        throw new Error(`Request failed: ${response.status}${detail}`);
+        const detail = await readHttpErrorDetail(response);
+        throw new Error(formatHttpApiUserMessage(response.status, detail));
       }
       return (await response.json()) as {
         path: string;

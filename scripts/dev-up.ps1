@@ -17,8 +17,15 @@ $apiPort = $null
 $dockerDesktopPath = "C:\Program Files\Docker\Docker\Docker Desktop.exe"
 
 function Test-DockerReady {
-  docker ps *> $null
-  return $LASTEXITCODE -eq 0
+  # docker 在引擎未启动时会写 stderr；在 $ErrorActionPreference=Stop 下会变成终止错误，需临时忽略
+  $prev = $ErrorActionPreference
+  $ErrorActionPreference = 'SilentlyContinue'
+  try {
+    docker ps *> $null
+    return $LASTEXITCODE -eq 0
+  } finally {
+    $ErrorActionPreference = $prev
+  }
 }
 
 function Test-PortBindable {

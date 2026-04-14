@@ -121,39 +121,43 @@ function submitFeedback() {
 </script>
 
 <template>
-  <div class="help-root ui-scrollbar relative h-full min-h-0 overflow-y-auto pr-1 font-plan text-[#1a2e22]">
-    <div
-      class="pointer-events-none absolute inset-0 -z-10 min-h-full"
-      style="
-        background:
-          radial-gradient(ellipse 720px 360px at 8% -10%, rgba(16, 185, 129, 0.11), transparent 58%),
-          radial-gradient(ellipse 560px 300px at 96% 0%, rgba(251, 191, 36, 0.06), transparent 52%),
-          linear-gradient(178deg, #f8faf9 0%, #f0f4f1 55%, #eef2ef 100%);
-      "
-      aria-hidden="true"
-    />
-    <div
-      class="pointer-events-none absolute inset-0 -z-10 min-h-full opacity-[0.032]"
-      style="
-        background-image: url('data:image/svg+xml,%3Csvg viewBox=%220 0 256 256%22 xmlns=%22http://www.w3.org/2000/svg%22%3E%3Cfilter id=%22n%22%3E%3CfeTurbulence type=%22fractalNoise%22 baseFrequency=%220.82%22 numOctaves=%223%22 stitchTiles=%22stitch%22/%3E%3C/filter%3E%3Crect width=%22100%25%22 height=%22100%25%22 filter=%22url(%23n)%22/%3E%3C/svg%3E');
-      "
-      aria-hidden="true"
-    />
+  <div
+    class="help-root relative flex h-full min-h-0 w-full flex-col overflow-hidden font-plan text-[#1a2e22]"
+  >
+    <header
+      class="help-hero mb-3 flex shrink-0 flex-col gap-2.5 sm:mb-4 sm:flex-row sm:items-end sm:justify-between"
+    >
+      <PageSectionHeading kicker="帮助中心" title="帮助与反馈">
+        <p class="leading-snug">搜索或按分类浏览常见问题；底部可发邮件反馈。</p>
+      </PageSectionHeading>
+      <div
+        class="flex shrink-0 items-center gap-2 rounded-2xl border border-emerald-200/55 bg-white/65 px-3 py-2 text-xs font-semibold text-emerald-900 shadow-sm ring-1 ring-white/90 backdrop-blur-md"
+      >
+        <span class="material-symbols-outlined text-[18px] text-[#0a8f4a]" aria-hidden="true">quiz</span>
+        <span>{{ faqs.length }} 个常见问题</span>
+      </div>
+    </header>
 
-    <div class="relative pb-12 pt-0.5">
-      <!-- 页头：与设置页同系的紧凑标题（正文字体、无展示斜体） -->
-      <header class="help-hero mb-4 flex flex-col gap-2.5 sm:flex-row sm:items-end sm:justify-between">
-        <PageSectionHeading kicker="帮助中心" title="帮助与反馈">
-          <p class="leading-snug">搜索或按分类浏览常见问题；底部可发邮件反馈。</p>
-        </PageSectionHeading>
-        <div
-          class="flex shrink-0 items-center gap-2 rounded-2xl border border-emerald-200/55 bg-white/65 px-3 py-2 text-xs font-semibold text-emerald-900 shadow-sm ring-1 ring-white/90 backdrop-blur-md"
-        >
-          <span class="material-symbols-outlined text-[18px] text-[#0a8f4a]" aria-hidden="true">quiz</span>
-          <span>{{ faqs.length }} 个常见问题</span>
-        </div>
-      </header>
+    <div class="ui-scrollbar relative min-h-0 flex-1 overflow-y-auto pr-1">
+      <div
+        class="pointer-events-none absolute inset-0 -z-10 min-h-full"
+        style="
+          background:
+            radial-gradient(ellipse 720px 360px at 8% -10%, rgba(16, 185, 129, 0.11), transparent 58%),
+            radial-gradient(ellipse 560px 300px at 96% 0%, rgba(251, 191, 36, 0.06), transparent 52%),
+            linear-gradient(178deg, #f8faf9 0%, #f0f4f1 55%, #eef2ef 100%);
+        "
+        aria-hidden="true"
+      />
+      <div
+        class="pointer-events-none absolute inset-0 -z-10 min-h-full opacity-[0.032]"
+        style="
+          background-image: url('data:image/svg+xml,%3Csvg viewBox=%220 0 256 256%22 xmlns=%22http://www.w3.org/2000/svg%22%3E%3Cfilter id=%22n%22%3E%3CfeTurbulence type=%22fractalNoise%22 baseFrequency=%220.82%22 numOctaves=%223%22 stitchTiles=%22stitch%22/%3E%3C/filter%3E%3Crect width=%22100%25%22 height=%22100%25%22 filter=%22url(%23n)%22/%3E%3C/svg%3E');
+        "
+        aria-hidden="true"
+      />
 
+      <div class="relative pb-12 pt-0.5">
       <section
         class="help-panel mb-5 overflow-hidden rounded-[1.35rem] border border-white/85 bg-white/72 p-4 shadow-[0_22px_50px_-38px_rgba(12,48,32,0.35)] ring-1 ring-stone-200/45 backdrop-blur-md sm:p-5"
       >
@@ -286,15 +290,15 @@ function submitFeedback() {
         <div class="relative mt-5 grid gap-4 sm:grid-cols-[minmax(0,11rem)_1fr] sm:items-end">
           <label class="block text-xs font-bold uppercase tracking-wider text-stone-500">
             类型
-            <select
+            <UiSunriseSelect
               v-model="feedbackKind"
-              class="mt-1.5 w-full rounded-xl border border-stone-200/90 bg-white/95 px-3 py-2.5 text-sm font-semibold text-stone-800 outline-none focus:border-[#0a8f4a]/40 focus:ring-2 focus:ring-[#0a8f4a]/12"
+              class="mt-1.5"
               data-testid="help-feedback-kind"
             >
-              <option value="suggestion">产品建议</option>
-              <option value="bug">故障反馈</option>
-              <option value="other">其他</option>
-            </select>
+              <ElOption value="suggestion" label="产品建议" />
+              <ElOption value="bug" label="故障反馈" />
+              <ElOption value="other" label="其他" />
+            </UiSunriseSelect>
           </label>
           <label class="block sm:col-span-2">
             <span class="text-xs font-bold uppercase tracking-wider text-stone-500">详细描述</span>
@@ -318,6 +322,7 @@ function submitFeedback() {
           通过邮件发送
         </button>
       </section>
+      </div>
     </div>
   </div>
 </template>

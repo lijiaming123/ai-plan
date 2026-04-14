@@ -1,5 +1,127 @@
 # 操作日志
 
+## 2026-04-14 21:59:50
+
+- 操作人：用户
+- 操作：用户提示
+- 提示词：「开始S2,执行之后的计划不需要询问我是否同意」
+- 内容：实施 S2 并连续完成后续前端故事（不逐项确认）
+- 状态：已接收
+- 相关文件：
+- .ai/epics/epic-dashboard-overview.md
+
+## 2026-04-14 21:59:50
+
+- 操作人：AI
+- 操作：Story实施
+- 提示词：响应用户「开始S2,执行之后的计划不需要询问我是否同意」
+- 内容：web-user：`getPlanHeatmap` 与类型；Vite 代理 `/me`；`plan-heatmap-grid.ts` 纯函数；`PlanHeatmapGrid.vue`（周列×七日、月份行、Tooltip、图例、无障碍焦点）；`DashboardPage` 集成年份选择、加载态、`UiErrorToast`；侧栏「概览」；新增 `dashboard-page.test.ts`、`plan-heatmap-grid.test.ts`。Epic S2–S4 标为已完成。
+- 状态：成功
+- 相关文件：
+- apps/web-user/src/lib/api-client.ts
+- apps/web-user/src/lib/plan-heatmap-grid.ts
+- apps/web-user/src/components/PlanHeatmapGrid.vue
+- apps/web-user/src/features/dashboard/DashboardPage.vue
+- apps/web-user/src/layouts/UserShellLayout.vue
+- apps/web-user/vite.config.ts
+- apps/web-user/tests/dashboard-page.test.ts
+- apps/web-user/tests/plan-heatmap-grid.test.ts
+- .ai/epics/epic-dashboard-overview.md
+- .ai/progress.md
+- .ai/logs/operation-log.md
+
+## 2026-04-14 21:44:59
+
+- 操作人：用户
+- 操作：用户提示
+- 提示词：「开始实施 S1」
+- 内容：要求实施 Epic 故事 S1：热力图后端 API 与测试
+- 状态：已接收
+- 相关文件：
+- .ai/epics/epic-dashboard-overview.md
+
+## 2026-04-14 21:44:59
+
+- 操作人：AI
+- 操作：Story实施
+- 提示词：响应用户「开始实施 S1」
+- 内容：新增 `GET /me/plan-heatmap`（需 user JWT，`year` 可选 2000–2100）；`plan-heatmap.service.ts` 实现按日聚合（日键 YYYY-MM-DD、周键 Wn 按 createdAt～deadline 切周）、`buildHeatmapDays`/`weekIndexToDayKeys` 单测及 Prisma mock 下的路由测；`app.ts` 注册 `registerMeRoutes`。
+- 状态：成功
+- 相关文件：
+- apps/api/src/app.ts
+- apps/api/src/modules/me/me.routes.ts
+- apps/api/src/modules/me/plan-heatmap.service.ts
+- apps/api/tests/plan-heatmap.test.ts
+- .ai/epics/epic-dashboard-overview.md
+- .ai/progress.md
+- .ai/logs/operation-log.md
+
+## 2026-04-14 21:38:04
+
+- 操作人：用户
+- 操作：文档审批
+- 提示词：「架构以批准」
+- 内容：用户批准 `.ai/arch.md`（概览与热力图架构），同意进入需求拆解/开发
+- 状态：已批准
+- 相关文件：
+- .ai/arch.md
+
+## 2026-04-14 21:38:04
+
+- 操作人：AI
+- 操作：文档更新 / 文档创建
+- 提示词：响应用户「架构以批准」
+- 内容：将 arch.md 状态与第 13 节更新为已批准；新建 Epic 与进度文档：`.ai/epics/epic-dashboard-overview.md`、`.ai/progress.md`，列出 API 聚合、概览页与热力图、导航与联调等故事及看板状态。
+- 状态：成功
+- 相关文件：
+- .ai/arch.md
+- .ai/epics/epic-dashboard-overview.md
+- .ai/progress.md
+- .ai/logs/operation-log.md
+
+## 2026-04-14 21:34:50
+
+- 操作人：用户
+- 操作：文档审批
+- 提示词：「已批准」
+- 内容：批准《用户端概览/仪表盘与计划完成热力图》PRD，同意进入架构阶段
+- 状态：已批准
+- 相关文件：
+- .ai/specs/2026-04-14-dashboard-overview-prd.md
+
+## 2026-04-14 21:34:50
+
+- 操作人：AI
+- 操作：文档更新 / 文档创建
+- 提示词：响应用户「已批准」
+- 内容：将 PRD 状态与第 12 节更新为已批准；新建 `.ai/arch.md`：基线栈、热力图 BFF API、聚合服务职责、slotKey/打卡数据流、GET /me/plan-heatmap 草案、安全与性能、测试策略；架构文档标为草稿待审批。
+- 状态：成功
+- 相关文件：
+- .ai/specs/2026-04-14-dashboard-overview-prd.md
+- .ai/arch.md
+- .ai/logs/operation-log.md
+
+## 2026-04-14 21:31:42
+
+- 操作人：用户
+- 操作：用户提示
+- 提示词：「愿意，放在 @ai-plan/.ai/ 这个文件夹下」
+- 内容：确认将仪表盘/概览与热力图绿红灰规则写入项目记忆目录 ai-plan/.ai
+- 状态：已接收
+- 相关文件：
+- .ai/specs/2026-04-14-dashboard-overview-prd.md
+
+## 2026-04-14 21:31:42
+
+- 操作人：AI
+- 操作：文档创建
+- 提示词：响应用户「愿意，放在 @ai-plan/.ai/ 这个文件夹下」
+- 内容：在 .ai/specs 下创建《用户端概览/仪表盘与计划完成热力图》PRD：命名建议、热力图范围、绿/红/中性日规则（对齐 schedule 与打卡）、Tooltip、无障碍、API 聚合建议、任务序列、验收标准及 Mermaid 用例流程图；状态为草稿待审批。
+- 状态：成功
+- 相关文件：
+- .ai/specs/2026-04-14-dashboard-overview-prd.md
+- .ai/logs/operation-log.md
+
 ## 2026-04-13 15:33:24
 
 - 操作人：用户

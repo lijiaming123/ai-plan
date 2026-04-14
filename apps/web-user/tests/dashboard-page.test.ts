@@ -1,0 +1,150 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { flushPromises, mount } from "@vue/test-utils";
+import { createMemoryHistory } from "vue-router";
+import { createAppRouter } from "../src/router";
+import DashboardPage from "../src/features/dashboard/DashboardPage.vue";
+import { createApiClient, getApiClient, setApiClient } from "../src/lib/api-client";
+import { clearAuthToken, setAuthToken, setUserEmail } from "../src/stores/auth";
+
+function demoJwt() {
+  const payload = Buffer.from(
+    JSON.stringify({ sub: "user_demo", role: "user" }),
+  ).toString("base64");
+  return `h.${payload}.s`;
+}
+
+function emptyYearDays(year: number) {
+  const days: { date: string; status: "none" }[] = [];
+  const d = new Date(year, 0, 1);
+  while (d.getFullYear() === year) {
+    const y = d.getFullYear();
+    const m = `${d.getMonth() + 1}`.padStart(2, "0");
+    const day = `${d.getDate()}`.padStart(2, "0");
+    days.push({ date: `${y}-${m}-${day}`, status: "none" });
+    d.setDate(d.getDate() + 1);
+  }
+  return days;
+}
+
+describe("DashboardPage 概览与热力图", () => {
+  beforeEach(() => {
+    clearAuthToken();
+    const noopFetch = vi.fn(() =>
+      Promise.reject(new Error("unexpected fetch")),
+    ) as unknown as typeof fetch;
+    const base = createApiClient({
+      baseURL: "http://test.local",
+      fetchImpl: noopFetch,
+    });
+    setApiClient({
+      ...base,
+      getPlanHeatmap: vi.fn().mockResolvedValue({
+        year: 2026,
+        timeZone: "local",
+        days: emptyYearDays(2026),
+      }),
+      listPlans: vi.fn().mockResolvedValue({
+        plans: [
+          {
+            id: "plan_recent_1",
+            goal: "示例计划 Alpha",
+            deadline: "2026-12-01T00:00:00.000Z",
+            requirement: "完成里程碑与复盘",
+            type: "general",
+            status: "active",
+            createdAt: "2026-04-01T00:00:00.000Z",
+          },
+        ],
+      }),
+    });
+  });
+
+  it("登录态应拉取热力图并渲染网格", async () => {
+    const router = createAppRouter(createMemoryHistory());
+    await router.push("/dashboard");
+    await router.isReady();
+
+    setAuthToken(demoJwt());
+    setUserEmail("u@test.dev");
+
+    const wrapper = mount(DashboardPage, {
+      global: { plugins: [router] },
+    });
+    await flushPromises();
+
+    expect(getApiClient().getPlanHeatmap).toHaveBeenCalled();
+    expect(wrapper.text()).toContain("概览");
+    expect(wrapper.text()).toContain("计划打卡热力图");
+    expect(wrapper.find('[data-testid="plan-heatmap-grid"]').exists()).toBe(
+      true,
+    );
+    expect(wrapper.text()).toContain("最近计划");
+    expect(getApiClient().listPlans).toHaveBeenCalledWith(
+      expect.objectContaining({ sort: "deadline" }),
+    );
+    expect(wrapper.find('[data-testid="recent-plans-list"]').exists()).toBe(
+      true,
+    );
+    expect(wrapper.text()).toContain("示例计划 Alpha");
+  });
+
+  it("接口失败时应触发错误提示", async () => {
+    setApiClient({
+      ...createApiClient({
+        baseURL: "http://test.local",
+        fetchImpl: vi.fn() as unknown as typeof fetch,
+      }),
+      getPlanHeatmap: vi.fn().mockRejectedValue(new Error("Request failed: 500")),
+      listPlans: vi.fn().mockResolvedValue({ plans: [] }),
+    });
+
+    const router = createAppRouter(createMemoryHistory());
+    await router.push("/dashboard");
+    await router.isReady();
+
+    setAuthToken(demoJwt());
+    setUserEmail("u@test.dev");
+
+    const wrapper = mount(DashboardPage, {
+      global: { plugins: [router] },
+    });
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="error-toast"]').exists()).toBe(true);
+  });
+
+  it("最近计划接口失败时应在区块内展示错误而不影响热力图", async () => {
+    setApiClient({
+      ...createApiClient({
+        baseURL: "http://test.local",
+        fetchImpl: vi.fn() as unknown as typeof fetch,
+      }),
+      getPlanHeatmap: vi.fn().mockResolvedValue({
+        year: 2026,
+        timeZone: "local",
+        days: emptyYearDays(2026),
+      }),
+      listPlans: vi.fn().mockRejectedValue(new Error("网络异常")),
+    });
+
+    const router = createAppRouter(createMemoryHistory());
+    await router.push("/dashboard");
+    await router.isReady();
+
+    setAuthToken(demoJwt());
+    setUserEmail("u@test.dev");
+
+    const wrapper = mount(DashboardPage, {
+      global: { plugins: [router] },
+    });
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="plan-heatmap-grid"]').exists()).toBe(
+      true,
+    );
+    expect(wrapper.text()).toContain("网络异常");
+    expect(wrapper.find('[data-testid="recent-plans-list"]').exists()).toBe(
+      false,
+    );
+  });
+});

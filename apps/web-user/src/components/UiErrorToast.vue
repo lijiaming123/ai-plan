@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { onBeforeUnmount, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { formatApiErrorForUser } from '../lib/api-error-message';
 
 const props = defineProps<{
   message: string;
@@ -10,6 +11,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   close: [];
 }>();
+
+const displayMessage = computed(() => formatApiErrorForUser(props.message));
 
 const visible = ref(false);
 let timer: ReturnType<typeof setTimeout> | null = null;
@@ -55,7 +58,7 @@ onBeforeUnmount(() => {
     <div class="error-toast-icon" aria-hidden="true">!</div>
     <div class="min-w-0 flex-1">
       <p class="error-toast-title">{{ title ?? '请求失败' }}</p>
-      <p class="error-toast-message">{{ message }}</p>
+      <p class="error-toast-message">{{ displayMessage }}</p>
     </div>
     <button type="button" class="error-toast-close" aria-label="关闭错误提示" @click="handleClose">×</button>
   </div>
@@ -77,7 +80,7 @@ onBeforeUnmount(() => {
   padding: 0.72rem 0.78rem;
   box-shadow: 0 18px 42px -22px rgba(111, 26, 18, 0.4);
   backdrop-filter: blur(6px);
-  animation: toastEnter 220ms ease-out;
+  animation: toastEnterFromRight 260ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .error-toast-icon {
@@ -123,13 +126,13 @@ onBeforeUnmount(() => {
   background: rgba(206, 72, 56, 0.1);
 }
 
-@keyframes toastEnter {
+@keyframes toastEnterFromRight {
   from {
-    transform: translateY(-6px) scale(0.98);
+    transform: translateX(18px);
     opacity: 0;
   }
   to {
-    transform: translateY(0) scale(1);
+    transform: translateX(0);
     opacity: 1;
   }
 }

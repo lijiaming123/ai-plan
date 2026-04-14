@@ -373,7 +373,13 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
     { preHandler: fastify.requireRole('user') },
     async (request, reply) => {
       const payload = await request.jwtVerify<{ sub: string }>();
-      const plans = await listPlansForUser(payload.sub);
+      const q = request.query as { sort?: string };
+      const raw = q.sort;
+      if (raw != null && raw !== '' && raw !== 'created' && raw !== 'deadline') {
+        return reply.code(400).send({ message: 'Invalid sort; use created or deadline' });
+      }
+      const sort = raw === 'deadline' ? 'deadline_asc' : 'created_desc';
+      const plans = await listPlansForUser(payload.sub, { sort });
       return reply.send({ plans });
     },
   );

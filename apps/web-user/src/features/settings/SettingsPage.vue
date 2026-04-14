@@ -133,31 +133,10 @@ watch(
 
 <template>
   <div
-    class="settings-root ui-scrollbar relative h-full min-h-0 overflow-y-auto pr-1 font-plan text-[#1a2e22]"
+    class="settings-root relative flex h-full min-h-0 w-full flex-col overflow-hidden font-plan text-[#1a2e22]"
   >
-    <!-- 氛围底：柔光 + 轻噪点（限定在本页滚动区内） -->
-    <div
-      class="pointer-events-none absolute inset-0 -z-10 min-h-full opacity-100"
-      style="
-        background:
-          radial-gradient(ellipse 720px 380px at 12% -8%, rgba(16, 185, 129, 0.14), transparent 55%),
-          radial-gradient(ellipse 600px 320px at 88% 4%, rgba(253, 230, 138, 0.12), transparent 50%),
-          radial-gradient(ellipse 500px 400px at 50% 108%, rgba(167, 243, 208, 0.18), transparent 58%),
-          linear-gradient(175deg, #f7faf8 0%, #f1f5f3 48%, #eef4f0 100%);
-      "
-      aria-hidden="true"
-    />
-    <div
-      class="pointer-events-none absolute inset-0 -z-10 min-h-full opacity-[0.035]"
-      style="
-        background-image: url('data:image/svg+xml,%3Csvg viewBox=%220 0 256 256%22 xmlns=%22http://www.w3.org/2000/svg%22%3E%3Cfilter id=%22n%22%3E%3CfeTurbulence type=%22fractalNoise%22 baseFrequency=%220.85%22 numOctaves=%223%22 stitchTiles=%22stitch%22/%3E%3C/filter%3E%3Crect width=%22100%25%22 height=%22100%25%22 filter=%22url(%23n)%22/%3E%3C/svg%3E');
-      "
-      aria-hidden="true"
-    />
-
-    <div class="relative pb-12 pt-0.5">
       <header
-        class="settings-panel settings-panel--d0 mb-5 flex flex-col gap-3 lg:mb-6 lg:flex-row lg:items-end lg:justify-between"
+        class="settings-panel settings-panel--d0 relative z-[1] mb-4 flex shrink-0 flex-col gap-3 lg:mb-5 lg:flex-row lg:items-end lg:justify-between"
       >
         <PageSectionHeading kicker="账户与工作区" title="设置">
           <p class="max-w-lg">个人资料、通知与安全集中在此；会员与退出在下方。</p>
@@ -172,6 +151,27 @@ watch(
           </div>
         </div>
       </header>
+
+    <div class="ui-scrollbar relative min-h-0 flex-1 overflow-y-auto pr-1">
+      <div
+        class="pointer-events-none absolute inset-0 -z-10 min-h-full opacity-100"
+        style="
+          background:
+            radial-gradient(ellipse 720px 380px at 12% -8%, rgba(16, 185, 129, 0.14), transparent 55%),
+            radial-gradient(ellipse 600px 320px at 88% 4%, rgba(253, 230, 138, 0.12), transparent 50%),
+            radial-gradient(ellipse 500px 400px at 50% 108%, rgba(167, 243, 208, 0.18), transparent 58%),
+            linear-gradient(175deg, #f7faf8 0%, #f1f5f3 48%, #eef4f0 100%);
+        "
+        aria-hidden="true"
+      />
+      <div
+        class="pointer-events-none absolute inset-0 -z-10 min-h-full opacity-[0.035]"
+        style="
+          background-image: url('data:image/svg+xml,%3Csvg viewBox=%220 0 256 256%22 xmlns=%22http://www.w3.org/2000/svg%22%3E%3Cfilter id=%22n%22%3E%3CfeTurbulence type=%22fractalNoise%22 baseFrequency=%220.85%22 numOctaves=%223%22 stitchTiles=%22stitch%22/%3E%3C/filter%3E%3Crect width=%22100%25%22 height=%22100%25%22 filter=%22url(%23n)%22/%3E%3C/svg%3E');
+        "
+        aria-hidden="true"
+      />
+      <div class="relative pb-12 pt-0.5">
 
       <!-- 个人资料：主视觉卡 -->
       <section
@@ -388,6 +388,7 @@ watch(
           退出登录
         </button>
       </section>
+      </div>
     </div>
   </div>
 </template>

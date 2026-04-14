@@ -64,3 +64,17 @@ This script will:
 - If API tests fail with a Prisma `DATABASE_URL` error, confirm the local Postgres container is running.
 - If admin requests return `403`, verify the token was issued for the admin demo account.
 - If E2E tests fail because the database is empty, rerun the smoke flow or reset the local database.
+
+### Windows: `prisma generate` fails with `EPERM` / `rename ... query_engine-windows.dll.node`
+
+The API (or any Node process) keeps the Prisma query engine DLL loaded. While it is running, `generate` cannot replace that file.
+
+1. **Stop** anything using the client: end `corepack pnpm dev:up`, stop the API `tsx watch` / `node` process, and close other terminals that run the monorepo.
+2. **Retry** from repo root:
+
+   `pnpm exec prisma generate --schema=apps/api/prisma/schema.prisma`
+
+3. If it still fails, **exit Cursor/IDE** temporarily or run the same command in **Windows Terminal / cmd** outside the IDE (some setups lock files under `node_modules`).
+4. Last resort: after all Node processes are stopped, delete `node_modules\.prisma\client\query_engine-windows.dll.node` (and any `*.tmp*` next to it), then run `generate` again.
+
+> 热力图接口已对打卡表使用 `$queryRaw`，在未成功 `generate` 时仍可工作；其它使用 `prisma.planScheduleSlotSubmission` 等模型的代码仍需要成功的 `generate`。

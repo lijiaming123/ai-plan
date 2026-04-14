@@ -56,7 +56,7 @@ const primaryNavItems = [
     to: "/dashboard",
     nav: "dashboard",
     icon: "dashboard",
-    label: "仪表盘",
+    label: "概览",
     testid: "nav-dashboard",
   },
   {
@@ -143,25 +143,27 @@ onMounted(() => {
               shellSidebarCollapsed ? 'justify-center' : 'justify-between'
             "
           >
+            <!-- 用 grid 列 1fr→0fr 收合，避免 max-width 动画中间态挤压文字导致闪烁 -->
             <div
-              class="shell-sidebar-brand-text min-w-0 flex-1 overflow-hidden transition-[max-width,opacity,transform] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]"
+              class="shell-sidebar-brand-text grid min-w-0 flex-1 overflow-hidden transition-[grid-template-columns] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]"
               :class="
                 shellSidebarCollapsed
-                  ? 'max-w-0 -translate-x-4 opacity-0 pointer-events-none'
-                  : 'max-w-[220px] translate-x-0 opacity-100'
+                  ? 'pointer-events-none grid-cols-[0fr]'
+                  : 'grid-cols-[minmax(0,1fr)]'
               "
               :aria-hidden="shellSidebarCollapsed ? 'true' : 'false'"
             >
-              <!-- 动画过程中 max-width 连续变化，禁止换行避免「计划大师」被拆成两行闪烁 -->
-              <div class="w-max max-w-none shrink-0">
-                <h2
-                  class="whitespace-nowrap text-[30px] font-black leading-8 tracking-[-0.03em]"
-                >
-                  计划大师
-                </h2>
-                <p class="mt-1 whitespace-nowrap text-sm text-[#7c8a84]">
-                  PlanMaster System
-                </p>
+              <div class="min-w-0 overflow-hidden">
+                <div class="w-max shrink-0">
+                  <h2
+                    class="whitespace-nowrap text-[30px] font-black leading-8 tracking-[-0.03em]"
+                  >
+                    计划大师
+                  </h2>
+                  <p class="mt-1 whitespace-nowrap text-sm text-[#7c8a84]">
+                    PlanMaster System
+                  </p>
+                </div>
               </div>
             </div>
             <button

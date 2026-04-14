@@ -69,7 +69,7 @@ describe('submission flow', () => {
     await wrapper.get('form').trigger('submit');
     await flushPromises();
 
-    expect(wrapper.get('[data-testid="error-toast"]').text()).toContain('Request failed: 400');
+    expect(wrapper.get('[data-testid="error-toast"]').text()).toContain('请求参数有误');
     await wrapper.get('button[aria-label="关闭错误提示"]').trigger('click');
     await flushPromises();
     expect(wrapper.find('[data-testid="error-toast"]').exists()).toBe(false);

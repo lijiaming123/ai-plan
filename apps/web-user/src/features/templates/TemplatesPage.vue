@@ -254,12 +254,15 @@ const myScopeOptions: MyScope[] = ['created', 'favorited', 'liked'];
 </script>
 
 <template>
-  <div class="ui-scrollbar font-plan h-full overflow-y-auto pr-1 text-stone-800">
+  <div
+    class="relative flex h-full min-h-0 w-full flex-col overflow-hidden font-plan text-stone-800"
+  >
     <UiErrorToast :message="errorToastMessage" @close="errorToastMessage = ''" />
 
+    <div class="shrink-0 space-y-4">
     <div
       v-if="publishBanner"
-      class="mb-4 rounded-2xl border border-emerald-200/80 bg-emerald-50/95 px-4 py-3 text-sm font-medium text-emerald-950"
+      class="rounded-2xl border border-emerald-200/80 bg-emerald-50/95 px-4 py-3 text-sm font-medium text-emerald-950"
       data-testid="published-banner"
     >
       <span class="material-symbols-outlined mr-1.5 inline-block align-middle text-[#0a8f4a]" aria-hidden="true"
@@ -318,7 +321,9 @@ const myScopeOptions: MyScope[] = ['created', 'favorited', 'liked'];
         </button>
       </div>
     </header>
+    </div>
 
+    <div class="ui-scrollbar min-h-0 flex-1 overflow-y-auto pr-1 pb-2">
     <div
       class="mb-6 flex flex-col gap-2 rounded-2xl border border-[#e6ebe8] bg-white p-2 shadow-sm sm:flex-row sm:flex-wrap sm:items-center"
     >
@@ -483,6 +488,7 @@ const myScopeOptions: MyScope[] = ['created', 'favorited', 'liked'];
           @toggle-favorite="onToggleFavorite"
         />
       </section>
+    </div>
     </div>
   </div>
 </template>

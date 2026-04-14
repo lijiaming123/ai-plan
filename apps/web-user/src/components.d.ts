@@ -19,6 +19,7 @@ declare module 'vue' {
     ElOption: typeof import('element-plus/es')['ElOption']
     ElSelect: typeof import('element-plus/es')['ElSelect']
     PageSectionHeading: typeof import('./components/PageSectionHeading.vue')['default']
+    PlanHeatmapGrid: typeof import('./components/PlanHeatmapGrid.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     UiErrorToast: typeof import('./components/UiErrorToast.vue')['default']

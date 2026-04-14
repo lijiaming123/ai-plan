@@ -405,11 +405,16 @@ function mapPlanListRow(row: {
   };
 }
 
-/** 计划列表（我的计划）：仅已定稿 Plan表，按创建时间倒序 */
-export async function listPlansForUser(userId: string) {
+export type PlanListSort = 'created_desc' | 'deadline_asc';
+
+/** 计划列表（我的计划）：仅已定稿 Plan 表。默认按创建时间倒序；`deadline_asc` 按截止日期升序（更近的在前）。 */
+export async function listPlansForUser(userId: string, options?: { sort?: PlanListSort }) {
+  const sort: PlanListSort = options?.sort ?? 'created_desc';
+  const orderBy =
+    sort === 'deadline_asc' ? ({ deadline: 'asc' } as const) : ({ createdAt: 'desc' } as const);
   const rows = await prisma.plan.findMany({
     where: { userId },
-    orderBy: { createdAt: 'desc' },
+    orderBy,
     select: planListSelect,
   });
   return rows.map(mapPlanListRow);

@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import PageSectionHeading from "../../components/PageSectionHeading.vue";
+import UiErrorToast from "../../components/UiErrorToast.vue";
 import { getApiClient, type PlanListRow } from "../../lib/api-client";
 import { authState } from "../../stores/auth";
 import { planListSearchQuery } from "../../stores/plan-search-query";
@@ -24,7 +25,7 @@ type PlanCard = {
 
 const plans = ref<PlanCard[]>([]);
 const listLoading = ref(true);
-const listLoadError = ref("");
+const errorToastMessage = ref("");
 
 /**
  * 标题色：避免与整页浅绿背景「融在一起」——少用青绿系，多用中性灰蓝、天蓝、靛紫与暖色做区分。
@@ -107,14 +108,15 @@ async function loadPlans() {
     return;
   }
   listLoading.value = true;
-  listLoadError.value = "";
+  errorToastMessage.value = "";
   try {
     const { plans: rows } = await getApiClient().listPlans({
       token: authState.token,
     });
     plans.value = rows.map(rowToCard);
   } catch (e) {
-    listLoadError.value = e instanceof Error ? e.message : "加载计划列表失败";
+    errorToastMessage.value =
+      e instanceof Error ? e.message : "加载计划列表失败";
     plans.value = [];
   } finally {
     listLoading.value = false;
@@ -402,13 +404,10 @@ watch(
       </div>
     </header>
 
-    <p
-      v-if="listLoadError && !listLoading"
-      class="mb-3 shrink-0 text-sm font-medium text-red-600"
-      role="alert"
-    >
-      {{ listLoadError }}
-    </p>
+    <UiErrorToast
+      :message="errorToastMessage"
+      @close="errorToastMessage = ''"
+    />
 
     <div class="ui-scrollbar relative min-h-0 flex-1 overflow-y-auto pr-1 pb-2">
       <div

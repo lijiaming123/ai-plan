@@ -1005,19 +1005,17 @@ onBeforeUnmount(() => {
           <label class="mb-1.5 block text-xs font-bold text-[#466257]"
             >当前查看版本</label
           >
-          <select
+          <UiSunriseSelect
             v-model.number="selectedVersion"
-            class="draft-select h-11 w-full rounded-xl border border-[#cfe4d8] bg-white px-3 text-sm font-bold shadow-sm"
             data-testid="draft-version-select"
           >
-            <option
+            <ElOption
               v-for="v in versions"
               :key="`m-${v.version}`"
               :value="v.version"
-            >
-              v{{ v.version }}
-            </option>
-          </select>
+              :label="`v${v.version}`"
+            />
+          </UiSunriseSelect>
         </div>
       </div>
     </header>

@@ -4,7 +4,7 @@ import { createMemoryHistory } from "vue-router";
 import PlanDraftPage from "../src/features/plans/PlanDraftPage.vue";
 import { createAppRouter } from "../src/router";
 import { clearAuthToken, setAuthToken } from "../src/stores/auth";
-import { setApiClient } from "../src/lib/api-client";
+import { createApiClient, setApiClient } from "../src/lib/api-client";
 import {
   consumeAssistantDraftStream,
   consumeRegenerateDraftStream,
@@ -119,19 +119,17 @@ describe("PlanDraftPage", () => {
 
     clearAuthToken();
     setAuthToken("token_123");
+    const noopFetch = vi.fn(() =>
+      Promise.reject(new Error("unexpected fetch")),
+    ) as unknown as typeof fetch;
     setApiClient({
-      login: vi.fn(),
-      createPlan: vi.fn(),
-      createSubmission: vi.fn(),
-      planAssistant: vi.fn(),
-      parsePlanFile: vi.fn(),
+      ...createApiClient({ baseURL: "http://test.local", fetchImpl: noopFetch }),
       getPlan: getPlanMock,
       getPlanDraft: getPlanDraftMock,
       patchPlanScheduleSlot: patchPlanScheduleSlotMock,
       postPlanScheduleSlotCheckin: vi.fn(),
       regeneratePlan: regeneratePlanMock,
       confirmPlan: confirmPlanMock,
-      comparePlanVersions: vi.fn(),
     });
 
     vi.mocked(consumeAssistantDraftStream).mockReset();

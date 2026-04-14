@@ -2,10 +2,13 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import PageSectionHeading from "../../components/PageSectionHeading.vue";
+import { getApiClient, type PlanListRow } from "../../lib/api-client";
+import { authState } from "../../stores/auth";
 import { planListSearchQuery } from "../../stores/plan-search-query";
 
 type PlanStatus = "进行中" | "已完成" | "未开始";
-type FilterType = "全部" | PlanStatus;
+type FilterType = "全部" | "进行中" | "已完成" | "未开始";
+type StatusQuery = "in_progress" | "completed" | "not_started";
 
 type PlanCard = {
   id: string;
@@ -14,72 +17,136 @@ type PlanCard = {
   deadline: string;
   progress: number;
   status: PlanStatus;
+  type: string;
   /** 封面改为无图视觉锚点；保留字段便于后续迁移真实数据 */
   image: string;
 };
 
-const plans = ref<PlanCard[]>([
-  {
-    id: "plan_1",
-    title: "2024年第一季度营销活动",
-    description: "针对核心产品的全球发布会和社交媒体矩阵营销推广计划。",
-    deadline: "2024-03-31",
-    progress: 75,
-    status: "进行中",
-    image:
-      "https://images.unsplash.com/photo-1556155092-490a1ba16284?auto=format&fit=crop&w=1400&q=80",
-  },
-  {
-    id: "plan_2",
-    title: "个人健身年度目标",
-    description: "建立科学的饮食结构与高强度间歇训练计划，维持理想体脂。",
-    deadline: "2024-12-31",
+const plans = ref<PlanCard[]>([]);
+const listLoading = ref(true);
+const listLoadError = ref("");
+
+/**
+ * 标题色：避免与整页浅绿背景「融在一起」——少用青绿系，多用中性灰蓝、天蓝、靛紫与暖色做区分。
+ */
+const TITLE_COLOR_CLASSES = [
+  "text-slate-800",
+  "text-sky-700",
+  "text-indigo-700",
+  "text-violet-700",
+  "text-blue-700",
+  "text-orange-700",
+  "text-rose-700",
+  "text-amber-800",
+] as const;
+
+const TYPE_TO_TITLE_COLOR: Record<
+  string,
+  (typeof TITLE_COLOR_CLASSES)[number]
+> = {
+  general: "text-slate-800",
+  study: "text-sky-700",
+  work: "text-indigo-700",
+  exam: "text-violet-700",
+  fitness: "text-orange-700",
+  other: "text-amber-800",
+};
+
+function hashToIndex(input: string, mod: number) {
+  let h = 5381;
+  for (let i = 0; i < input.length; i++) {
+    h = (h * 33) ^ input.charCodeAt(i);
+  }
+  return Math.abs(h) % mod;
+}
+
+function titleColorClass(plan: Pick<PlanCard, "id" | "type">) {
+  const key = String(plan.type ?? "")
+    .trim()
+    .toLowerCase();
+  const byType = TYPE_TO_TITLE_COLOR[key];
+  if (byType) return byType;
+  return TITLE_COLOR_CLASSES[hashToIndex(plan.id, TITLE_COLOR_CLASSES.length)];
+}
+
+function plainDescription(raw: string, max = 160): string {
+  const t = raw
+    .replace(/<[^>]+>/g, " ")
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (t.length <= max) return t || "暂无描述";
+  return `${t.slice(0, max)}…`;
+}
+
+function deadlineDayFromIso(iso: string): string {
+  const d = iso.slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : iso;
+}
+
+/** 列表仅展示已定稿计划；暂无任务完成度字段时统一显示「进行中」占位，进度 0（后续可接任务统计） */
+function rowToCard(row: PlanListRow): PlanCard {
+  const deadline = deadlineDayFromIso(row.deadline);
+  const description = plainDescription(row.requirement);
+  return {
+    id: row.id,
+    title: row.goal,
+    description,
+    deadline,
+    image: "",
     progress: 0,
-    status: "未开始",
-    image:
-      "https://images.unsplash.com/photo-1574680096145-d05b474e2155?auto=format&fit=crop&w=1400&q=80",
-  },
-  {
-    id: "plan_3",
-    title: "Emerald Kinetic 网站重构",
-    description: "全面升级UI/UX组件库，提升全平台的响应速度与交互体验。",
-    deadline: "2024-05-20",
-    progress: 42,
     status: "进行中",
-    image:
-      "https://images.unsplash.com/photo-1526378800651-c32d170fe6f8?auto=format&fit=crop&w=1400&q=80",
-  },
-  {
-    id: "plan_4",
-    title: "核心产品 V2.0 工业设计",
-    description:
-      "该项目已顺利结项。完成了从概念草图到3D建模的所有设计迭代，目前已进入量产准备阶段。",
-    deadline: "2023-12-15",
-    progress: 100,
-    status: "已完成",
-    image:
-      "https://images.unsplash.com/photo-1473968512647-3e447244af8f?auto=format&fit=crop&w=1400&q=80",
-  },
-  {
-    id: "plan_5",
-    title: "新季度内容运营体系",
-    description: "建立内容选题库与分发节奏，提升自然流量和注册转化率。",
-    deadline: "2024-08-10",
-    progress: 0,
-    status: "未开始",
-    image:
-      "https://images.unsplash.com/photo-1454165804606-c3d57bc86b40?auto=format&fit=crop&w=1400&q=80",
-  },
-]);
+    type: row.type,
+  };
+}
+
+async function loadPlans() {
+  if (!authState.token) {
+    plans.value = [];
+    listLoading.value = false;
+    return;
+  }
+  listLoading.value = true;
+  listLoadError.value = "";
+  try {
+    const { plans: rows } = await getApiClient().listPlans({
+      token: authState.token,
+    });
+    plans.value = rows.map(rowToCard);
+  } catch (e) {
+    listLoadError.value = e instanceof Error ? e.message : "加载计划列表失败";
+    plans.value = [];
+  } finally {
+    listLoading.value = false;
+  }
+}
+
+onMounted(() => {
+  void loadPlans();
+});
 
 const filters: FilterType[] = ["全部", "进行中", "已完成", "未开始"];
 const route = useRoute();
 const router = useRouter();
 
+function filterToQuery(filter: FilterType): StatusQuery | null {
+  if (filter === "进行中") return "in_progress";
+  if (filter === "已完成") return "completed";
+  if (filter === "未开始") return "not_started";
+  return null;
+}
+
+function queryToFilter(status: string): FilterType | null {
+  if (status === "in_progress") return "进行中";
+  if (status === "completed") return "已完成";
+  if (status === "not_started") return "未开始";
+  // legacy: 中文
+  if (filters.includes(status as FilterType)) return status as FilterType;
+  return null;
+}
+
 function normalizeFilter(value: unknown): FilterType {
-  if (typeof value === "string" && filters.includes(value as FilterType)) {
-    return value as FilterType;
-  }
+  if (typeof value === "string") return queryToFilter(value) ?? "全部";
   return "全部";
 }
 
@@ -91,7 +158,9 @@ const searchText = computed(() =>
 
 const filteredPlans = computed(() => {
   let list = plans.value;
-  if (activeFilter.value !== "全部") {
+  if (activeFilter.value === "未开始") {
+    list = list.filter((p) => p.status === "未开始");
+  } else if (activeFilter.value !== "全部") {
     list = list.filter((plan) => plan.status === activeFilter.value);
   }
   const q = searchText.value;
@@ -122,11 +191,9 @@ function setFilter(filter: FilterType) {
   activeFilter.value = filter;
 
   const nextQuery = { ...route.query };
-  if (filter === "全部") {
-    delete nextQuery.status;
-  } else {
-    nextQuery.status = filter;
-  }
+  const q = filterToQuery(filter);
+  if (!q) delete nextQuery.status;
+  else nextQuery.status = q;
   router.replace({ query: nextQuery });
 }
 
@@ -175,11 +242,33 @@ function relativeText(deadline: string): string {
   return "今天截止";
 }
 
+function shortCoverSummary(plan: PlanCard): string {
+  const desc = plan.description?.trim();
+  if (!desc) return "";
+  const max = 34;
+  return desc.length > max ? `${desc.slice(0, max)}…` : desc;
+}
+
 watch(
   () => route.query.status,
   (status) => {
     activeFilter.value = normalizeFilter(status);
+
+    // 若 URL 仍是中文状态值，自动迁移到英文枚举，便于分享/更短更稳
+    if (typeof status === "string") {
+      const desiredFilter = normalizeFilter(status);
+      const desired = filterToQuery(desiredFilter);
+      const current = status;
+      const shouldDelete = desired === null;
+      const shouldReplace = !shouldDelete && current !== desired;
+      if (shouldReplace) {
+        const nextQuery = { ...route.query };
+        nextQuery.status = desired;
+        router.replace({ query: nextQuery });
+      }
+    }
   },
+  { immediate: true },
 );
 
 /** Tab 滑动高亮：仅动轨道上的指示 pill，下方内容区不参与过渡 */
@@ -313,8 +402,27 @@ watch(
       </div>
     </header>
 
-    <div class="ui-scrollbar min-h-0 flex-1 overflow-y-auto pr-1 pb-2">
+    <p
+      v-if="listLoadError && !listLoading"
+      class="mb-3 shrink-0 text-sm font-medium text-red-600"
+      role="alert"
+    >
+      {{ listLoadError }}
+    </p>
+
+    <div class="ui-scrollbar relative min-h-0 flex-1 overflow-y-auto pr-1 pb-2">
       <div
+        v-if="listLoading"
+        class="flex min-h-[240px] flex-col items-center justify-center gap-2 text-stone-500"
+      >
+        <span
+          class="inline-block h-8 w-8 animate-spin rounded-full border-2 border-emerald-200 border-t-emerald-600"
+          aria-hidden="true"
+        />
+        <span class="text-sm font-medium">加载计划列表中…</span>
+      </div>
+      <div
+        v-else
         class="grid grid-cols-1 gap-5 pb-8 sm:grid-cols-2 sm:gap-6 lg:grid-cols-3"
       >
         <router-link
@@ -326,40 +434,70 @@ watch(
           :style="{ '--stagger': `${index * 45}ms` }"
         >
           <!-- 无图封面：进度环 + 时间(A2) + 状态 pill（不展示标签） -->
-          <div class="plan-cover relative overflow-hidden" :class="coverTheme(plan.status)">
+          <div
+            class="plan-cover relative overflow-hidden"
+            :class="coverTheme(plan.status)"
+          >
             <div class="plan-cover-grain" aria-hidden="true" />
             <div class="plan-cover-soft" aria-hidden="true" />
 
             <div class="plan-cover-inner flex items-center gap-4 px-5 py-4">
-              <div class="plan-ring-wrap shrink-0" :style="{ '--p': `${Math.max(0, Math.min(100, plan.progress))}` }">
+              <div
+                class="plan-ring-wrap shrink-0"
+                :style="{
+                  '--p': `${Math.max(0, Math.min(100, plan.progress))}`,
+                }"
+              >
                 <div class="plan-ring" aria-hidden="true" />
                 <div class="plan-ring-text" aria-hidden="true">
-                  <span class="plan-ring-num tabular-nums">{{ plan.progress }}%</span>
+                  <span class="plan-ring-num tabular-nums"
+                    >{{ plan.progress }}%</span
+                  >
                 </div>
               </div>
 
               <div class="min-w-0 flex-1">
-                <p class="plan-cover-time text-[12px] font-semibold text-stone-900/80">
+                <p
+                  class="plan-cover-time text-[12px] font-semibold text-stone-900/80"
+                >
                   {{ dueText(plan.deadline) }}
-                  <span v-if="relativeText(plan.deadline)" class="text-stone-900/35">·</span>
+                  <span
+                    v-if="relativeText(plan.deadline)"
+                    class="text-stone-900/35"
+                    >·</span
+                  >
                   <span
                     class="plan-cover-rel"
-                    :class="relativeText(plan.deadline).startsWith('已逾期') ? 'plan-cover-rel--overdue' : ''"
+                    :class="
+                      relativeText(plan.deadline).startsWith('已逾期')
+                        ? 'plan-cover-rel--overdue'
+                        : ''
+                    "
                     >{{ relativeText(plan.deadline) }}</span
                   >
                 </p>
                 <div class="mt-2 flex items-center gap-2">
-                  <span class="plan-status-pill" :class="statusClass(plan.status)">
+                  <span
+                    class="plan-status-pill"
+                    :class="statusClass(plan.status)"
+                  >
                     {{ plan.status }}
                   </span>
                 </div>
+                <p
+                  v-if="shortCoverSummary(plan)"
+                  class="mt-2 line-clamp-1 text-[12px] font-medium text-stone-900/65"
+                >
+                  {{ shortCoverSummary(plan) }}
+                </p>
               </div>
             </div>
           </div>
 
           <div class="flex flex-1 flex-col p-5">
             <h2
-              class="mb-2 line-clamp-2 text-lg font-bold leading-snug tracking-tight text-stone-900 sm:text-xl"
+              class="mb-2 line-clamp-2 text-lg font-bold leading-snug tracking-tight sm:text-xl"
+              :class="titleColorClass(plan)"
             >
               {{ plan.title }}
             </h2>
@@ -370,20 +508,26 @@ watch(
             </p>
             <div class="mt-auto">
               <div
-                class="mb-2 flex items-center justify-between text-xs font-semibold text-stone-500"
+                class="flex flex-wrap items-center justify-between gap-2 text-xs font-semibold text-stone-500"
               >
-                <span>完成进度</span>
-                <span class="tabular-nums text-stone-800"
-                  >{{ plan.progress }}%</span
+                <span class="inline-flex items-center gap-1.5">
+                  <span class="tabular-nums text-stone-800"
+                    >{{ plan.progress }}%</span
+                  >
+                  <span class="text-stone-400">·</span>
+                  <span>{{ dueText(plan.deadline) }}</span>
+                </span>
+                <span
+                  v-if="relativeText(plan.deadline)"
+                  class="tabular-nums"
+                  :class="
+                    relativeText(plan.deadline).startsWith('已逾期')
+                      ? 'text-rose-700'
+                      : 'text-stone-600'
+                  "
                 >
-              </div>
-              <div
-                class="h-2.5 overflow-hidden rounded-full bg-stone-100 shadow-[inset_0_1px_2px_rgba(0,0,0,0.06)]"
-              >
-                <div
-                  class="plan-progress-fill h-full rounded-full bg-gradient-to-r from-emerald-400 to-primary shadow-[0_0_12px_-2px_rgba(19,236,91,0.5)] transition-all duration-500"
-                  :style="{ width: `${plan.progress}%` }"
-                />
+                  {{ relativeText(plan.deadline) }}
+                </span>
               </div>
             </div>
           </div>
@@ -419,7 +563,7 @@ watch(
             >
               <span
                 class="material-symbols-outlined text-3xl text-stone-900"
-                style="font-variation-settings: &quot;wght&quot; 600"
+                style="font-variation-settings: 'wght' 600"
                 >add</span
               >
             </div>
@@ -584,30 +728,74 @@ watch(
   inset: 0;
   pointer-events: none;
   background:
-    radial-gradient(ellipse 520px 220px at 18% 10%, rgba(255, 255, 255, 0.75), transparent 55%),
-    radial-gradient(ellipse 520px 240px at 86% 92%, rgba(255, 255, 255, 0.65), transparent 55%);
+    radial-gradient(
+      ellipse 520px 220px at 18% 10%,
+      rgba(255, 255, 255, 0.75),
+      transparent 55%
+    ),
+    radial-gradient(
+      ellipse 520px 240px at 86% 92%,
+      rgba(255, 255, 255, 0.65),
+      transparent 55%
+    );
   opacity: 0.75;
 }
 
 .cover--active {
   background:
-    radial-gradient(ellipse 520px 240px at 12% 0%, rgba(16, 185, 129, 0.22), transparent 58%),
-    radial-gradient(ellipse 520px 260px at 92% 100%, rgba(253, 230, 138, 0.14), transparent 55%),
-    linear-gradient(165deg, rgba(255, 255, 255, 0.92) 0%, rgba(240, 252, 246, 0.92) 100%);
+    radial-gradient(
+      ellipse 520px 240px at 12% 0%,
+      rgba(16, 185, 129, 0.22),
+      transparent 58%
+    ),
+    radial-gradient(
+      ellipse 520px 260px at 92% 100%,
+      rgba(253, 230, 138, 0.14),
+      transparent 55%
+    ),
+    linear-gradient(
+      165deg,
+      rgba(255, 255, 255, 0.92) 0%,
+      rgba(240, 252, 246, 0.92) 100%
+    );
 }
 
 .cover--idle {
   background:
-    radial-gradient(ellipse 520px 240px at 12% 0%, rgba(148, 163, 156, 0.18), transparent 58%),
-    radial-gradient(ellipse 520px 260px at 92% 100%, rgba(226, 232, 228, 0.32), transparent 55%),
-    linear-gradient(165deg, rgba(255, 255, 255, 0.92) 0%, rgba(248, 250, 249, 0.92) 100%);
+    radial-gradient(
+      ellipse 520px 240px at 12% 0%,
+      rgba(148, 163, 156, 0.18),
+      transparent 58%
+    ),
+    radial-gradient(
+      ellipse 520px 260px at 92% 100%,
+      rgba(226, 232, 228, 0.32),
+      transparent 55%
+    ),
+    linear-gradient(
+      165deg,
+      rgba(255, 255, 255, 0.92) 0%,
+      rgba(248, 250, 249, 0.92) 100%
+    );
 }
 
 .cover--done {
   background:
-    radial-gradient(ellipse 520px 240px at 12% 0%, rgba(20, 184, 166, 0.18), transparent 58%),
-    radial-gradient(ellipse 520px 260px at 92% 100%, rgba(16, 185, 129, 0.1), transparent 55%),
-    linear-gradient(165deg, rgba(255, 255, 255, 0.92) 0%, rgba(238, 252, 249, 0.92) 100%);
+    radial-gradient(
+      ellipse 520px 240px at 12% 0%,
+      rgba(20, 184, 166, 0.18),
+      transparent 58%
+    ),
+    radial-gradient(
+      ellipse 520px 260px at 92% 100%,
+      rgba(16, 185, 129, 0.1),
+      transparent 55%
+    ),
+    linear-gradient(
+      165deg,
+      rgba(255, 255, 255, 0.92) 0%,
+      rgba(238, 252, 249, 0.92) 100%
+    );
 }
 
 .plan-ring-wrap {
@@ -621,8 +809,17 @@ watch(
   inset: 0;
   border-radius: 9999px;
   background:
-    conic-gradient(from 210deg, rgba(16, 185, 129, 0.95) calc(var(--p, 0) * 1%), rgba(16, 185, 129, 0.14) 0),
-    radial-gradient(circle at 35% 35%, rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0.55) 55%, transparent 60%);
+    conic-gradient(
+      from 210deg,
+      rgba(16, 185, 129, 0.95) calc(var(--p, 0) * 1%),
+      rgba(16, 185, 129, 0.14) 0
+    ),
+    radial-gradient(
+      circle at 35% 35%,
+      rgba(255, 255, 255, 0.85),
+      rgba(255, 255, 255, 0.55) 55%,
+      transparent 60%
+    );
   box-shadow:
     0 10px 24px -14px rgba(10, 143, 74, 0.38),
     0 0 0 1px rgba(16, 185, 129, 0.18) inset;
@@ -672,7 +869,9 @@ watch(
 
 @media (prefers-reduced-motion: no-preference) {
   .plan-cover {
-    transition: filter 0.35s ease, transform 0.35s ease;
+    transition:
+      filter 0.35s ease,
+      transform 0.35s ease;
   }
 
   .plan-home :deep([data-testid="plan-card"]:hover) .plan-cover-soft {

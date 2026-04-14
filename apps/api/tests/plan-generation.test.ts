@@ -401,7 +401,7 @@ describe('plan generation', () => {
     expect(confirm.statusCode).toBe(200);
   });
 
-  it('确认版本后计划变为 active 时 GET /plans/:id/draft 应返回 409 且 message 包含 draft is closed', async () => {
+  it('确认版本后生成草稿已删除，GET /plans/:id/draft 应返回 404', async () => {
     const login = await app.inject({
       method: 'POST',
       url: '/auth/login',
@@ -423,10 +423,8 @@ describe('plan generation', () => {
     expect(create.statusCode).toBe(201);
     const created = JSON.parse(create.body) as {
       id: string;
-      status: string;
       draft?: { confirmedVersion: number | null };
     };
-    expect(created.status).toBe('draft');
     expect(created.draft?.confirmedVersion).toBeNull();
 
     const confirm = await app.inject({
@@ -448,8 +446,61 @@ describe('plan generation', () => {
       url: `/plans/${created.id}/draft`,
       headers: { authorization: `Bearer ${token}` },
     });
-    expect(draftRes.statusCode).toBe(409);
-    const closedBody = JSON.parse(draftRes.body) as { message: string };
-    expect(closedBody.message).toContain('draft is closed');
+    expect(draftRes.statusCode).toBe(404);
+  });
+
+  it('定稿前 GET /plans 不含该生成会话；定稿后出现在 GET /plans', async () => {
+    const login = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      payload: { email: 'demo@ai-plan.dev', password: 'Pass1234!' },
+    });
+    const { token } = JSON.parse(login.body) as { token: string };
+
+    const create = await app.inject({
+      method: 'POST',
+      url: '/plans',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        goal: '列表与草稿分离',
+        deadline: '2026-12-01T00:00:00.000Z',
+        requirement: '正文',
+        type: 'general',
+      },
+    });
+    expect(create.statusCode).toBe(201);
+    const created = JSON.parse(create.body) as { id: string };
+
+    const detailBefore = await app.inject({
+      method: 'GET',
+      url: `/plans/${created.id}`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(detailBefore.statusCode).toBe(404);
+
+    const listActive = await app.inject({
+      method: 'GET',
+      url: '/plans',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(listActive.statusCode).toBe(200);
+    const activePlans = JSON.parse(listActive.body) as { plans: Array<{ id: string }> };
+    expect(activePlans.plans.some((p) => p.id === created.id)).toBe(false);
+
+    const confirm = await app.inject({
+      method: 'POST',
+      url: `/plans/${created.id}/confirm`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: { version: 1 },
+    });
+    expect(confirm.statusCode).toBe(200);
+
+    const listAfter = await app.inject({
+      method: 'GET',
+      url: '/plans',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const after = JSON.parse(listAfter.body) as { plans: Array<{ id: string }> };
+    expect(after.plans.some((p) => p.id === created.id)).toBe(true);
   });
 });

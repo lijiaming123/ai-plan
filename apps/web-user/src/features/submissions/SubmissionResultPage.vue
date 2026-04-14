@@ -25,7 +25,7 @@ const scorePercent = computed(() => {
   <section class="page surface-card form-card">
     <span class="brand-badge">评估结果</span>
     <h1 class="hero-title">本次提交已完成系统判定</h1>
-    <p class="hero-subtitle">根据 AI 评分与规则阈值生成结果，请按提示继续推进下一步。</p>
+    <p class="hero-subtitle">根据自动评分与规则阈值生成结果，请按提示继续推进下一步。</p>
 
     <span class="status-pill" :class="statusClass">状态：{{ statusLabel }}</span>
 

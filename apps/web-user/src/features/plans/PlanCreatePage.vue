@@ -105,7 +105,8 @@ const chatMessages = ref<ChatMessage[]>([
   {
     id: 'chat-init',
     role: 'assistant',
-    content: '你好，我是你的计划助手。填写上面的基础信息后，点击“AI生成初稿”，我会先给你一版初始计划，然后我们再对话优化。',
+    content:
+      '你好，我是你的计划助手。填写上面的基础信息后，点击「生成初稿」，我会先给你一版初始计划，然后我们再对话优化。',
   },
 ]);
 
@@ -566,11 +567,13 @@ async function handleGenerateAiDraft() {
   } catch (error) {
     const draft = buildAiDraftContent();
     form.requirement = draft;
-    showErrorToast(extractErrorMessage(error, 'AI 服务暂不可用，已使用本地策略生成初稿。'));
+    showErrorToast(
+      extractErrorMessage(error, '智能服务暂不可用，已使用本地策略生成初稿。'),
+    );
     chatMessages.value.push({
       id: `chat-draft-fallback-${Date.now()}`,
       role: 'assistant',
-      content: 'AI 服务暂不可用，已使用本地策略为你生成初稿。',
+      content: '智能服务暂不可用，已使用本地策略为你生成初稿。',
       suggestedContent: draft,
     });
   } finally {
@@ -618,11 +621,13 @@ async function handleChatSend() {
     const mergedRequirement = form.requirement.trim()
       ? `${form.requirement.trim()}\n\n用户补充：${content}`
       : content;
-    showErrorToast(extractErrorMessage(error, 'AI 对话服务暂不可用，已先按本地策略合并内容。'));
+    showErrorToast(
+      extractErrorMessage(error, '对话服务暂不可用，已先按本地策略合并内容。'),
+    );
     chatMessages.value.push({
       id: `chat-ai-fallback-${Date.now()}`,
       role: 'assistant',
-      content: 'AI 服务暂不可用，已先把你的补充整合为新草稿。',
+      content: '对话服务暂不可用，已先把你的补充整合为新草稿。',
       suggestedContent: mergedRequirement,
     });
   } finally {
@@ -1171,7 +1176,7 @@ watch(
                 </div>
               </div>
               <p class="mt-3 text-sm leading-relaxed text-[#64716b]">
-                当前为专业版创建计划。可用 AI 共创细化方案，填写下方基础信息后生成初稿。
+                当前为专业版创建计划。可用助手共创细化方案，填写下方基础信息后生成初稿。
               </p>
               <div class="mt-3 flex flex-wrap items-center gap-4 text-xs text-[#64716b]">
                 <span class="inline-flex items-center gap-1.5"><span class="field-icon required">✦</span>必填</span>
@@ -1226,7 +1231,7 @@ watch(
                     v-model="form.requirement"
                     aria-label="计划内容"
                     class="form-control-textarea min-h-32 p-[15px] text-base leading-relaxed md:min-h-36"
-                    placeholder="描述计划目标、边界、你希望 AI 协助细化的重点..."
+                    placeholder="描述计划目标、边界、你希望助手协助细化的重点..."
                   />
                   <p v-if="errors.requirement" class="mt-2 text-xs font-semibold text-[#cc4338]">{{ errors.requirement }}</p>
                 </label>
@@ -1280,7 +1285,7 @@ watch(
 
             <div class="rounded-2xl border border-[#dce8e1] bg-white p-4 shadow-sm">
               <div class="mb-3 flex items-center justify-between">
-                <h3 class="text-base font-bold text-[#26302b]">AI 计划共创</h3>
+                <h3 class="text-base font-bold text-[#26302b]">计划助手</h3>
                 <button
                   type="button"
                   data-testid="ai-generate-draft"
@@ -1288,7 +1293,7 @@ watch(
                   :disabled="isAiThinking"
                   @click="handleGenerateAiDraft"
                 >
-                  {{ isAiThinking ? '生成中...' : 'AI生成初稿' }}
+                  {{ isAiThinking ? "生成中…" : "生成初稿" }}
                 </button>
               </div>
 
@@ -1299,7 +1304,9 @@ watch(
                   class="pro-chat-message"
                   :class="message.role === 'assistant' ? 'is-assistant' : 'is-user'"
                 >
-                  <p class="pro-chat-role">{{ message.role === 'assistant' ? 'AI' : '你' }}</p>
+                  <p class="pro-chat-role">
+                    {{ message.role === "assistant" ? "助手" : "你" }}
+                  </p>
                   <p class="pro-chat-content">{{ message.content }}</p>
                   <div v-if="message.role === 'assistant' && message.suggestedContent" class="mt-2">
                     <button
@@ -1315,7 +1322,7 @@ watch(
                   <span class="dot"></span>
                   <span class="dot"></span>
                   <span class="dot"></span>
-                  <span class="ml-1">AI 正在思考...</span>
+                  <span class="ml-1">正在整理回复…</span>
                 </div>
               </div>
 
@@ -1323,7 +1330,7 @@ watch(
                 <textarea
                   v-model="chatInput"
                   rows="3"
-                  aria-label="与AI对话完善计划"
+                  aria-label="对话完善计划"
                   class="w-full resize-none border-none bg-transparent px-2 py-1 text-sm outline-none"
                   placeholder="例如：请把执行阶段拆成每周目标，并加上每周复盘任务。"
                   @keydown="handleChatInputKeydown"
@@ -1368,7 +1375,7 @@ watch(
           form="plan-create-form"
           :disabled="isSubmitting"
         >
-          {{ isSubmitting ? '生成中...' : '立即生成计划' }}
+          {{ isSubmitting ? "生成中…" : "立即生成计划" }}
         </button>
       </div>
     </div>

@@ -253,8 +253,8 @@ describe('PlanCreatePage', () => {
 
     await wrapper.get('[data-testid="tier-tab-pro"]').trigger('click');
     await wrapper.get('input[aria-label="计划名称"]').setValue('英语口语冲刺');
-    await wrapper.get('textarea[aria-label="与AI对话完善计划"]').setValue('请拆成每周任务');
-    await wrapper.get('textarea[aria-label="与AI对话完善计划"]').trigger('keydown', { key: 'Enter', shiftKey: false });
+    await wrapper.get('textarea[aria-label="对话完善计划"]').setValue('请拆成每周任务');
+    await wrapper.get('textarea[aria-label="对话完善计划"]').trigger('keydown', { key: 'Enter', shiftKey: false });
     await flushPromises();
 
     expect(planAssistantMock).toHaveBeenCalledWith(

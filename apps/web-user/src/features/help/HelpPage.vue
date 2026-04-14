@@ -18,8 +18,8 @@ const faqs: FaqItem[] = [
     id: 'create-plan',
     category: 'plan',
     title: '如何创建计划？',
-    body: '点击顶部「创建新计划」，填写目标、周期与补充说明；专业版可使用 AI 辅助生成初稿。生成后请在草稿页核对阶段与任务，确认后计划进入执行。',
-    keywords: '新建 草稿 确认 AI',
+    body: '点击顶部「创建新计划」，填写目标、周期与补充说明；专业版可使用智能辅助生成初稿。生成后请在草稿页核对阶段与任务，确认后计划进入执行。',
+    keywords: '新建 草稿 确认 智能',
   },
   {
     id: 'draft-confirm',
@@ -38,7 +38,7 @@ const faqs: FaqItem[] = [
   {
     id: 'ai-score',
     category: 'task',
-    title: 'AI 评分与人工审核？',
+    title: '自动评分与人工审核？',
     body: '当前演示环境以流程占位为主：提交后可查看状态变化。正式环境将按规则配置接入自动判定与人工复核。',
     keywords: '评分 判定 状态',
   },

@@ -342,7 +342,7 @@ watch(
             <h2 class="text-base font-bold text-stone-900">会员</h2>
             <p class="mt-2 text-sm leading-relaxed text-[#5a6b62]">
               当前为 <span class="font-bold text-stone-800">{{ tierLabel }}</span
-              >。专业版将开放更深 AI 与提醒策略；下方为本地演示。
+              >。专业版将开放更深智能能力与提醒策略；下方为本地演示。
             </p>
             <div class="mt-5 flex flex-wrap gap-3">
               <button

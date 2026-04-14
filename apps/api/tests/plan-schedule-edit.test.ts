@@ -84,14 +84,14 @@ describe('plan schedule edit', () => {
 
     const fetched = await app.inject({
       method: 'GET',
-      url: `/plans/${plan.id}`,
+      url: `/plans/${plan.id}/draft`,
       headers: { authorization: `Bearer ${token}` },
     });
     expect(fetched.statusCode).toBe(200);
     const fetchedPlan = JSON.parse(fetched.body) as {
-      draft?: { versions: Array<{ schedule?: { slots?: Array<{ slotKey: string; content: string; contentSource: string }> } }> };
+      versions: Array<{ schedule?: { slots?: Array<{ slotKey: string; content: string; contentSource: string }> } }>;
     };
-    const slots = fetchedPlan.draft?.versions?.[0]?.schedule?.slots ?? [];
+    const slots = fetchedPlan.versions?.[0]?.schedule?.slots ?? [];
     expect(slots.find((s) => s.slotKey === '2026-04-11')?.contentSource).toBe('edited');
   });
 

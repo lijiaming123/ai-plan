@@ -41,11 +41,128 @@ export function readAndClearDraftStreamPayload(planId: string): PendingDraftStre
   return p;
 }
 
+/** SSE：`delta_text`（仅正文）、`body_complete`（正文结束进入 JSON 区）、`done` / `error`；兼容旧 `delta`。 */
+
 function buildAssistantStreamUrl(baseURL: string, planId: string): string {
   const path = `/plans/${encodeURIComponent(planId)}/assistant-draft-stream`;
   const b = baseURL.replace(/\/$/, '').trim();
   if (!b) return path;
   return `${b}${path}`;
+}
+
+function buildRegenerateStreamUrl(baseURL: string, planId: string): string {
+  const path = `/plans/${encodeURIComponent(planId)}/regenerate-stream`;
+  const b = baseURL.replace(/\/$/, '').trim();
+  if (!b) return path;
+  return `${b}${path}`;
+}
+
+export type RegenerateStreamBody = {
+  requirement?: string;
+  granularityMode?: 'smart' | 'deep' | 'rough';
+};
+
+/** SSE：与 assistant-draft-stream 相同事件格式，用于再生成新版本时边生成边展示 */
+export async function consumeRegenerateDraftStream(
+  baseURL: string,
+  planId: string,
+  token: string,
+  body: RegenerateStreamBody,
+  handlers: {
+    onDelta: (t: string) => void;
+    onBodyComplete?: () => void;
+    onDone: () => void;
+    onError: (msg: string) => void;
+  },
+): Promise<void> {
+  const url = buildRegenerateStreamUrl(baseURL, planId);
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    let msg = `HTTP ${res.status}`;
+    try {
+      const j = (await res.json()) as { message?: string };
+      if (j.message) msg = j.message;
+    } catch {
+      /* keep msg */
+    }
+    handlers.onError(msg);
+    return;
+  }
+
+  const reader = res.body?.getReader();
+  if (!reader) {
+    handlers.onError('无法读取流式响应');
+    return;
+  }
+
+  const decoder = new TextDecoder();
+  let carry = '';
+  let sawDone = false;
+  let aborted = false;
+
+  const processLine = (line: string) => {
+    if (aborted) return;
+    const trimmed = line.trim();
+    if (!trimmed.startsWith('data:')) return;
+    const jsonStr = trimmed.replace(/^data:\s*/i, '').trim();
+    if (!jsonStr || jsonStr === '[DONE]') return;
+    try {
+      const ev = JSON.parse(jsonStr) as {
+        type?: string;
+        text?: string;
+        message?: string;
+        ok?: boolean;
+      };
+      if (
+        (ev.type === 'delta_text' || ev.type === 'delta') &&
+        typeof ev.text === 'string'
+      ) {
+        handlers.onDelta(ev.text);
+      } else if (ev.type === 'body_complete') {
+        handlers.onBodyComplete?.();
+      } else if (ev.type === 'done' && ev.ok === true) {
+        sawDone = true;
+        handlers.onDone();
+      } else if (ev.type === 'error') {
+        aborted = true;
+        handlers.onError(typeof ev.message === 'string' ? ev.message : '生成失败');
+      }
+    } catch {
+      /* ignore */
+    }
+  };
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      carry += decoder.decode(value, { stream: true });
+      carry = carry.replace(/\r\n/g, '\n');
+      const lines = carry.split('\n');
+      carry = lines.pop() ?? '';
+      for (const line of lines) {
+        processLine(line);
+      }
+    }
+    if (carry.trim()) {
+      for (const line of carry.split('\n')) {
+        processLine(line);
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  if (!aborted && !sawDone) {
+    handlers.onError('流式响应未正常结束');
+  }
 }
 
 export async function consumeAssistantDraftStream(
@@ -55,6 +172,7 @@ export async function consumeAssistantDraftStream(
   payload: PendingDraftStreamPayload,
   handlers: {
     onDelta: (t: string) => void;
+    onBodyComplete?: () => void;
     onDone: () => void;
     onError: (msg: string) => void;
   },
@@ -101,8 +219,14 @@ export async function consumeAssistantDraftStream(
     if (!jsonStr || jsonStr === '[DONE]') return;
     try {
       const ev = JSON.parse(jsonStr) as { type?: string; text?: string; message?: string; ok?: boolean };
-      if (ev.type === 'delta' && typeof ev.text === 'string') {
+      /** 新协议：delta_text 仅正文；兼容旧 delta（整段含 JSON） */
+      if (
+        (ev.type === 'delta_text' || ev.type === 'delta') &&
+        typeof ev.text === 'string'
+      ) {
         handlers.onDelta(ev.text);
+      } else if (ev.type === 'body_complete') {
+        handlers.onBodyComplete?.();
       } else if (ev.type === 'done' && ev.ok === true) {
         sawDone = true;
         handlers.onDone();

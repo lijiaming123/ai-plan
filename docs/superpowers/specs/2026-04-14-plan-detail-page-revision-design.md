@@ -128,12 +128,23 @@
 
 ---
 
-## 7. 待用户确认清单
+## 7. 已确认决策（2026-04-14）
 
-- [ ] 主内容宽度：**A / B / C**（或具体 max-width 数值）  
-- [ ] 打卡展示：**表格响应式 A** 是否接受  
-- [ ] 任务表：**保留至新 API 就绪** 还是 **接受启发式映射 A** 立即隐藏  
-- [ ] 提交是否必须带图（若并入打卡）  
-- [ ] 逾期策略：**S1–S4** 选其一  
+- [x] 主内容宽度：**A**（略加大 max-width + 略减大屏 padding）→ 详情页 `max-w-6xl`、`lg:p-6`  
+- [x] 打卡展示：**A**（`md+` 表格 + 小屏卡片）  
+- [x] 任务清单：**移除**；按槽 **新 API** 提交完成证明（`POST /plans/:id/schedule/slots/:slotKey/checkins`）  
+- [x] 附件：**文字与链接均可**；支持多条 URL + 可选显示名；`kind` 由扩展名推断（图片/文档/其他）；与任务页一致可用本地占位 `local://`  
+- [x] 逾期策略：**S1**（不禁止提交/编辑；Hero 与打卡区提示「已超过截止日，仍可补记」）
 
-确认后建议使用 **writing-plans** 生成按文件/测试拆分的实现计划与 Story 列表。
+---
+
+## 8. 实现落地摘要
+
+| 项 | 说明 |
+|----|------|
+| 数据库 | `PlanScheduleSlotSubmission` + `PlanScheduleSlotAttachment`，迁移 `20260414170000_plan_schedule_slot_submission` |
+| API | 上述 POST；`GET /plans/:id` 增加 `scheduleSlotSubmissions`（按 `slotKey` 分组） |
+| 前端 | `PlanDetailPage.vue`：去任务表、打卡表格/卡片、提交弹窗、`postPlanScheduleSlotCheckin` |
+| 测试 | `web-user`：`plan-detail-page.test.ts`；`api`：`tests/schedule-slot-checkin.test.ts`（需本地 PostgreSQL 已 migrate 且 `prisma generate` 成功） |
+
+附件仍为 **客户端可访问 URL** 入库；未接对象存储时大文件需用户自行托管后填链接。

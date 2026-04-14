@@ -7,6 +7,7 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+/// 已定稿计划（生成期数据在 PlanGenerationDraft，确认后迁入本表）
 model Plan {
   id               String        @id @default(cuid())
   userId           String
@@ -14,12 +15,83 @@ model Plan {
   deadline         DateTime
   requirement      String
   type             String
-  status           String        @default("active")
   currentVersion   Int           @default(1)
   confirmedVersion Int?
-  stages           PlanStage[]
-  versions         PlanVersion[]
-  createdAt        DateTime      @default(now())
+  stages                  PlanStage[]
+  versions                PlanVersion[]
+  scheduleSlotSubmissions PlanScheduleSlotSubmission[]
+  createdAt               DateTime                     @default(now())
+}
+
+/// 已定稿计划下，按打卡时间槽提交的执行证明（文字 + 外链附件）
+model PlanScheduleSlotSubmission {
+  id          String                       @id @default(cuid())
+  planId      String
+  slotKey     String
+  userId      String
+  content     String                       @default("")
+  status      String                       @default("submitted")
+  createdAt   DateTime                     @default(now())
+  plan        Plan                         @relation(fields: [planId], references: [id], onDelete: Cascade)
+  attachments PlanScheduleSlotAttachment[]
+
+  @@index([planId, slotKey])
+  @@index([userId])
+}
+
+model PlanScheduleSlotAttachment {
+  id           String                     @id @default(cuid())
+  submissionId String
+  url          String
+  fileName     String?
+  kind         String                     @default("other")
+  hash         String
+  createdAt    DateTime                   @default(now())
+  submission   PlanScheduleSlotSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+
+  @@index([submissionId])
+}
+
+/// 仅用于「创建计划 / 多版本草稿」流程，定稿后删除，数据写入 Plan
+model PlanGenerationDraft {
+  id             String                       @id @default(cuid())
+  userId         String
+  goal           String
+  deadline       DateTime
+  requirement    String
+  type           String
+  currentVersion Int                          @default(1)
+  createdAt      DateTime                     @default(now())
+  stages         PlanGenerationDraftStage[]
+  versions       PlanGenerationDraftVersion[]
+
+  @@index([userId])
+}
+
+model PlanGenerationDraftVersion {
+  id           String                @id @default(cuid())
+  draftId      String
+  version      Int
+  requirement  String
+  deadline     DateTime
+  snapshot     Json
+  schedule     Json?
+  createdAt    DateTime              @default(now())
+  draft        PlanGenerationDraft   @relation(fields: [draftId], references: [id], onDelete: Cascade)
+
+  @@unique([draftId, version])
+  @@index([draftId])
+}
+
+model PlanGenerationDraftStage {
+  id        String              @id @default(cuid())
+  draftId   String
+  name      String
+  sortOrder Int
+  createdAt DateTime            @default(now())
+  draft     PlanGenerationDraft @relation(fields: [draftId], references: [id], onDelete: Cascade)
+
+  @@index([draftId])
 }
 
 model PlanVersion {

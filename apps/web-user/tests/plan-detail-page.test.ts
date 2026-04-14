@@ -9,10 +9,12 @@ import { setApiClient } from '../src/lib/api-client';
 describe('PlanDetailPage schedule', () => {
   const getPlanMock = vi.fn();
   const patchSlotMock = vi.fn();
+  const postCheckinMock = vi.fn();
 
   beforeEach(() => {
     getPlanMock.mockReset();
     patchSlotMock.mockReset();
+    postCheckinMock.mockReset();
     clearAuthToken();
     setAuthToken('token_123');
 
@@ -48,6 +50,7 @@ describe('PlanDetailPage schedule', () => {
           },
         ],
       },
+      scheduleSlotSubmissions: {},
     });
 
     patchSlotMock.mockResolvedValue({
@@ -70,6 +73,16 @@ describe('PlanDetailPage schedule', () => {
       },
     });
 
+    postCheckinMock.mockResolvedValue({
+      submission: {
+        id: 'sub_1',
+        content: '完成',
+        status: 'submitted',
+        createdAt: new Date().toISOString(),
+        attachments: [],
+      },
+    });
+
     setApiClient({
       login: vi.fn(),
       getAuthMe: vi.fn(),
@@ -80,6 +93,7 @@ describe('PlanDetailPage schedule', () => {
       getPlan: getPlanMock,
       getPlanDraft: vi.fn(),
       patchPlanScheduleSlot: patchSlotMock,
+      postPlanScheduleSlotCheckin: postCheckinMock,
       regeneratePlan: vi.fn(),
       confirmPlan: vi.fn(),
       comparePlanVersions: vi.fn(),
@@ -108,7 +122,7 @@ describe('PlanDetailPage schedule', () => {
     expect(wrapper.text()).toContain('2026-04-10');
     expect(wrapper.text()).toContain('A');
 
-    await wrapper.get('button').trigger('click'); // 第一个按钮是“编辑”
+    await wrapper.get('[data-testid="schedule-slot-edit"]').trigger('click');
     await flushPromises();
     expect(wrapper.find('[data-testid="schedule-edit-dialog"]').exists()).toBe(true);
 

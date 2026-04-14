@@ -89,6 +89,17 @@ export type ParsePlanFileResult = {
   text: string;
 };
 
+/** GET /plans 列表项（仅已定稿 Plan；生成中数据在 PlanGenerationDraft 表，不经列表暴露） */
+export type PlanListRow = {
+  id: string;
+  goal: string;
+  deadline: string;
+  requirement: string;
+  type: string;
+  status: string;
+  createdAt: string;
+};
+
 export type PlanRecord = {
   id: string;
   userId?: string;
@@ -131,7 +142,17 @@ export type PlanRecord = {
     confirmedVersion: number | null;
     canRegenerate: boolean;
   } | null;
+  /** 已定稿计划：各打卡槽的提交记录（GET /plans/:id） */
+  scheduleSlotSubmissions?: Record<string, ScheduleSlotCheckinRecord[]>;
 };
+
+/** GET /plans/:id/draft：生成中会话（含主档字段 + 版本树） */
+export type PlanDraftSessionPayload = {
+  goal: string;
+  deadline: string;
+  type: string;
+  requirement: string;
+} & NonNullable<PlanRecord['draft']>;
 
 export type PresetTemplateBrief = {
   id: string;
@@ -191,25 +212,52 @@ export type SubmissionRecord = {
   images: SubmissionImage[];
 };
 
+export type ScheduleSlotCheckinAttachment = {
+  id: string;
+  url: string;
+  fileName: string | null;
+  kind: string;
+  hash: string;
+  createdAt: string;
+};
+
+export type ScheduleSlotCheckinRecord = {
+  id: string;
+  content: string;
+  status: string;
+  createdAt: string;
+  attachments: ScheduleSlotCheckinAttachment[];
+};
+
 export type ApiClient = {
   login(input: LoginInput): Promise<{ token: string }>;
   getAuthMe(input: { token: string }): Promise<AuthMeResponse>;
+  listPlans(input: { token: string }): Promise<{ plans: PlanListRow[] }>;
   createPlan(input: CreatePlanInput): Promise<PlanRecord>;
   createSubmission(input: CreateSubmissionInput): Promise<SubmissionRecord>;
   planAssistant(input: PlanAssistantInput): Promise<PlanAssistantResult>;
   parsePlanFile(input: ParsePlanFileInput): Promise<ParsePlanFileResult>;
   getPlan(input: { id: string; token: string }): Promise<PlanRecord>;
-  getPlanDraft(input: { id: string; token: string }): Promise<NonNullable<PlanRecord['draft']>>;
+  getPlanDraft(input: { id: string; token: string }): Promise<PlanDraftSessionPayload>;
   patchPlanScheduleSlot(input: {
     id: string;
     slotKey: string;
     token: string;
     content?: string;
     restore?: boolean;
+    /** 草稿多版本时指定 PlanVersion.version，避免误改 currentVersion 对应行 */
+    version?: number;
   }): Promise<{
     schedule: NonNullable<NonNullable<PlanRecord['draft']>['versions'][number]['schedule']>;
     slot: NonNullable<NonNullable<PlanRecord['draft']>['versions'][number]['schedule']>['slots'][number];
   }>;
+  postPlanScheduleSlotCheckin(input: {
+    id: string;
+    slotKey: string;
+    token: string;
+    content?: string;
+    attachments?: Array<{ url: string; fileName?: string; kind?: string }>;
+  }): Promise<{ submission: ScheduleSlotCheckinRecord }>;
   regeneratePlan(input: {
     id: string;
     token: string;
@@ -338,6 +386,14 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
         },
       });
     },
+    listPlans(input) {
+      return request<{ plans: PlanListRow[] }>('/plans', {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${input.token}`,
+        },
+      });
+    },
     createPlan(input) {
       return request<PlanRecord>('/plans', {
         method: 'POST',
@@ -404,7 +460,7 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
       });
     },
     getPlanDraft(input) {
-      return request<NonNullable<PlanRecord['draft']>>(`/plans/${input.id}/draft`, {
+      return request<PlanDraftSessionPayload>(`/plans/${input.id}/draft`, {
         method: 'GET',
         headers: {
           Authorization: `Bearer ${input.token}`,
@@ -423,8 +479,24 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
         body: JSON.stringify({
           content: input.content,
           restore: input.restore,
+          version: input.version,
         }),
       });
+    },
+    postPlanScheduleSlotCheckin(input) {
+      return request<{ submission: ScheduleSlotCheckinRecord }>(
+        `/plans/${input.id}/schedule/slots/${encodeURIComponent(input.slotKey)}/checkins`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${input.token}`,
+          },
+          body: JSON.stringify({
+            content: input.content,
+            attachments: input.attachments,
+          }),
+        }
+      );
     },
     regeneratePlan(input) {
       return request<{

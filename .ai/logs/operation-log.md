@@ -1,15 +1,17 @@
 # 操作日志
 
 ## 2026-04-13 15:33:24
+
 - 操作人：用户
 - 操作：用户提示
-- 提示词：「你好， @c:\Users\lijiaming.LAPTOP-PEMHIR2A\.agents\skills\superpowers\using-superpowers\SKILL.md  ,请你为我的计划页重新制定一个计划。1，计划是否需要图片（如果创建计划时让用户上传图片，用户会觉得太麻烦放弃了，因为会使用这个系统来制定计划的人一般是比较懒的）2，如果计划没有图片，这个计划列表要显示成卡片还是啥，没有图片之后显示成卡片会不会太小了，3，计划封面要显示哪些东西。当然你有什么需要补充的也可以提出你的建议」
+- 提示词：「你好， @c:\Users\lijiaming.LAPTOP-PEMHIR2A\.agents\skills\superpowers\using-superpowers\SKILL.md ,请你为我的计划页重新制定一个计划。1，计划是否需要图片（如果创建计划时让用户上传图片，用户会觉得太麻烦放弃了，因为会使用这个系统来制定计划的人一般是比较懒的）2，如果计划没有图片，这个计划列表要显示成卡片还是啥，没有图片之后显示成卡片会不会太小了，3，计划封面要显示哪些东西。当然你有什么需要补充的也可以提出你的建议」
 - 内容：提出计划列表封面方案与图片策略的产品设计问题
 - 状态：已接收
 - 相关文件：
 - docs/superpowers/specs/2026-04-13-plan-overview-cover-design.md
 
 ## 2026-04-13 15:33:24
+
 - 操作人：用户
 - 操作：用户提示
 - 提示词：「常见小于<20条」
@@ -19,6 +21,7 @@
 - docs/superpowers/specs/2026-04-13-plan-overview-cover-design.md
 
 ## 2026-04-13 15:33:24
+
 - 操作人：用户
 - 操作：用户提示
 - 提示词：「不要标签」
@@ -28,6 +31,7 @@
 - docs/superpowers/specs/2026-04-13-plan-overview-cover-design.md
 
 ## 2026-04-13 15:33:24
+
 - 操作人：用户
 - 操作：用户提示
 - 提示词：「方案A」
@@ -37,6 +41,7 @@
 - docs/superpowers/specs/2026-04-13-plan-overview-cover-design.md
 
 ## 2026-04-13 15:33:24
+
 - 操作人：用户
 - 操作：用户提示
 - 提示词：「A2」
@@ -46,9 +51,10 @@
 - docs/superpowers/specs/2026-04-13-plan-overview-cover-design.md
 
 ## 2026-04-13 15:33:24
+
 - 操作人：AI
 - 操作：文档创建
-- 提示词：响应用户「你好， @c:\Users\lijiaming.LAPTOP-PEMHIR2A\.agents\skills\superpowers\using-superpowers\SKILL.md  ,请你为我的计划页重新制定一个计划。1，计划是否需要图片（如果创建计划时让用户上传图片，用户会觉得太麻烦放弃了，因为会使用这个系统来制定计划的人一般是比较懒的）2，如果计划没有图片，这个计划列表要显示成卡片还是啥，没有图片之后显示成卡片会不会太小了，3，计划封面要显示哪些东西。当然你有什么需要补充的也可以提出你的建议」
+- 提示词：响应用户「你好， @c:\Users\lijiaming.LAPTOP-PEMHIR2A\.agents\skills\superpowers\using-superpowers\SKILL.md ,请你为我的计划页重新制定一个计划。1，计划是否需要图片（如果创建计划时让用户上传图片，用户会觉得太麻烦放弃了，因为会使用这个系统来制定计划的人一般是比较懒的）2，如果计划没有图片，这个计划列表要显示成卡片还是啥，没有图片之后显示成卡片会不会太小了，3，计划封面要显示哪些东西。当然你有什么需要补充的也可以提出你的建议」
 - 内容：根据约束（<20条、不展示标签）与确认选项（方案A/A2），输出“无图封面卡片”设计规格文档，定义信息优先级、组件结构、状态映射、动效与验收标准，供后续实现与评审。
 - 状态：成功
 - 相关文件：
@@ -56,6 +62,7 @@
 - .ai/logs/operation-log.md
 
 ## 2026-04-13 15:33:24
+
 - 操作人：用户
 - 操作：文档审批
 - 提示词：「通过，放在d:\myproject\ai-plan\.ai下面」
@@ -66,6 +73,7 @@
 - .ai/logs/operation-log.md
 
 ## 2026-04-13 16:20:56
+
 - 操作人：用户
 - 操作：用户提示
 - 提示词：「项目中使用element-plus组件请使用按需加载 @web-user」
@@ -77,6 +85,7 @@
 - apps/web-user/src/App.vue
 
 ## 2026-04-13 16:20:56
+
 - 操作人：AI
 - 操作：依赖安装与配置调整
 - 提示词：响应用户「项目中使用element-plus组件请使用按需加载 @web-user」
@@ -95,6 +104,7 @@
 - .ai/logs/operation-log.md
 
 ## 2026-04-13 16:41:57
+
 - 操作人：用户
 - 操作：用户提示
 - 提示词：「请你使用@c:\Users\lijiaming.LAPTOP-PEMHIR2A\.agents\skills\superpowers\using-superpowers\SKILL.md帮我制定一下规则或者计划：现在我请求deepseek帮我生成计划，返回的是一大段文本，是不是可以改prompt让它输出文本+具体的每天或者每周计划的一个表格（方便后续用户在计划详情页面按天打卡和审核）。请说说你的想法」
@@ -104,6 +114,7 @@
 - docs/superpowers/specs/2026-04-13-deepseek-plan-content-and-checkin-schedule.md
 
 ## 2026-04-13 16:41:57
+
 - 操作人：用户
 - 操作：用户提示
 - 提示词：「现在创建计划页的输出形式去掉，改成使用计划颗粒度字段（必填），如果计划颗粒度选择深度计划就是按天，如果是粗略计划则是按周」
@@ -113,6 +124,7 @@
 - docs/superpowers/specs/2026-04-13-deepseek-plan-content-and-checkin-schedule.md
 
 ## 2026-04-13 16:41:57
+
 - 操作人：用户
 - 操作：用户提示
 - 提示词：「选C，但是小于等于三个月推荐深度计划（按天）」
@@ -122,6 +134,7 @@
 - docs/superpowers/specs/2026-04-13-deepseek-plan-content-and-checkin-schedule.md
 
 ## 2026-04-13 16:41:57
+
 - 操作人：用户
 - 操作：用户提示
 - 提示词：「方案1，B」
@@ -131,6 +144,7 @@
 - docs/superpowers/specs/2026-04-13-deepseek-plan-content-and-checkin-schedule.md
 
 ## 2026-04-13 16:41:57
+
 - 操作人：AI
 - 操作：文档创建
 - 提示词：响应用户「…改prompt让它输出文本+具体的每天或者每周计划的一个表格…」
@@ -141,6 +155,7 @@
 - .ai/logs/operation-log.md
 
 ## 2026-04-13 16:46:31
+
 - 操作人：用户
 - 操作：文档审批
 - 提示词：「已批准」
@@ -151,6 +166,7 @@
 - .ai/logs/operation-log.md
 
 ## 2026-04-13 16:46:31
+
 - 操作人：AI
 - 操作：文档创建
 - 提示词：响应用户「已批准」
@@ -161,6 +177,7 @@
 - .ai/logs/operation-log.md
 
 ## 2026-04-13 16:53:09
+
 - 操作人：用户
 - 操作：用户提示
 - 提示词：「对了，我遗漏了一个，就是用户可以在生成计划的卡片中对这个卡片的内容进行编辑，就是用户可以觉得某日生成的计划不满意，想自己编辑，请你再补充下这个计划」
@@ -172,6 +189,7 @@
 - .ai/logs/operation-log.md
 
 ## 2026-04-13 17:39:21
+
 - 操作人：用户
 - 操作：用户提示
 - 提示词：「开始实施」
@@ -181,6 +199,7 @@
 - .ai/plans/2026-04-13-deepseek-schedule-implementation-plan.md
 
 ## 2026-04-13 17:39:21
+
 - 操作人：AI
 - 操作：Story实施
 - 提示词：响应用户「开始实施」
@@ -203,6 +222,7 @@
 - apps/web-user/tests/plan-detail-page.test.ts
 
 ## 2026-04-13 17:58:28
+
 - 操作人：用户
 - 操作：用户提示
 - 提示词：「请你把图一红框里面的这些内容都去掉，而且现在草稿页面没有生成表格是什么原因，只在确定计划之后的页面（图2，图3）生成了这个表格，并且表格内的内容也有问题」
@@ -212,6 +232,7 @@
 - apps/web-user/src/features/plans/PlanDraftPage.vue
 
 ## 2026-04-13 17:58:28
+
 - 操作人：AI
 - 操作：状态更新
 - 提示词：响应用户「…草稿页面没有生成表格…表格内的内容也有问题」
@@ -222,3 +243,207 @@
 - apps/web-user/tests/plan-draft-page.test.ts
 - apps/api/src/modules/plans/plan.routes.ts
 
+## 2026-04-14 13:45:26
+
+- 操作人：用户
+- 操作：用户提示
+- 提示词：「现在页面有以下3个问题，请你修复：1，正在生成时，重新生成按钮应该置灰，等到上个草稿版本生成完成才能点击重新生成按钮。2，点击重新生成，没有出现第二个卡片 3，生成文案完成到生成表格前有个中间过程，需要等待，可不可以先出现表格占位的骨架框」
+- 内容：要求流式/同步阶段锁定再生成、修复再生成后多版本卡片不立即展示、文案完成后至表格展示前增加打卡表骨架占位
+- 状态：已接收
+- 相关文件：
+- apps/web-user/src/features/plans/PlanDraftPage.vue
+
+## 2026-04-14 13:45:27
+
+- 操作人：AI
+- 操作：Story实施
+- 提示词：响应用户「…3个问题…骨架框」
+- 内容：新增 draftBundleRefreshing：流式 onDone 后 await refreshDraftBundleOnly 期间置位；regenerateLocked（流式/同步表/整页加载）禁用再生成与确认入口；修复 submitRegenerate 用 seq+planId 与接口结果直接写 draftMeta（去除 await 期间 draftMeta 为 null 则跳过）；顶栏横幅在同步表阶段显示「正在同步打卡计划表格…」；v1 在同步阶段展示打卡表骨架；补充单测（新版本卡片、流式中禁用再生成）；vitest plan-draft-page 通过。
+- 状态：成功
+- 相关文件：
+- apps/web-user/src/features/plans/PlanDraftPage.vue
+- apps/web-user/tests/plan-draft-page.test.ts
+- .ai/logs/operation-log.md
+
+## 2026-04-14 13:58:15
+
+- 操作人：用户
+- 操作：用户提示
+- 提示词：「图一问题：系统中所有页面都不让出现ai正在生成版本说明的文案…图二问题：…表格骨架…图三问题：点击重新生成时页面没有变化…」
+- 内容：去掉面向用户的 AI 生成提示；文案到表格空档用骨架；修复再生成后卡片不更新
+- 状态：已接收
+- 相关文件：
+- apps/web-user/src/features/plans/PlanDraftPage.vue
+
+## 2026-04-14 13:58:16
+
+- 操作人：AI
+- 操作：Story实施
+- 提示词：响应用户「图一图二图三…」
+- 内容：草稿页移除顶栏流式/同步提示条；v1 在流式与 refresh阶段均展示打卡表骨架；refreshDraftBundleOnly 拒绝版本数或最大版本号回退的过期 GET，避免覆盖再生成结果；submitRegenerate 成功后 await refresh 并校正选中版本；创建页/帮助/设置/提交相关页去掉或弱化用户可见「AI」生成表述；plan-draft-page与 plan-create-page 测试通过。
+- 状态：成功
+- 相关文件：
+- apps/web-user/src/features/plans/PlanDraftPage.vue
+- apps/web-user/src/features/plans/PlanCreatePage.vue
+- apps/web-user/src/features/help/HelpPage.vue
+- apps/web-user/src/features/settings/SettingsPage.vue
+- apps/web-user/src/features/submissions/SubmissionResultPage.vue
+- apps/web-user/src/features/submissions/TaskSubmitPage.vue
+- apps/web-user/tests/plan-create-page.test.ts
+- .ai/logs/operation-log.md
+
+## 2026-04-14 14:11:30
+
+- 操作人：用户
+- 操作：用户提示
+- 提示词：「我希望是点击重新生成时立马出现一个新的卡片，卡片内容依旧流式生成…」
+- 内容：再生成改为乐观新增版本卡片 + SSE regenerate-stream，避免等整包返回才出卡
+- 状态：已接收
+- 相关文件：
+- apps/web-user/src/features/plans/PlanDraftPage.vue
+
+## 2026-04-14 14:11:31
+
+- 操作人：AI
+- 操作：Story实施
+- 提示词：响应用户「点击重新生成时立马出现新卡片…流式」
+- 内容：新增 POST /plans/:id/regenerate-stream（与 v1 相同 delta_text/done 协议）；plan.service 抽取 prepareRegeneratePlanStream、persistRegenerateVersionFromStreamOutput 并复用 regeneratePlanVersion；前端 consumeRegenerateDraftStream；草稿页点击再生成立即插入占位版本并边收流边更新正文/骨架，结束后 refresh；单测与部分 API 测试通过。
+- 状态：成功
+- 相关文件：
+- apps/api/src/modules/plans/plan.service.ts
+- apps/api/src/modules/plans/plan.routes.ts
+- apps/web-user/src/lib/plan-assistant-stream.ts
+- apps/web-user/src/features/plans/PlanDraftPage.vue
+- apps/web-user/tests/plan-draft-page.test.ts
+- .ai/logs/operation-log.md
+
+## 2026-04-14 14:19:19
+
+- 操作人：AI
+- 操作：Story实施
+- 提示词：响应用户「正文流式结束后、完整 JSON 输出前显示打卡表骨架」
+- 内容：draft-stream-split 的 addChunk 在可见正文长度停止增长且 full 仍增长时标记 scheduleJsonStarted；SSE 增加 body_complete；plan.routes 在 DeepSeek 流与无 DeepSeek 兜底路径均发出该事件；前端 consumeAssistant/Regenerate 解析并回调 onBodyComplete；PlanDraftPage 用 v1ScheduleJsonPhase / regenerateScheduleJsonPhase 控制骨架仅在正文阶段结束后至 refresh 前显示；补 draft-stream-split 单测；api/web-user 相关测试通过。
+- 状态：成功
+- 相关文件：
+- apps/api/src/modules/plans/draft-stream-split.ts
+- apps/api/src/modules/plans/plan.routes.ts
+- apps/api/tests/draft-stream-split.test.ts
+- apps/web-user/src/lib/plan-assistant-stream.ts
+- apps/web-user/src/features/plans/PlanDraftPage.vue
+- .ai/logs/operation-log.md
+
+## 2026-04-14 14:33:55
+
+- 操作人：AI
+- 操作：Story实施
+- 提示词：响应用户「流式生成计划时，卡片的滚动条跟着滚动」
+- 内容：为草稿页卡片 `.draft-card-scroll` 增加“贴底自动滚动”：仅当用户处于底部附近时，流式 `onDelta` 追加文本后自动滚到最底；用户上滑离开底部后暂停自动滚动直至回到底部；同时覆盖 v1 流式与再生成流式。补充前端单测覆盖贴底跟随与上滑不抢滚动条。
+- 状态：成功
+- 相关文件：
+- apps/web-user/src/features/plans/PlanDraftPage.vue
+- apps/web-user/tests/plan-draft-page.test.ts
+- .ai/logs/operation-log.md
+
+## 2026-04-14 14:45:42
+
+- 操作人：AI
+- 操作：Story实施
+- 提示词：响应用户「把“颗粒度”移进“重新生成”按钮的下拉」
+- 内容：将草稿页顶部“颗粒度”从独立 select 移入“重新生成”分裂按钮下拉菜单：主按钮仍一键重新生成；下拉仅选择下次生成策略（智能/深度/粗略）并提示“仅影响下次重新生成”；保留原有颗粒度变更后二次确认逻辑；更新前端单测覆盖新交互。
+- 状态：成功
+- 相关文件：
+- apps/web-user/src/features/plans/PlanDraftPage.vue
+- apps/web-user/tests/plan-draft-page.test.ts
+- .ai/logs/operation-log.md
+
+## 2026-04-14 14:56:46
+
+- 操作人：AI
+- 操作：Story实施
+- 提示词：响应用户「浏览器网址这个状态是不是显示成英文更加好一点 / 需要」
+- 内容：将计划列表页 URL 查询参数 `status` 从中文迁移为英文枚举（`in_progress`/`completed`/`not_started`）；页面仍以中文标签展示筛选；兼容旧中文参数并在首次进入时自动替换为英文，便于分享与更短更稳的地址栏显示；更新对应单测。
+- 状态：成功
+- 相关文件：
+- apps/web-user/src/features/plans/PlanOverviewPage.vue
+- apps/web-user/tests/plan-overview-filter.test.ts
+- .ai/logs/operation-log.md
+
+## 2026-04-14 15:11:42
+
+- 操作人：AI
+- 操作：Story实施
+- 提示词：响应用户「封面太空 / 进度条冗余 / 标题随机颜色字体」并确认保留进度环（A）
+- 内容：优化计划列表卡片封面信息密度：保留封面进度环并移除底部长条进度条；将底部区域替换为紧凑的进度+截止/剩余信息；在封面补充一句话摘要（来自描述）减少空白；计划标题使用基于 plan.id 的稳定配色（非随机闪烁）增强辨识度与一致性；相关测试通过。
+- 状态：成功
+- 相关文件：
+- apps/web-user/src/features/plans/PlanOverviewPage.vue
+- apps/web-user/tests/plan-overview-filter.test.ts
+- .ai/logs/operation-log.md
+
+## 2026-04-14 15:33:18
+
+- 操作人：AI
+- 操作：Story实施
+- 提示词：响应用户「是否可以根据计划场景做颜色区分呢 / 使用做法1」
+- 内容：计划列表页标题配色由“按 plan.id 稳定分色”调整为“按场景/类型分色”：新增 PlanCard.type 并从列表行 row.type 注入；按 type（general/study/work 等）映射到固定配色，未知 type 回退到按 id 稳定分色；保证同场景同色、跨场景可区分；相关测试通过。
+- 状态：成功
+- 相关文件：
+- apps/web-user/src/features/plans/PlanOverviewPage.vue
+- apps/web-user/tests/plan-overview-filter.test.ts
+- .ai/logs/operation-log.md
+
+## 2026-04-14 15:59:36
+
+- 操作人：AI
+- 操作：Story实施
+- 提示词：响应用户「计划大师系统名在展开收起动画中会换行导致显示问题」
+- 内容：侧栏品牌区为标题与副标题增加 whitespace-nowrap，内层使用 w-max 保持自然宽度；外层保持 overflow-hidden 与略增大展开态 max-w（220px），使过渡过程中文字被裁剪而非换行闪烁。
+- 状态：成功
+- 相关文件：
+- apps/web-user/src/layouts/UserShellLayout.vue
+- apps/web-user/tests/shell-navigation.test.ts
+- .ai/logs/operation-log.md
+
+## 2026-04-14 16:16:41
+
+- 操作人：AI
+- 操作：Story实施
+- 提示词：响应用户「@ai-plan/.cursor/skills/product-ux-optimize/SKILL.md 请你对计划详情页进行体验优化」
+- 内容：计划详情页体验优化：面包屑末级显示计划名称（加载态/截断/title 提示）；截止日使用中文长日期；状态与类型以 pill 展示；已定稿正文使用 Markdown 渲染与 plan-detail-md 排版；页面背景与主卡片层次（圆角/阴影/ring）及打卡区、任务表视觉强化；补充无障碍与测试选择器；vitest plan-detail-page 通过。
+- 状态：成功
+- 相关文件：
+- apps/web-user/src/features/plans/PlanDetailPage.vue
+- apps/web-user/tests/plan-detail-page.test.ts
+- .ai/logs/operation-log.md
+
+## 2026-04-14 16:25:44
+
+- 操作人：AI
+- 操作：文档创建
+- 提示词：响应用户「请使用 using-superpowers 把计划详情页制定修改计划：1 两侧间隔；2 打卡改表格；3 去任务清单并把提交放进打卡；4 逾期是否可提交/编辑」
+- 内容：按 brainstorming 流程整理现状（max-w-5xl、打卡卡片、任务表、API 无 deadline 校验），对四项议题给出多方案与推荐组合，明确「提交并入打卡」需 slot↔task 映射或新 API，逾期策略 S1–S4；规格写入 docs/superpowers/specs 并已 git commit。
+- 状态：成功
+- 相关文件：
+- docs/superpowers/specs/2026-04-14-plan-detail-page-revision-design.md
+- .ai/logs/operation-log.md
+
+## 2026-04-14 17:32:25
+
+- 操作人：AI
+- 操作：Story实施
+- 提示词：响应用户「确认并分步执行以上计划」
+- 内容：按计划落实详情页：内容区 max-w-6xl；打卡 md+ 表格/小屏卡片；移除任务清单；新增打卡槽提交 API（PlanScheduleSlotSubmission/Attachment + POST checkins）与 GET plan 附带 scheduleSlotSubmissions；详情页提交弹窗（文字+多链接/本地文件占位）；S1 逾期仍可操作并展示提示；更新 api-client、规格文档与 vitest；API 集成测试依赖本地 DB migrate 与 prisma generate。
+- 状态：成功
+- 相关文件：
+- apps/api/prisma/schema.prisma
+- apps/api/prisma/migrations/20260414170000_plan_schedule_slot_submission/migration.sql
+- apps/api/src/modules/plans/schedule-slot-checkin.service.ts
+- apps/api/src/modules/plans/plan.service.ts
+- apps/api/src/modules/plans/plan.routes.ts
+- apps/api/tests/schedule-slot-checkin.test.ts
+- apps/web-user/src/lib/api-client.ts
+- apps/web-user/src/features/plans/PlanDetailPage.vue
+- apps/web-user/tests/plan-detail-page.test.ts
+- apps/web-user/tests/plan-draft-page.test.ts
+- docs/superpowers/specs/2026-04-14-plan-detail-page-revision-design.md
+- .ai/logs/operation-log.md

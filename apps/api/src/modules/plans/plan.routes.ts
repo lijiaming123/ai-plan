@@ -4,7 +4,9 @@
  * 结构：
  * - 前半：请求体校验器（normalizeBody 支持误传 JSON 字符串）、AI 相关辅助（tryDeepseekAssistant、formatDraftToText）。
  * - registerPlanRoutes：REST + SSE；所有写操作除 PATCH 外多要求 JWT user。
- * - assistant-draft-stream：使用 PassThrough 写 `text/event-stream`，事件为 JSON：`delta` | `done` | `error`。
+ * - assistant-draft-stream / regenerate-stream：SSE 事件 JSON：`delta_text`（仅正文）| 兼容旧 `delta`；
+ *   `body_complete`（正文展示已结束，进入 JSON/协议区，供前端出打卡表骨架）；`done` | `error`。
+ *   落库仍写入完整模型输出（含 schedule 代码块）。
  * - parse-file：mammoth 解析 docx，文本类直接 utf8；限制扩展名防任意文件上传滥用。
  *
  * profile（创建计划时的扩展字段）：校验宽松，缺失或形状不对时忽略，保证老客户端仍能创建。
@@ -17,7 +19,12 @@ import {
   createGeneratedPlan,
   getPlanDraft,
   getPlanWithDraft,
+  listPlansForUser,
+  parseRegenerateFallbackFromBaseRequirement,
+  persistRegenerateVersionFromStreamOutput,
+  prepareRegeneratePlanStream,
   regeneratePlanVersion,
+  REGENERATE_PLAN_SYSTEM,
   sanitizePlanPatch,
   updatePlanScheduleSlot,
   updatePlanV1Requirement,
@@ -29,6 +36,8 @@ import {
   stripLastJsonCodeBlock,
   validateScheduleStrict,
 } from './deepseek-schedule';
+import { createDraftStreamSplitter } from './draft-stream-split';
+import { createScheduleSlotCheckin } from './schedule-slot-checkin.service';
 import { buildScheduleSlotKeys, decideScheduleGranularity } from './plan.service';
 import { completeDeepseekChat, isDeepseekConfigured, streamDeepseekChat } from '../../lib/deepseek';
 import { generatePlanDraft } from '@ai-plan/ai-engine/client';
@@ -359,6 +368,16 @@ function formatDraftToText(params: { goal: string; startDate: string; endDate: s
 
 export async function registerPlanRoutes(fastify: FastifyInstance) {
   // —— CRUD 与草稿生命周期 ——
+  fastify.get(
+    '/plans',
+    { preHandler: fastify.requireRole('user') },
+    async (request, reply) => {
+      const payload = await request.jwtVerify<{ sub: string }>();
+      const plans = await listPlansForUser(payload.sub);
+      return reply.send({ plans });
+    },
+  );
+
   fastify.post(
     '/plans',
     { preHandler: fastify.requireRole('user') },
@@ -408,15 +427,49 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
       const body = normalizeBody(request.body);
       const content = isRecord(body) && typeof body.content === 'string' ? body.content : undefined;
       const restore = isRecord(body) && body.restore === true;
+      const planVersion =
+        isRecord(body) && typeof body.version === 'number' && Number.isInteger(body.version) && body.version >= 1
+          ? body.version
+          : undefined;
       const result = await updatePlanScheduleSlot({
         planId: id,
         userId: payload.sub,
         slotKey,
         content,
         restore,
+        planVersion,
       });
       if (!result.ok) return reply.code(result.code).send({ message: result.message });
       return reply.send({ schedule: result.schedule, slot: result.slot });
+    }
+  );
+
+  fastify.post(
+    '/plans/:id/schedule/slots/:slotKey/checkins',
+    { preHandler: fastify.requireRole('user') },
+    async (request, reply) => {
+      const payload = await request.jwtVerify<{ sub: string }>();
+      const { id, slotKey } = request.params as { id: string; slotKey: string };
+      const body = normalizeBody(request.body);
+      const content = isRecord(body) && typeof body.content === 'string' ? body.content : undefined;
+      const rawAtt =
+        isRecord(body) && Array.isArray(body.attachments) ? (body.attachments as unknown[]) : [];
+      const attachments = rawAtt
+        .filter((x): x is Record<string, unknown> => isRecord(x))
+        .map((x) => ({
+          url: typeof x.url === 'string' ? x.url : '',
+          fileName: typeof x.fileName === 'string' ? x.fileName : undefined,
+          kind: typeof x.kind === 'string' ? x.kind : undefined,
+        }));
+      const result = await createScheduleSlotCheckin({
+        planId: id,
+        userId: payload.sub,
+        slotKey,
+        content,
+        attachments,
+      });
+      if (!result.ok) return reply.code(result.code).send({ message: result.message });
+      return reply.code(201).send({ submission: result.submission });
     }
   );
 
@@ -466,6 +519,88 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
   );
 
   fastify.post(
+    '/plans/:id/regenerate-stream',
+    { preHandler: fastify.requireRole('user') },
+    async (request, reply) => {
+      const payload = await request.jwtVerify<{ sub: string }>();
+      const { id } = request.params as { id: string };
+      const body = normalizeBody(request.body);
+      const requirement = isRecord(body) && typeof body.requirement === 'string' ? body.requirement : undefined;
+      const granularityMode =
+        isRecord(body) && isOneOf(body.granularityMode, granularityModes) ? body.granularityMode : undefined;
+
+      const prep = await prepareRegeneratePlanStream(id, payload.sub, requirement, granularityMode);
+      if (!prep.ok) {
+        return reply.code(prep.code).send({ message: prep.message });
+      }
+      const { ctx } = prep;
+
+      const abort = new AbortController();
+      const onClose = () => abort.abort();
+      request.raw.socket?.once('close', onClose);
+
+      const pass = new PassThrough();
+      reply
+        .header('Content-Type', 'text/event-stream; charset=utf-8')
+        .header('Cache-Control', 'no-cache, no-transform')
+        .header('Connection', 'keep-alive')
+        .header('X-Accel-Buffering', 'no');
+      reply.send(pass);
+      pass.write(': stream\n\n');
+
+      const writeEv = (obj: unknown) => {
+        pass.write(`data: ${JSON.stringify(obj)}\n\n`);
+      };
+
+      void (async () => {
+        let full = '';
+        try {
+          if (isDeepseekConfigured()) {
+            const splitter = createDraftStreamSplitter();
+            for await (const chunk of streamDeepseekChat(
+              [
+                { role: 'system', content: REGENERATE_PLAN_SYSTEM },
+                { role: 'user', content: ctx.userContent },
+              ],
+              { signal: abort.signal }
+            )) {
+              const { deltaText, scheduleJsonStarted } = splitter.addChunk(chunk);
+              if (deltaText) writeEv({ type: 'delta_text', text: deltaText });
+              if (scheduleJsonStarted) writeEv({ type: 'body_complete' });
+            }
+            full = splitter.getFull();
+          } else {
+            const { requirementText } = parseRegenerateFallbackFromBaseRequirement(
+              ctx.rawRequirement,
+              ctx.expectedGranularity,
+              ctx.slotKeys
+            );
+            full = requirementText;
+            writeEv({ type: 'delta_text', text: requirementText });
+            writeEv({ type: 'body_complete' });
+          }
+
+          const upd = await persistRegenerateVersionFromStreamOutput(ctx, full);
+          if (upd.ok) {
+            writeEv({ type: 'done', ok: true });
+          } else {
+            writeEv({ type: 'error', message: upd.message });
+          }
+        } catch (err) {
+          request.log.warn({ err }, 'regenerate-stream failed');
+          writeEv({
+            type: 'error',
+            message: err instanceof Error ? err.message : 'stream failed',
+          });
+        } finally {
+          request.raw.socket?.off('close', onClose);
+          pass.end();
+        }
+      })();
+    }
+  );
+
+  fastify.post(
     '/plans/:id/confirm',
     { preHandler: fastify.requireRole('user') },
     async (request, reply) => {
@@ -511,13 +646,16 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
       }
       const streamInput = parsed.data;
       const payload = await request.jwtVerify<{ sub: string }>();
-      const plan = await getPlanWithDraft(id, payload.sub);
-      if (!plan) {
-        return reply.code(404).send({ message: 'plan not found' });
+      const draftRes = await getPlanDraft(id, payload.sub);
+      if (!draftRes.ok) {
+        return reply.code(draftRes.code).send({ message: draftRes.message });
       }
-      if (plan.status !== 'draft') {
-        return reply.code(409).send({ message: 'draft is closed' });
-      }
+      const d = draftRes.draft;
+      const plan = {
+        goal: d.goal,
+        requirement: d.requirement,
+        draft: { versions: d.versions },
+      };
 
       const abort = new AbortController();
       const onClose = () => abort.abort();
@@ -577,6 +715,7 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
               ...slotKeys.map((k) => `- ${k}`),
             ].join('\n');
 
+            const splitter = createDraftStreamSplitter();
             for await (const chunk of streamDeepseekChat(
               [
                 { role: 'system', content: DEEPSEEK_SYSTEM },
@@ -584,9 +723,11 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
               ],
               { signal: abort.signal },
             )) {
-              full += chunk;
-              writeEv({ type: 'delta', text: chunk });
+              const { deltaText, scheduleJsonStarted } = splitter.addChunk(chunk);
+              if (deltaText) writeEv({ type: 'delta_text', text: deltaText });
+              if (scheduleJsonStarted) writeEv({ type: 'body_complete' });
             }
+            full = splitter.getFull();
           } else {
             full = formatDraftToText({
               goal: plan.goal,
@@ -595,7 +736,8 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
               cycle: streamInput.cycle,
               requirement: plan.requirement,
             });
-            writeEv({ type: 'delta', text: full });
+            writeEv({ type: 'delta_text', text: full });
+            writeEv({ type: 'body_complete' });
           }
 
           const upd = await updatePlanV1Requirement(id, payload.sub, full);

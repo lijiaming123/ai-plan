@@ -40,6 +40,9 @@ function cellClass(cell: HeatmapGridCell): string {
   if (cell.status === "completed") {
     return "plan-heatmap-cell plan-heatmap-cell--done";
   }
+  if (cell.status === "pending") {
+    return "plan-heatmap-cell plan-heatmap-cell--pending";
+  }
   if (cell.status === "missed") {
     return "plan-heatmap-cell plan-heatmap-cell--missed";
   }
@@ -58,8 +61,10 @@ function tooltipText(cell: HeatmapGridCell): string {
     parts.push("当日无计划打卡安排");
   } else if (cell.status === "completed") {
     parts.push("当日打卡已满足");
+  } else if (cell.status === "pending") {
+    parts.push("未到日界，待完成应打卡项");
   } else {
-    parts.push("当日有应打卡项未完成");
+    parts.push("当日有应打卡项未完成（已遗漏）");
   }
   return parts.join("；");
 }
@@ -281,6 +286,11 @@ function ariaLabel(cell: HeatmapGridCell): string {
   box-shadow: inset 0 0 0 1px rgba(25, 60, 35, 0.12);
 }
 
+.plan-heatmap-cell--pending {
+  background: #d4a72c;
+  box-shadow: inset 0 0 0 1px rgba(90, 60, 10, 0.18);
+}
+
 .plan-heatmap-cell--missed {
   background: #cf222e;
   box-shadow: inset 0 0 0 1px rgba(80, 10, 15, 0.15);
@@ -297,6 +307,13 @@ function ariaLabel(cell: HeatmapGridCell): string {
 .plan-heatmap-cell--today.plan-heatmap-cell--done {
   box-shadow:
     inset 0 0 0 1px rgba(25, 60, 35, 0.12),
+    0 0 0 1px rgba(255, 255, 255, 0.95),
+    0 0 0 2px #0a8f4a;
+}
+
+.plan-heatmap-cell--today.plan-heatmap-cell--pending {
+  box-shadow:
+    inset 0 0 0 1px rgba(90, 60, 10, 0.18),
     0 0 0 1px rgba(255, 255, 255, 0.95),
     0 0 0 2px #0a8f4a;
 }

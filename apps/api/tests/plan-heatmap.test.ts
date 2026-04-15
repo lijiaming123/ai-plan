@@ -64,6 +64,7 @@ describe('plan heatmap buildHeatmapDays', () => {
       year: 2026,
       plans,
       hasCheckin: () => false,
+      todayYmd: '2026-06-15',
     });
     expect(days).toHaveLength(365);
     expect(days.every((d) => d.status === 'none')).toBe(true);
@@ -82,6 +83,7 @@ describe('plan heatmap buildHeatmapDays', () => {
       year: 2026,
       plans,
       hasCheckin: (pid, key) => pid === 'p1' && key === '2026-06-05',
+      todayYmd: '2026-06-10',
     });
     const june5 = days.find((d) => d.date === '2026-06-05');
     const june6 = days.find((d) => d.date === '2026-06-06');
@@ -104,10 +106,49 @@ describe('plan heatmap buildHeatmapDays', () => {
       year: 2026,
       plans,
       hasCheckin: (pid, key) => pid === 'p1' && key === 'W1',
+      todayYmd: '2026-04-15',
     });
     for (const d of ['2026-04-01', '2026-04-07']) {
       expect(days.find((x) => x.date === d)?.status).toBe('completed');
     }
+  });
+
+  it('按日槽位：未到「今天」的应打卡日未打卡应为 pending，非 missed', () => {
+    const plans: HeatmapPlanInput[] = [
+      {
+        planId: 'p1',
+        createdAt: new Date(2026, 5, 1),
+        deadline: new Date(2026, 5, 10),
+        schedule: slotSchedule('day', [{ slotKey: '2026-06-05' }, { slotKey: '2026-06-06' }]),
+      },
+    ];
+    const days = buildHeatmapDays({
+      year: 2026,
+      plans,
+      hasCheckin: () => false,
+      todayYmd: '2026-06-04',
+    });
+    expect(days.find((d) => d.date === '2026-06-05')?.status).toBe('pending');
+    expect(days.find((d) => d.date === '2026-06-06')?.status).toBe('pending');
+  });
+
+  it('按日槽位：今天未打卡应为 missed，明天仍为 pending', () => {
+    const plans: HeatmapPlanInput[] = [
+      {
+        planId: 'p1',
+        createdAt: new Date(2026, 5, 1),
+        deadline: new Date(2026, 5, 10),
+        schedule: slotSchedule('day', [{ slotKey: '2026-06-05' }, { slotKey: '2026-06-06' }]),
+      },
+    ];
+    const days = buildHeatmapDays({
+      year: 2026,
+      plans,
+      hasCheckin: () => false,
+      todayYmd: '2026-06-05',
+    });
+    expect(days.find((d) => d.date === '2026-06-05')?.status).toBe('missed');
+    expect(days.find((d) => d.date === '2026-06-06')?.status).toBe('pending');
   });
 });
 

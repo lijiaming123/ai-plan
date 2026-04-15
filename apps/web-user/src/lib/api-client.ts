@@ -18,7 +18,7 @@ export type AuthMeResponse = {
 
 export type PlanHeatmapDay = {
   date: string;
-  status: 'completed' | 'missed' | 'none';
+  status: 'completed' | 'missed' | 'pending' | 'none';
   summary?: { due: number; done: number };
 };
 

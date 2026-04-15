@@ -32,12 +32,14 @@ describe("plan-heatmap-grid", () => {
     const cols = buildYearHeatmapColumns(2026, [
       { date: "2026-06-01", status: "completed", summary: { due: 1, done: 1 } },
       { date: "2026-06-02", status: "missed", summary: { due: 1, done: 0 } },
+      { date: "2026-06-03", status: "pending", summary: { due: 2, done: 0 } },
     ]);
     const flat = cols.flat();
     expect(flat.find((c) => c.date === "2026-06-01")?.status).toBe(
       "completed",
     );
     expect(flat.find((c) => c.date === "2026-06-02")?.status).toBe("missed");
+    expect(flat.find((c) => c.date === "2026-06-03")?.status).toBe("pending");
   });
 
   it("buildMonthLabelsForColumns 应在首列出现月份名", () => {

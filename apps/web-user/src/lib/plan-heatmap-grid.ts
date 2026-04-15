@@ -1,6 +1,6 @@
 /** 概览页热力图：按周列 × 周七行排布，周一为每列首行（与常见贡献图一致） */
 
-export type HeatmapGridStatus = 'completed' | 'missed' | 'none' | 'out';
+export type HeatmapGridStatus = 'completed' | 'missed' | 'pending' | 'none' | 'out';
 
 export type HeatmapGridCell = {
   date: string | null;
@@ -10,7 +10,7 @@ export type HeatmapGridCell = {
 
 export type HeatmapDayInput = {
   date: string;
-  status: 'completed' | 'missed' | 'none';
+  status: 'completed' | 'missed' | 'pending' | 'none';
   summary?: { due: number; done: number };
 };
 

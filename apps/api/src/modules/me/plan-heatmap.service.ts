@@ -8,7 +8,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import type { CheckinSchedule } from '../plans/deepseek-schedule';
 
-export type HeatmapDayStatus = 'completed' | 'missed' | 'none';
+export type HeatmapDayStatus = 'completed' | 'missed' | 'pending' | 'none';
 
 export type HeatmapDay = {
   date: string;
@@ -90,13 +90,15 @@ export type HeatmapPlanInput = {
 
 /**
  * 纯函数：生成某年内每日状态，便于单测。
+ * @param todayYmd 服务端本地日历「今天」YYYY-MM-DD；严格大于今日的应打卡日若未完成则为 pending，不记为 missed（日界过后才算遗漏）。
  */
 export function buildHeatmapDays(params: {
   year: number;
   plans: HeatmapPlanInput[];
   hasCheckin: (planId: string, slotKey: string) => boolean;
+  todayYmd: string;
 }): HeatmapDay[] {
-  const { year, plans, hasCheckin } = params;
+  const { year, plans, hasCheckin, todayYmd } = params;
   const dueByDate = new Map<string, Set<string>>();
 
   const addDue = (ymd: string, planId: string, slotKey: string) => {
@@ -153,6 +155,8 @@ export function buildHeatmapDays(params: {
     const summary = { due, done };
     if (done === due) {
       days.push({ date, status: 'completed', summary });
+    } else if (date > todayYmd) {
+      days.push({ date, status: 'pending', summary });
     } else {
       days.push({ date, status: 'missed', summary });
     }
@@ -220,10 +224,12 @@ export async function getPlanHeatmapForUser(userId: string, year: number): Promi
     });
   }
 
+  const todayYmd = formatDayKey(toDateOnlyFromDate(new Date()));
   const days = buildHeatmapDays({
     year,
     plans: heatmapPlans,
     hasCheckin,
+    todayYmd,
   });
 
   return {

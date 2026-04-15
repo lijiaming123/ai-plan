@@ -879,7 +879,7 @@ watch(
           >
             前往草稿确认
           </router-link>
-        </section>
+  </section>
     </div>
   </div>
 </template>

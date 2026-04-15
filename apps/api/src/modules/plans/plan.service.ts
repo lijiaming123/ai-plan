@@ -10,10 +10,17 @@
  * 重新生成：若已配置 DEEPSEEK_API_KEY，则优先调用 DeepSeek 产出新版正文 + 打卡 JSON；失败或未配置时回退为本地解析/模板。
  * 对外导出函数见各 export 上方注释；本文件中部多为纯函数与 Prisma 事务。
  */
-import { prisma } from '../../lib/prisma';
-import { completeDeepseekChat, isDeepseekConfigured } from '../../lib/deepseek';
-import { generatePlanDraft, type GeneratePlanInput } from '@ai-plan/ai-engine/client';
-import { resolveGranularityPlan, type GranularityMode, type SlotType } from './granularity';
+import { prisma } from "../../lib/prisma";
+import { completeDeepseekChat, isDeepseekConfigured } from "../../lib/deepseek";
+import {
+  generatePlanDraft,
+  type GeneratePlanInput,
+} from "@ai-plan/ai-engine/client";
+import {
+  resolveGranularityPlan,
+  type GranularityMode,
+  type SlotType,
+} from "./granularity";
 import {
   buildFallbackSchedule,
   extractLastJsonCodeBlock,
@@ -21,19 +28,19 @@ import {
   stripLastJsonCodeBlock,
   validateScheduleStrict,
   type CheckinSchedule,
-} from './deepseek-schedule';
-import { listScheduleSlotSubmissionsBySlot } from './schedule-slot-checkin.service';
+} from "./deepseek-schedule";
+import { listScheduleSlotSubmissionsBySlot } from "./schedule-slot-checkin.service";
 
-const editableFields = ['deadline', 'note'] as const;
+const editableFields = ["deadline", "note"] as const;
 
-export type ScheduleGranularity = 'day' | 'week';
+export type ScheduleGranularity = "day" | "week";
 
 /** PATCH /plans/:id 时仅允许白名单字段通过（其余忽略） */
 export function sanitizePlanPatch(input: Record<string, unknown>) {
   return Object.fromEntries(
     Object.entries(input).filter(([key]) =>
-      editableFields.includes(key as (typeof editableFields)[number])
-    )
+      editableFields.includes(key as (typeof editableFields)[number]),
+    ),
   );
 }
 
@@ -43,7 +50,7 @@ type DraftTask = {
   order: number;
   timeSlotType?: SlotType;
   timeSlotKey?: string;
-  taskType?: 'action' | 'weekly_summary' | 'monthly_summary';
+  taskType?: "action" | "weekly_summary" | "monthly_summary";
 };
 
 type DraftStage = {
@@ -86,8 +93,8 @@ function daysBetweenInclusive(start: Date, end: Date) {
 
 function formatDayKey(date: Date) {
   const y = date.getFullYear();
-  const m = `${date.getMonth() + 1}`.padStart(2, '0');
-  const d = `${date.getDate()}`.padStart(2, '0');
+  const m = `${date.getMonth() + 1}`.padStart(2, "0");
+  const d = `${date.getDate()}`.padStart(2, "0");
   return `${y}-${m}-${d}`;
 }
 
@@ -103,13 +110,13 @@ export function decideScheduleGranularity(params: {
   startDate: string;
   endDate: string;
 }): ScheduleGranularity {
-  if (params.mode === 'deep') return 'day';
-  if (params.mode === 'rough') return 'week';
+  if (params.mode === "deep") return "day";
+  if (params.mode === "rough") return "week";
 
   const start = toDateOnly(params.startDate);
   const end = toDateOnly(params.endDate);
   const durationDays = daysBetweenInclusive(start, end);
-  return durationDays <= 92 ? 'day' : 'week';
+  return durationDays <= 92 ? "day" : "week";
 }
 
 /**
@@ -126,7 +133,7 @@ export function buildScheduleSlotKeys(params: {
   const end = toDateOnly(params.endDate);
   const durationDays = daysBetweenInclusive(start, end);
 
-  if (params.granularity === 'week') {
+  if (params.granularity === "week") {
     const weeks = Math.max(1, Math.ceil(durationDays / 7));
     return Array.from({ length: weeks }, (_, i) => `W${i + 1}`);
   }
@@ -141,16 +148,20 @@ export function buildScheduleSlotKeys(params: {
 }
 
 /** 为每个「行动任务」生成与 slotType 对齐的 key：日=YYYY-MM-DD 递增，周=Wn，月=Mn */
-function buildTaskKeys(params: { slotType: SlotType; taskCount: number; startDate: Date }) {
+function buildTaskKeys(params: {
+  slotType: SlotType;
+  taskCount: number;
+  startDate: Date;
+}) {
   const keys: string[] = [];
   for (let i = 0; i < params.taskCount; i += 1) {
-    if (params.slotType === 'day') {
+    if (params.slotType === "day") {
       const next = new Date(params.startDate);
       next.setDate(params.startDate.getDate() + i);
       keys.push(formatDayKey(next));
       continue;
     }
-    if (params.slotType === 'week') {
+    if (params.slotType === "week") {
       keys.push(`W${i + 1}`);
       continue;
     }
@@ -164,42 +175,58 @@ function buildTaskKeys(params: { slotType: SlotType; taskCount: number; startDat
  * 每个阶段独立追加总结行（id 带 stage.sortOrder 防冲突）。
  */
 function withTimeSlots(
-  stages: Array<{ name: string; sortOrder: number; tasks: Array<{ id: string; title: string; order: number }> }>,
-  options: { granularityMode: GranularityMode; startDateIso: string; deadlineIso: string }
+  stages: Array<{
+    name: string;
+    sortOrder: number;
+    tasks: Array<{ id: string; title: string; order: number }>;
+  }>,
+  options: {
+    granularityMode: GranularityMode;
+    startDateIso: string;
+    deadlineIso: string;
+  },
 ) {
   const startDate = toDateOnly(options.startDateIso);
   const deadline = toDateOnly(options.deadlineIso);
   const durationDays = daysBetweenInclusive(startDate, deadline);
-  const rule = resolveGranularityPlan({ mode: options.granularityMode, durationDays });
-  const slotType = rule.slots[0] ?? 'day';
+  const rule = resolveGranularityPlan({
+    mode: options.granularityMode,
+    durationDays,
+  });
+  const slotType = rule.slots[0] ?? "day";
 
   return stages.map((stage) => {
-    const keys = buildTaskKeys({ slotType, taskCount: stage.tasks.length, startDate });
+    const keys = buildTaskKeys({
+      slotType,
+      taskCount: stage.tasks.length,
+      startDate,
+    });
     const taskList: DraftTask[] = stage.tasks.map((task, index) => ({
       ...task,
       timeSlotType: slotType,
-      timeSlotKey: keys[index] ?? keys[keys.length - 1] ?? formatDayKey(startDate),
-      taskType: 'action',
+      timeSlotKey:
+        keys[index] ?? keys[keys.length - 1] ?? formatDayKey(startDate),
+      taskType: "action",
     }));
 
-    if (rule.summaries.includes('weekly')) {
+    if (rule.summaries.includes("weekly")) {
       taskList.push({
         id: `weekly-summary-${stage.sortOrder}`,
-        title: '本周总结与复盘',
+        title: "本周总结与复盘",
         order: taskList.length + 1,
-        timeSlotType: 'week',
+        timeSlotType: "week",
         timeSlotKey: `W${Math.max(1, Math.ceil(durationDays / 7))}`,
-        taskType: 'weekly_summary',
+        taskType: "weekly_summary",
       });
     }
-    if (rule.summaries.includes('monthly')) {
+    if (rule.summaries.includes("monthly")) {
       taskList.push({
         id: `monthly-summary-${stage.sortOrder}`,
-        title: '本月总结与复盘',
+        title: "本月总结与复盘",
         order: taskList.length + 1,
-        timeSlotType: 'month',
+        timeSlotType: "month",
         timeSlotKey: `M${Math.max(1, Math.ceil(durationDays / 30))}`,
-        taskType: 'monthly_summary',
+        taskType: "monthly_summary",
       });
     }
 
@@ -216,10 +243,10 @@ function withTimeSlots(
 function buildSnapshot(
   input: GeneratePlanInput,
   version: number,
-  options?: { granularityMode?: GranularityMode; startDateIso?: string }
+  options?: { granularityMode?: GranularityMode; startDateIso?: string },
 ): PlanVersionSnapshot {
   const draft = generatePlanDraft(input);
-  const granularityMode = options?.granularityMode ?? 'smart';
+  const granularityMode = options?.granularityMode ?? "smart";
   const slottedStages = withTimeSlots(draft.stages, {
     granularityMode,
     startDateIso: options?.startDateIso ?? input.deadline,
@@ -261,7 +288,7 @@ type GenerationDraftRow = {
 async function ensureBaselineVersion(plan: PlanRow) {
   const firstVersion = await prisma.planVersion.findFirst({
     where: { planId: plan.id },
-    orderBy: { version: 'asc' },
+    orderBy: { version: "asc" },
   });
   if (firstVersion) return;
 
@@ -270,9 +297,9 @@ async function ensureBaselineVersion(plan: PlanRow) {
       goal: plan.goal,
       deadline: plan.deadline.toISOString(),
       requirement: plan.requirement,
-      type: plan.type as GeneratePlanInput['type'],
+      type: plan.type as GeneratePlanInput["type"],
     },
-    1
+    1,
   );
 
   await prisma.planVersion.create({
@@ -301,21 +328,27 @@ function toSnapshot(version: {
   schedule?: unknown;
   createdAt: Date;
 }): PlanVersionSnapshot {
-  const stages = (Array.isArray(version.snapshot) ? version.snapshot : []) as DraftStage[];
+  const stages = (
+    Array.isArray(version.snapshot) ? version.snapshot : []
+  ) as DraftStage[];
   const allTasks = stages.flatMap((stage) => stage.tasks);
   const granularityMode: GranularityMode | undefined = allTasks.some(
-    (task) => task.taskType === 'weekly_summary' || task.taskType === 'monthly_summary'
+    (task) =>
+      task.taskType === "weekly_summary" || task.taskType === "monthly_summary",
   )
-    ? 'deep'
-    : allTasks.some((task) => task.timeSlotType === 'week')
-      ? 'rough'
+    ? "deep"
+    : allTasks.some((task) => task.timeSlotType === "week")
+      ? "rough"
       : undefined;
   return {
     version: version.version,
     requirement: version.requirement,
     deadline: version.deadline.toISOString(),
     granularityMode,
-    schedule: (version.schedule && typeof version.schedule === 'object' ? (version.schedule as CheckinSchedule) : undefined),
+    schedule:
+      version.schedule && typeof version.schedule === "object"
+        ? (version.schedule as CheckinSchedule)
+        : undefined,
     stages,
     createdAt: version.createdAt.toISOString(),
   };
@@ -325,44 +358,50 @@ async function loadPersistedPlanState(plan: PlanRow): Promise<DraftState> {
   await ensureBaselineVersion(plan);
   const versions = await prisma.planVersion.findMany({
     where: { planId: plan.id },
-    orderBy: { version: 'asc' },
+    orderBy: { version: "asc" },
   });
   const schedules = (await prisma.$queryRawUnsafe(
     'SELECT version, schedule FROM "PlanVersion" WHERE "planId" = $1 ORDER BY version ASC',
-    plan.id
+    plan.id,
   )) as Array<{ version: number; schedule: unknown | null }>;
   const scheduleByVersion = new Map<number, unknown>();
   for (const row of schedules) {
-    if (row && typeof row.version === 'number' && row.schedule != null) {
+    if (row && typeof row.version === "number" && row.schedule != null) {
       scheduleByVersion.set(row.version, row.schedule);
     }
   }
   return {
     planId: plan.id,
-    versions: versions.map((item) => toSnapshot({ ...item, schedule: scheduleByVersion.get(item.version) })),
+    versions: versions.map((item) =>
+      toSnapshot({ ...item, schedule: scheduleByVersion.get(item.version) }),
+    ),
     maxVersions: MAX_VERSIONS,
     confirmedVersion: plan.confirmedVersion,
   };
 }
 
-async function loadGenerationDraftState(draft: GenerationDraftRow): Promise<DraftState> {
+async function loadGenerationDraftState(
+  draft: GenerationDraftRow,
+): Promise<DraftState> {
   const versions = await prisma.planGenerationDraftVersion.findMany({
     where: { draftId: draft.id },
-    orderBy: { version: 'asc' },
+    orderBy: { version: "asc" },
   });
   const schedules = (await prisma.$queryRawUnsafe(
     'SELECT version, schedule FROM "PlanGenerationDraftVersion" WHERE "draftId" = $1 ORDER BY version ASC',
-    draft.id
+    draft.id,
   )) as Array<{ version: number; schedule: unknown | null }>;
   const scheduleByVersion = new Map<number, unknown>();
   for (const row of schedules) {
-    if (row && typeof row.version === 'number' && row.schedule != null) {
+    if (row && typeof row.version === "number" && row.schedule != null) {
       scheduleByVersion.set(row.version, row.schedule);
     }
   }
   return {
     planId: draft.id,
-    versions: versions.map((item) => toSnapshot({ ...item, schedule: scheduleByVersion.get(item.version) })),
+    versions: versions.map((item) =>
+      toSnapshot({ ...item, schedule: scheduleByVersion.get(item.version) }),
+    ),
     maxVersions: MAX_VERSIONS,
     confirmedVersion: null,
   };
@@ -400,18 +439,23 @@ function mapPlanListRow(row: {
     deadline: row.deadline.toISOString(),
     requirement: row.requirement,
     type: row.type,
-    status: 'active',
+    status: "active",
     createdAt: row.createdAt.toISOString(),
   };
 }
 
-export type PlanListSort = 'created_desc' | 'deadline_asc';
+export type PlanListSort = "created_desc" | "deadline_asc";
 
 /** 计划列表（我的计划）：仅已定稿 Plan 表。默认按创建时间倒序；`deadline_asc` 按截止日期升序（更近的在前）。 */
-export async function listPlansForUser(userId: string, options?: { sort?: PlanListSort }) {
-  const sort: PlanListSort = options?.sort ?? 'created_desc';
+export async function listPlansForUser(
+  userId: string,
+  options?: { sort?: PlanListSort },
+) {
+  const sort: PlanListSort = options?.sort ?? "created_desc";
   const orderBy =
-    sort === 'deadline_asc' ? ({ deadline: 'asc' } as const) : ({ createdAt: 'desc' } as const);
+    sort === "deadline_asc"
+      ? ({ deadline: "asc" } as const)
+      : ({ createdAt: "desc" } as const);
   const rows = await prisma.plan.findMany({
     where: { userId },
     orderBy,
@@ -427,15 +471,20 @@ export async function getPlanWithDraft(planId: string, userId: string) {
   });
   if (!plan) return null;
   const state = await loadPersistedPlanState(plan);
-  const scheduleSlotSubmissions = await listScheduleSlotSubmissionsBySlot(planId, userId);
+  const scheduleSlotSubmissions = await listScheduleSlotSubmissionsBySlot(
+    planId,
+    userId,
+  );
   return {
     ...plan,
-    status: 'active',
+    status: "active",
     draft: {
       versions: state.versions,
       maxVersions: state.maxVersions,
       confirmedVersion: state.confirmedVersion,
-      canRegenerate: state.versions.length < state.maxVersions && state.confirmedVersion === null,
+      canRegenerate:
+        state.versions.length < state.maxVersions &&
+        state.confirmedVersion === null,
     },
     scheduleSlotSubmissions,
   };
@@ -446,7 +495,12 @@ export async function getPlanDraft(draftId: string, userId: string) {
   const draft = await prisma.planGenerationDraft.findFirst({
     where: { id: draftId, userId },
   });
-  if (!draft) return { ok: false as const, code: 404 as const, message: 'plan not found' };
+  if (!draft)
+    return {
+      ok: false as const,
+      code: 404 as const,
+      message: "plan not found",
+    };
   const state = await loadGenerationDraftState(draft);
   return {
     ok: true as const,
@@ -458,14 +512,16 @@ export async function getPlanDraft(draftId: string, userId: string) {
       versions: state.versions,
       maxVersions: state.maxVersions,
       confirmedVersion: state.confirmedVersion,
-      canRegenerate: state.versions.length < state.maxVersions && state.confirmedVersion === null,
+      canRegenerate:
+        state.versions.length < state.maxVersions &&
+        state.confirmedVersion === null,
     },
   };
 }
 
 /** 与 /plans/assistant、流式 draft 共用的人设（中文计划正文风格）；供 regenerate-stream 路由引用 */
 export const REGENERATE_PLAN_SYSTEM =
-  '你是「计划大师」的 AI 计划顾问。根据用户给出的信息与要求，用中文输出可直接作为「计划内容」保存的正文：务实用语、分阶段目标与验收、可执行任务（优先按周，必要时到天）、风险与应对、复盘建议。不要输出与计划无关的寒暄。';
+  "你是「计划大师」的 AI 计划顾问。根据用户给出的信息与要求，用中文输出可直接作为「计划内容」保存的正文：务实用语、分阶段目标与验收、可执行任务（优先按周，必要时到天）、风险与应对、复盘建议。不要输出与计划无关的寒暄。";
 
 function buildRegenerateUserContentForModel(params: {
   goal: string;
@@ -488,7 +544,7 @@ function buildRegenerateUserContentForModel(params: {
 
   let deadlineLabel: string;
   try {
-    deadlineLabel = new Date(deadlineIso).toLocaleDateString('zh-CN');
+    deadlineLabel = new Date(deadlineIso).toLocaleDateString("zh-CN");
   } catch {
     deadlineLabel = deadlineIso;
   }
@@ -499,38 +555,38 @@ function buildRegenerateUserContentForModel(params: {
   })().trim();
 
   return [
-    '请基于以下「当前版本」重新生成一整版计划说明（将作为草稿新版本保存）。在保持目标一致的前提下，可优化阶段表述、验收要点与每日/每周打卡文案；不要简单复述原文。',
-    '',
+    "请基于以下「当前版本」重新生成一整版计划说明（将作为草稿新版本保存）。在保持目标一致的前提下，可优化阶段表述、验收要点与每日/每周打卡文案；不要简单复述原文。",
+    "",
     `目标：${goal}`,
     `计划类型：${planType}`,
     `截止日期：${deadlineLabel}`,
     `颗粒度设置：${effectiveGranularityMode}（打卡表必须使用粒度：${expectedGranularity}）`,
-    '',
-    '【当前版本正文】',
-    bodyText || '（暂无）',
-    '',
-    '请输出：',
-    '1) 可直接保存为「计划内容」的中文正文；',
-    '2) 在最后输出一个严格的 JSON 代码块（```json ...```），仅包含如下结构：',
-    '{',
+    "",
+    "【当前版本正文】",
+    bodyText || "（暂无）",
+    "",
+    "请输出：",
+    "1) 可直接保存为「计划内容」的中文正文；",
+    "2) 在最后输出一个严格的 JSON 代码块（```json ...```），仅包含如下结构：",
+    "{",
     '  "schedule": {',
     `    "granularity": "${expectedGranularity}",`,
     '    "slots": [',
     '      { "slotKey": "...", "content": "..." }',
-    '    ]',
-    '  }',
-    '}',
-    '注意：slotKey 必须严格来自下方「时间槽」列表，且顺序必须完全一致；content 为当期计划一段中文（1-3句，具体可执行）。',
-    '',
-    '时间槽：',
+    "    ]",
+    "  }",
+    "}",
+    "注意：slotKey 必须严格来自下方「时间槽」列表，且顺序必须完全一致；content 为当期计划一段中文（1-3句，具体可执行）。",
+    "",
+    "时间槽：",
     ...slotKeys.map((k) => `- ${k}`),
-  ].join('\n');
+  ].join("\n");
 }
 
 export function parseRegenerateFallbackFromBaseRequirement(
   rawRequirement: string,
   expectedGranularity: ScheduleGranularity,
-  slotKeys: string[]
+  slotKeys: string[],
 ): { requirementText: string; schedule: CheckinSchedule } {
   const jsonBlock = extractLastJsonCodeBlock(rawRequirement);
   const wire = jsonBlock ? parseScheduleWireOrNull(jsonBlock) : null;
@@ -540,11 +596,13 @@ export function parseRegenerateFallbackFromBaseRequirement(
         expectedSlotKeys: slotKeys,
         wire,
       })
-    : ({ ok: false as const, reason: 'missing json' } as const);
+    : ({ ok: false as const, reason: "missing json" } as const);
   const schedule = validated.ok
     ? validated.schedule
     : buildFallbackSchedule({ granularity: expectedGranularity, slotKeys });
-  const requirementText = jsonBlock ? stripLastJsonCodeBlock(rawRequirement) : rawRequirement.trim();
+  const requirementText = jsonBlock
+    ? stripLastJsonCodeBlock(rawRequirement)
+    : rawRequirement.trim();
   return { requirementText, schedule };
 }
 
@@ -565,11 +623,18 @@ export type RegenerateStreamContext = {
 
 function parseRegenerateModelOutput(
   fullRaw: string,
-  ctx: Pick<RegenerateStreamContext, 'expectedGranularity' | 'slotKeys' | 'rawRequirement'>
+  ctx: Pick<
+    RegenerateStreamContext,
+    "expectedGranularity" | "slotKeys" | "rawRequirement"
+  >,
 ): { requirementText: string; schedule: CheckinSchedule } {
   const trimmed = fullRaw.trim();
   if (!trimmed) {
-    return parseRegenerateFallbackFromBaseRequirement(ctx.rawRequirement, ctx.expectedGranularity, ctx.slotKeys);
+    return parseRegenerateFallbackFromBaseRequirement(
+      ctx.rawRequirement,
+      ctx.expectedGranularity,
+      ctx.slotKeys,
+    );
   }
   const jsonBlock = extractLastJsonCodeBlock(trimmed);
   const wire = jsonBlock ? parseScheduleWireOrNull(jsonBlock) : null;
@@ -579,11 +644,16 @@ function parseRegenerateModelOutput(
         expectedSlotKeys: ctx.slotKeys,
         wire,
       })
-    : ({ ok: false as const, reason: 'missing json' } as const);
+    : ({ ok: false as const, reason: "missing json" } as const);
   const schedule = validated.ok
     ? validated.schedule
-    : buildFallbackSchedule({ granularity: ctx.expectedGranularity, slotKeys: ctx.slotKeys });
-  const requirementText = (jsonBlock ? stripLastJsonCodeBlock(trimmed) : trimmed).trim();
+    : buildFallbackSchedule({
+        granularity: ctx.expectedGranularity,
+        slotKeys: ctx.slotKeys,
+      });
+  const requirementText = (
+    jsonBlock ? stripLastJsonCodeBlock(trimmed) : trimmed
+  ).trim();
   return { requirementText, schedule };
 }
 
@@ -591,7 +661,7 @@ export async function prepareRegeneratePlanStream(
   draftId: string,
   userId: string,
   requirement?: string,
-  granularityMode?: GranularityMode
+  granularityMode?: GranularityMode,
 ): Promise<
   | { ok: true; ctx: RegenerateStreamContext }
   | { ok: false; code: number; message: string }
@@ -599,16 +669,18 @@ export async function prepareRegeneratePlanStream(
   const draft = await prisma.planGenerationDraft.findFirst({
     where: { id: draftId, userId },
   });
-  if (!draft) return { ok: false, code: 404, message: 'plan not found' };
+  if (!draft) return { ok: false, code: 404, message: "plan not found" };
 
   const state = await loadGenerationDraftState(draft);
   if (state.versions.length >= state.maxVersions) {
-    return { ok: false, code: 409, message: 'version limit reached' };
+    return { ok: false, code: 409, message: "version limit reached" };
   }
 
   const nextVersion = state.versions.length + 1;
   const effectiveGranularityMode =
-    granularityMode ?? state.versions[state.versions.length - 1]?.granularityMode ?? 'smart';
+    granularityMode ??
+    state.versions[state.versions.length - 1]?.granularityMode ??
+    "smart";
 
   const prevSchedule = state.versions[state.versions.length - 1]?.schedule;
   const expectedGranularity =
@@ -659,21 +731,21 @@ export async function prepareRegeneratePlanStream(
 async function persistRegenerateVersionAfterParse(
   ctx: RegenerateStreamContext,
   requirementText: string,
-  schedule: CheckinSchedule
+  schedule: CheckinSchedule,
 ): Promise<
   { ok: true; state: DraftState } | { ok: false; code: number; message: string }
 > {
   const draft = await prisma.planGenerationDraft.findFirst({
     where: { id: ctx.draftId, userId: ctx.userId },
   });
-  if (!draft) return { ok: false, code: 404, message: 'plan not found' };
+  if (!draft) return { ok: false, code: 404, message: "plan not found" };
 
   const state = await loadGenerationDraftState(draft);
   if (state.versions.length !== ctx.nextVersion - 1) {
-    return { ok: false, code: 409, message: 'version conflict' };
+    return { ok: false, code: 409, message: "version conflict" };
   }
   if (state.versions.length >= state.maxVersions) {
-    return { ok: false, code: 409, message: 'version limit reached' };
+    return { ok: false, code: 409, message: "version limit reached" };
   }
 
   const nextSnapshot = buildSnapshot(
@@ -681,13 +753,13 @@ async function persistRegenerateVersionAfterParse(
       goal: ctx.goal,
       deadline: ctx.deadlineIso,
       requirement: requirementText,
-      type: ctx.planType as GeneratePlanInput['type'],
+      type: ctx.planType as GeneratePlanInput["type"],
     },
     ctx.nextVersion,
     {
       granularityMode: ctx.effectiveGranularityMode,
       startDateIso: ctx.deadlineIso,
-    }
+    },
   );
   nextSnapshot.schedule = schedule;
   try {
@@ -703,7 +775,7 @@ async function persistRegenerateVersionAfterParse(
     await prisma.$executeRawUnsafe(
       'UPDATE "PlanGenerationDraftVersion" SET schedule = $1::jsonb WHERE id = $2',
       JSON.stringify(schedule),
-      createdVer.id
+      createdVer.id,
     );
 
     await prisma.planGenerationDraft.update({
@@ -720,7 +792,7 @@ async function persistRegenerateVersionAfterParse(
     return {
       ok: false,
       code: 500,
-      message: e instanceof Error ? e.message : 'persist failed',
+      message: e instanceof Error ? e.message : "persist failed",
     };
   }
 }
@@ -728,13 +800,16 @@ async function persistRegenerateVersionAfterParse(
 /** 流式结束后用完整模型输出落库新版本 */
 export async function persistRegenerateVersionFromStreamOutput(
   ctx: RegenerateStreamContext,
-  fullRawFromModel: string
+  fullRawFromModel: string,
 ): Promise<
   { ok: true; state: DraftState } | { ok: false; code: number; message: string }
 > {
-  const { requirementText, schedule } = parseRegenerateModelOutput(fullRawFromModel, ctx);
+  const { requirementText, schedule } = parseRegenerateModelOutput(
+    fullRawFromModel,
+    ctx,
+  );
   if (!requirementText.trim()) {
-    return { ok: false, code: 400, message: 'requirement is empty' };
+    return { ok: false, code: 400, message: "requirement is empty" };
   }
   return persistRegenerateVersionAfterParse(ctx, requirementText, schedule);
 }
@@ -758,8 +833,8 @@ async function tryRegeneratePlanContentWithDeepseek(params: {
 
   try {
     const deepseekRaw = await completeDeepseekChat([
-      { role: 'system', content: REGENERATE_PLAN_SYSTEM },
-      { role: 'user', content: userContent },
+      { role: "system", content: REGENERATE_PLAN_SYSTEM },
+      { role: "user", content: userContent },
     ]);
     const jsonBlock = extractLastJsonCodeBlock(deepseekRaw);
     const wire = jsonBlock ? parseScheduleWireOrNull(jsonBlock) : null;
@@ -769,7 +844,7 @@ async function tryRegeneratePlanContentWithDeepseek(params: {
           expectedSlotKeys: params.slotKeys,
           wire,
         })
-      : ({ ok: false as const, reason: 'missing json' } as const);
+      : ({ ok: false as const, reason: "missing json" } as const);
     const schedule = validated.ok
       ? validated.schedule
       : buildFallbackSchedule({
@@ -790,9 +865,14 @@ export async function regeneratePlanVersion(
   draftId: string,
   userId: string,
   requirement?: string,
-  granularityMode?: GranularityMode
+  granularityMode?: GranularityMode,
 ) {
-  const prep = await prepareRegeneratePlanStream(draftId, userId, requirement, granularityMode);
+  const prep = await prepareRegeneratePlanStream(
+    draftId,
+    userId,
+    requirement,
+    granularityMode,
+  );
   if (!prep.ok) return prep;
 
   const { ctx } = prep;
@@ -816,13 +896,17 @@ export async function regeneratePlanVersion(
     const fb = parseRegenerateFallbackFromBaseRequirement(
       ctx.rawRequirement,
       ctx.expectedGranularity,
-      ctx.slotKeys
+      ctx.slotKeys,
     );
     schedule = fb.schedule;
     requirementText = fb.requirementText;
   }
 
-  const persisted = await persistRegenerateVersionAfterParse(ctx, requirementText, schedule);
+  const persisted = await persistRegenerateVersionAfterParse(
+    ctx,
+    requirementText,
+    schedule,
+  );
   if (!persisted.ok) {
     return {
       ok: false as const,
@@ -834,15 +918,29 @@ export async function regeneratePlanVersion(
 }
 
 /** 选定某一生成版本定稿：删除 PlanGenerationDraft 树，以相同 id 写入 Plan（便于 URL 不变） */
-export async function confirmPlanVersion(draftId: string, userId: string, version: number) {
+export async function confirmPlanVersion(
+  draftId: string,
+  userId: string,
+  version: number,
+) {
   const draft = await prisma.planGenerationDraft.findFirst({
     where: { id: draftId, userId },
   });
-  if (!draft) return { ok: false as const, code: 404 as const, message: 'plan not found' };
+  if (!draft)
+    return {
+      ok: false as const,
+      code: 404 as const,
+      message: "plan not found",
+    };
 
   const state = await loadGenerationDraftState(draft);
   const snapshot = state.versions.find((item) => item.version === version);
-  if (!snapshot) return { ok: false as const, code: 404 as const, message: 'version not found' };
+  if (!snapshot)
+    return {
+      ok: false as const,
+      code: 404 as const,
+      message: "version not found",
+    };
 
   await prisma.$transaction(async (tx) => {
     await tx.planGenerationDraft.delete({ where: { id: draftId } });
@@ -868,8 +966,8 @@ export async function confirmPlanVersion(draftId: string, userId: string, versio
             name: stage.name,
             sortOrder: stage.sortOrder,
           },
-        })
-      )
+        }),
+      ),
     );
 
     const pv = await tx.planVersion.create({
@@ -884,19 +982,31 @@ export async function confirmPlanVersion(draftId: string, userId: string, versio
 
     await tx.$executeRawUnsafe(
       'UPDATE "PlanVersion" SET schedule = $1::jsonb WHERE id = $2',
-      JSON.stringify(snapshot.schedule ?? { granularity: 'day', slots: [] }),
-      pv.id
+      JSON.stringify(snapshot.schedule ?? { granularity: "day", slots: [] }),
+      pv.id,
     );
   });
 
-  const persisted = await prisma.plan.findUniqueOrThrow({ where: { id: draftId } });
+  const persisted = await prisma.plan.findUniqueOrThrow({
+    where: { id: draftId },
+  });
   const refreshedState = await loadPersistedPlanState(persisted);
-  return { ok: true as const, state: refreshedState, plan: { ...persisted, status: 'active' } };
+  return {
+    ok: true as const,
+    state: refreshedState,
+    plan: { ...persisted, status: "active" },
+  };
 }
 
 /** 对比两个版本快照中的阶段/任务名称差异（供前端 diff 展示；仅生成中草稿） */
-export async function compareDraftVersions(draftId: string, baseVersion: number, targetVersion: number) {
-  const draft = await prisma.planGenerationDraft.findUnique({ where: { id: draftId } });
+export async function compareDraftVersions(
+  draftId: string,
+  baseVersion: number,
+  targetVersion: number,
+) {
+  const draft = await prisma.planGenerationDraft.findUnique({
+    where: { id: draftId },
+  });
   if (!draft) return null;
   const state = await loadGenerationDraftState(draft);
   const base = state.versions.find((item) => item.version === baseVersion);
@@ -906,10 +1016,20 @@ export async function compareDraftVersions(draftId: string, baseVersion: number,
   const baseStages = new Set(base.stages.map((stage) => stage.name));
   const targetStages = new Set(target.stages.map((stage) => stage.name));
   const addedStages = [...targetStages].filter((name) => !baseStages.has(name));
-  const removedStages = [...baseStages].filter((name) => !targetStages.has(name));
+  const removedStages = [...baseStages].filter(
+    (name) => !targetStages.has(name),
+  );
 
-  const baseTasks = new Set(base.stages.flatMap((stage) => stage.tasks.map((task) => `${stage.name}::${task.title}`)));
-  const targetTasks = new Set(target.stages.flatMap((stage) => stage.tasks.map((task) => `${stage.name}::${task.title}`)));
+  const baseTasks = new Set(
+    base.stages.flatMap((stage) =>
+      stage.tasks.map((task) => `${stage.name}::${task.title}`),
+    ),
+  );
+  const targetTasks = new Set(
+    target.stages.flatMap((stage) =>
+      stage.tasks.map((task) => `${stage.name}::${task.title}`),
+    ),
+  );
   const addedTasks = [...targetTasks].filter((name) => !baseTasks.has(name));
   const removedTasks = [...baseTasks].filter((name) => !targetTasks.has(name));
 
@@ -929,9 +1049,10 @@ export async function createGeneratedPlan(
     userId: string;
     granularityMode?: GranularityMode;
     startDateIso?: string;
-  }
+  },
 ) {
-  const effectiveGranularityMode: GranularityMode = input.granularityMode ?? 'smart';
+  const effectiveGranularityMode: GranularityMode =
+    input.granularityMode ?? "smart";
   const startDateIso = input.startDateIso ?? input.deadline;
   const expectedGranularity = decideScheduleGranularity({
     mode: effectiveGranularityMode,
@@ -952,10 +1073,14 @@ export async function createGeneratedPlan(
         expectedSlotKeys: slotKeys,
         wire,
       })
-    : ({ ok: false as const, reason: 'missing json' } as const);
-  const schedule = validated.ok ? validated.schedule : buildFallbackSchedule({ granularity: expectedGranularity, slotKeys });
+    : ({ ok: false as const, reason: "missing json" } as const);
+  const schedule = validated.ok
+    ? validated.schedule
+    : buildFallbackSchedule({ granularity: expectedGranularity, slotKeys });
 
-  const requirementText = jsonBlock ? stripLastJsonCodeBlock(input.requirement) : input.requirement.trim();
+  const requirementText = jsonBlock
+    ? stripLastJsonCodeBlock(input.requirement)
+    : input.requirement.trim();
 
   const snapshot = buildSnapshot(
     {
@@ -968,7 +1093,7 @@ export async function createGeneratedPlan(
     {
       granularityMode: effectiveGranularityMode,
       startDateIso,
-    }
+    },
   );
   snapshot.schedule = schedule;
 
@@ -992,8 +1117,8 @@ export async function createGeneratedPlan(
             name: stage.name,
             sortOrder: stage.sortOrder,
           },
-        })
-      )
+        }),
+      ),
     );
 
     const createdVersion = await tx.planGenerationDraftVersion.create({
@@ -1008,7 +1133,7 @@ export async function createGeneratedPlan(
     await tx.$executeRawUnsafe(
       'UPDATE "PlanGenerationDraftVersion" SET schedule = $1::jsonb WHERE id = $2',
       JSON.stringify(schedule),
-      createdVersion.id
+      createdVersion.id,
     );
 
     const response = {
@@ -1046,21 +1171,43 @@ export async function createGeneratedPlan(
 }
 
 /** 将 v1 与生成草稿主档 requirement 同步更新，用于流式 AI 生成完成后落库 */
-export async function updatePlanV1Requirement(draftId: string, userId: string, requirement: string) {
-  const draft = await prisma.planGenerationDraft.findFirst({ where: { id: draftId, userId } });
-  if (!draft) return { ok: false as const, code: 404 as const, message: 'plan not found' };
+export async function updatePlanV1Requirement(
+  draftId: string,
+  userId: string,
+  requirement: string,
+) {
+  const draft = await prisma.planGenerationDraft.findFirst({
+    where: { id: draftId, userId },
+  });
+  if (!draft)
+    return {
+      ok: false as const,
+      code: 404 as const,
+      message: "plan not found",
+    };
   const raw = requirement.trim();
-  if (!raw) return { ok: false as const, code: 400 as const, message: 'requirement is empty' };
+  if (!raw)
+    return {
+      ok: false as const,
+      code: 400 as const,
+      message: "requirement is empty",
+    };
 
   const existing = (await prisma.$queryRawUnsafe(
     'SELECT id, schedule FROM "PlanGenerationDraftVersion" WHERE "draftId" = $1 AND version = 1 LIMIT 1',
-    draftId
+    draftId,
   )) as Array<{ id: string; schedule: unknown | null }>;
   const row = existing[0];
-  if (!row) return { ok: false as const, code: 404 as const, message: 'version not found' };
+  if (!row)
+    return {
+      ok: false as const,
+      code: 404 as const,
+      message: "version not found",
+    };
 
   const prevSchedule = row.schedule as CheckinSchedule | null | undefined;
-  const expectedGranularity: ScheduleGranularity = prevSchedule?.granularity ?? 'day';
+  const expectedGranularity: ScheduleGranularity =
+    prevSchedule?.granularity ?? "day";
   const slotKeys = prevSchedule?.slots?.map((s) => s.slotKey) ?? [];
 
   const jsonBlock = extractLastJsonCodeBlock(raw);
@@ -1072,11 +1219,17 @@ export async function updatePlanV1Requirement(draftId: string, userId: string, r
           expectedSlotKeys: slotKeys,
           wire,
         })
-      : ({ ok: false as const, reason: 'no prev schedule or missing json' } as const);
+      : ({
+          ok: false as const,
+          reason: "no prev schedule or missing json",
+        } as const);
   const requirementText = jsonBlock ? stripLastJsonCodeBlock(raw) : raw;
 
   await prisma.$transaction(async (tx) => {
-    await tx.planGenerationDraft.update({ where: { id: draftId }, data: { requirement: requirementText } });
+    await tx.planGenerationDraft.update({
+      where: { id: draftId },
+      data: { requirement: requirementText },
+    });
     await tx.planGenerationDraftVersion.updateMany({
       where: { draftId, version: 1 },
       data: { requirement: requirementText },
@@ -1085,7 +1238,7 @@ export async function updatePlanV1Requirement(draftId: string, userId: string, r
       await tx.$executeRawUnsafe(
         'UPDATE "PlanGenerationDraftVersion" SET schedule = $1::jsonb WHERE id = $2',
         JSON.stringify(validated.schedule),
-        row.id
+        row.id,
       );
     }
   });
@@ -1112,12 +1265,17 @@ export async function updatePlanScheduleSlot(params: {
         })
       : null;
 
-  if (!plan && !draft) return { ok: false as const, code: 404 as const, message: 'plan not found' };
+  if (!plan && !draft)
+    return {
+      ok: false as const,
+      code: 404 as const,
+      message: "plan not found",
+    };
 
   let version: number;
-  let table: 'plan' | 'draft';
+  let table: "plan" | "draft";
   if (draft) {
-    table = 'draft';
+    table = "draft";
     if (
       params.planVersion != null &&
       Number.isInteger(params.planVersion) &&
@@ -1128,61 +1286,78 @@ export async function updatePlanScheduleSlot(params: {
       version = draft.currentVersion ?? 1;
     }
   } else {
-    table = 'plan';
+    table = "plan";
     version = plan!.confirmedVersion ?? plan!.currentVersion ?? 1;
   }
 
   const scheduleRows =
-    table === 'plan'
+    table === "plan"
       ? ((await prisma.$queryRawUnsafe(
           'SELECT schedule FROM "PlanVersion" WHERE "planId" = $1 AND version = $2 LIMIT 1',
           params.planId,
-          version
+          version,
         )) as Array<{ schedule: unknown | null }>)
       : ((await prisma.$queryRawUnsafe(
           'SELECT schedule FROM "PlanGenerationDraftVersion" WHERE "draftId" = $1 AND version = $2 LIMIT 1',
           params.planId,
-          version
+          version,
         )) as Array<{ schedule: unknown | null }>);
 
-  const schedule = scheduleRows[0]?.schedule as CheckinSchedule | null | undefined;
+  const schedule = scheduleRows[0]?.schedule as
+    | CheckinSchedule
+    | null
+    | undefined;
   if (!schedule || !Array.isArray(schedule.slots)) {
-    return { ok: false as const, code: 404 as const, message: 'schedule not found' };
+    return {
+      ok: false as const,
+      code: 404 as const,
+      message: "schedule not found",
+    };
   }
 
   const idx = schedule.slots.findIndex((s) => s.slotKey === params.slotKey);
-  if (idx < 0) return { ok: false as const, code: 404 as const, message: 'slot not found' };
+  if (idx < 0)
+    return {
+      ok: false as const,
+      code: 404 as const,
+      message: "slot not found",
+    };
 
   const slot = schedule.slots[idx]!;
   const nowIso = new Date().toISOString();
   if (params.restore) {
     slot.content = slot.generatedContent;
-    slot.contentSource = 'generated';
+    slot.contentSource = "generated";
     delete slot.editedAt;
     delete slot.editedByUserId;
   } else {
-    const next = (params.content ?? '').trim();
-    if (!next) return { ok: false as const, code: 400 as const, message: 'content is empty' };
+    const next = (params.content ?? "").trim();
+    if (!next)
+      return {
+        ok: false as const,
+        code: 400 as const,
+        message: "content is empty",
+      };
     slot.content = next;
-    slot.contentSource = 'edited';
+    slot.contentSource = "edited";
     slot.editedAt = nowIso;
     slot.editedByUserId = params.userId;
   }
   schedule.slots[idx] = slot;
 
-  if (table === 'plan') {
+  if (table === "plan") {
     await prisma.$executeRawUnsafe(
       'UPDATE "PlanVersion" SET schedule = $1::jsonb WHERE "planId" = $2 AND version = $3',
       JSON.stringify(schedule),
       params.planId,
-      version
+      version,
     );
   } else {
     await prisma.$executeRawUnsafe(
       'UPDATE "PlanGenerationDraftVersion" SET schedule = $1::jsonb WHERE "draftId" = $2 AND version = $3',
       JSON.stringify(schedule),
       params.planId,
-      version
+      version,
     );
   }
 

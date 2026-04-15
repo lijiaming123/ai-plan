@@ -159,13 +159,15 @@ const heatmapStats = computed(() => {
   if (!data?.length) return null;
   let completed = 0;
   let missed = 0;
+  let pending = 0;
   let withDue = 0;
   for (const x of data) {
     if (x.status === "completed") completed += 1;
     else if (x.status === "missed") missed += 1;
+    else if (x.status === "pending") pending += 1;
     if (x.status !== "none") withDue += 1;
   }
-  return { completed, missed, withDue };
+  return { completed, missed, pending, withDue };
 });
 
 async function loadHeatmap() {
@@ -359,6 +361,12 @@ const yearSelectFilterable = computed(() => yearOptions.value.length > 12);
               class="inline-flex items-center gap-1.5 rounded-full bg-emerald-50/90 px-3 py-1 text-[11px] font-semibold text-emerald-900 ring-1 ring-emerald-200/50"
             >
               已满足 {{ heatmapStats.completed }} 天
+            </span>
+            <span
+              v-if="heatmapStats.pending > 0"
+              class="inline-flex items-center gap-1.5 rounded-full bg-amber-50/90 px-3 py-1 text-[11px] font-semibold text-amber-950 ring-1 ring-amber-200/55"
+            >
+              待打卡 {{ heatmapStats.pending }} 天
             </span>
             <span
               v-if="heatmapStats.missed > 0"

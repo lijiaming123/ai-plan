@@ -49,6 +49,10 @@ import {
 } from "../../lib/deepseek";
 import { generatePlanDraft } from "@ai-plan/ai-engine/client";
 import mammoth from "mammoth";
+import { runProPlanAgent } from "@ai-plan/pro-plan-agent";
+import { buildPlanAssistantCacheKey } from "./assistant-cache-key";
+import { createLlmRouter } from "../../lib/llm/llm-router";
+import { createDeepseekProvider } from "../../lib/llm/providers/deepseek-provider";
 
 const planTypes = ["general", "study", "work"] as const;
 const planModes = ["basic", "pro"] as const;
@@ -86,10 +90,45 @@ type PlanAssistantBody = {
   message?: string;
 };
 
+type PlanAssistantStreamBody = PlanAssistantBody & {
+  tier?: "basic" | "pro";
+  agent?: "basic" | "pro";
+};
+
+type AssistantApplyOptionBody = {
+  baseSuggestedContent: string;
+  baseSchedule: {
+    granularity: "day" | "week";
+    slots: Array<{ slotKey: string; content: string }>;
+  };
+  optionId?: "more_granular" | "save_time" | "more_steady" | "more_aggressive";
+  customText?: string;
+  context: {
+    goal: string;
+    startDate: string;
+    endDate: string;
+    cycle: Cycle;
+    type: PlanType;
+  };
+};
+
 type ParsePlanFileBody = {
   fileName: string;
   contentBase64: string;
 };
+
+/** Pro 评审后给前端的 3 条精炼行动清单（流式 meta_ready 与非流式 /plans/assistant 共用） */
+function buildProAssistantAdviceText(
+  scoreTotal: number,
+  issues: Array<{ title: string; suggestion: string }>,
+): string {
+  const topIssue = issues[0];
+  return [
+    `1) 先看评分：${scoreTotal}（越高越可执行）。`,
+    `2) 先修一个最关键问题：${topIssue ? `${topIssue.title} — ${topIssue.suggestion}` : "当前结构已可执行，重点是把证据/验收写清楚。"}`,
+    `3) 选一个方向微调：从下方选项里选 1 个（更细/更省时/更稳/更激进），或直接点「使用默认优化版（确认）」。`,
+  ].join("\n");
+}
 
 type ConfirmPlanVersionBody = {
   version: number;
@@ -206,6 +245,84 @@ function validateAssistantBody(
     return { ok: false, message: "granularityMode is invalid" };
   }
   return { ok: true, data: raw as PlanAssistantBody };
+}
+
+function validateAssistantStreamBody(
+  raw: unknown,
+):
+  | { ok: true; data: PlanAssistantStreamBody }
+  | { ok: false; message: string } {
+  // 复用 assistant 校验；tier/agent 宽松容忍
+  const base = validateAssistantBody(raw);
+  if (!base.ok) return base;
+  const o = normalizeBody(raw);
+  if (!isRecord(o)) return base;
+  const tier = (o as any).tier;
+  const agent = (o as any).agent;
+  if (tier != null && tier !== "basic" && tier !== "pro") {
+    return { ok: false, message: "tier is invalid" };
+  }
+  if (agent != null && agent !== "basic" && agent !== "pro") {
+    return { ok: false, message: "agent is invalid" };
+  }
+  return { ok: true, data: o as PlanAssistantStreamBody };
+}
+
+function validateAssistantApplyOptionBody(
+  raw: unknown,
+):
+  | { ok: true; data: AssistantApplyOptionBody }
+  | { ok: false; message: string } {
+  raw = normalizeBody(raw);
+  if (!isRecord(raw)) return { ok: false, message: "Invalid request body" };
+  if (!isNonEmptyString(raw.baseSuggestedContent))
+    return { ok: false, message: "baseSuggestedContent is required" };
+  if (!isRecord(raw.baseSchedule))
+    return { ok: false, message: "baseSchedule is required" };
+  const g = (raw.baseSchedule as any).granularity;
+  if (g !== "day" && g !== "week")
+    return { ok: false, message: "baseSchedule.granularity is invalid" };
+  const slots = (raw.baseSchedule as any).slots;
+  if (!Array.isArray(slots) || slots.length < 1)
+    return { ok: false, message: "baseSchedule.slots is required" };
+  for (const s of slots) {
+    if (!s || typeof s !== "object")
+      return { ok: false, message: "baseSchedule.slots is invalid" };
+    if (!isNonEmptyString((s as any).slotKey))
+      return { ok: false, message: "baseSchedule.slots.slotKey is required" };
+    if (!isNonEmptyString((s as any).content))
+      return { ok: false, message: "baseSchedule.slots.content is required" };
+  }
+  if (raw.optionId != null) {
+    const ok = [
+      "more_granular",
+      "save_time",
+      "more_steady",
+      "more_aggressive",
+    ].includes(String(raw.optionId));
+    if (!ok) return { ok: false, message: "optionId is invalid" };
+  }
+  if (raw.customText != null && typeof raw.customText !== "string")
+    return { ok: false, message: "customText must be a string" };
+  if (!isRecord(raw.context))
+    return { ok: false, message: "context is required" };
+  if (!isNonEmptyString((raw.context as any).goal))
+    return { ok: false, message: "context.goal is required" };
+  if (!isDateString((raw.context as any).startDate))
+    return {
+      ok: false,
+      message: "context.startDate must be a valid date string",
+    };
+  if (!isDateString((raw.context as any).endDate))
+    return {
+      ok: false,
+      message: "context.endDate must be a valid date string",
+    };
+  if (!isOneOf((raw.context as any).cycle, cycles))
+    return { ok: false, message: "context.cycle is invalid" };
+  if (!isOneOf((raw.context as any).type, planTypes))
+    return { ok: false, message: "context.type is invalid" };
+  return { ok: true, data: raw as AssistantApplyOptionBody };
 }
 
 type AssistantDraftStreamBody = {
@@ -962,6 +1079,7 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
       }
 
       const body = parsed.data;
+      const payload = await request.jwtVerify<{ sub: string }>();
       const draftText = formatDraftToText({
         goal: body.goal,
         startDate: body.startDate,
@@ -969,6 +1087,87 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
         cycle: body.cycle,
         requirement: body.requirement,
       });
+
+      // Pro Agent：生成→批评→打分→自动优化→再给选项（仅 Pro 开关命中且前端显式请求时启用）
+      const proUserIds = (process.env.PRO_USER_IDS ?? "")
+        .split(",")
+        .map((x) => x.trim())
+        .filter(Boolean);
+      const proEnabledForAll =
+        (process.env.PRO_PLAN_AGENT_ENABLED ?? "").trim() === "1";
+      const isPro = proEnabledForAll || proUserIds.includes(payload.sub);
+      const wantProAgent =
+        isPro &&
+        (((request.body as any)?.agent ?? "").toString() === "pro" ||
+          ((request.body as any)?.tier ?? "").toString() === "pro");
+
+      if (wantProAgent) {
+        const cacheKeyBase = buildPlanAssistantCacheKey({
+          mode: body.mode,
+          goal: body.goal,
+          requirement: body.requirement,
+          startDate: body.startDate,
+          endDate: body.endDate,
+          cycle: body.cycle,
+          message: body.message,
+          granularityMode: body.granularityMode,
+        });
+
+        const router = createLlmRouter({
+          providers: [createDeepseekProvider()],
+          defaultTtlMs: 60_000,
+          onMetric: (m) => request.log.info(m, "llm metric"),
+        });
+
+        const agentRes = await runProPlanAgent({
+          input: {
+            userId: payload.sub,
+            mode: body.mode,
+            goal: body.goal,
+            requirement: body.requirement,
+            startDate: body.startDate,
+            endDate: body.endDate,
+            cycle: body.cycle,
+            granularityMode: body.granularityMode,
+            message: body.message,
+          },
+          llm: {
+            complete: async ({ task, cacheKey, messages }) => {
+              // 未配置 DeepSeek：直接返回本地草稿（agent 内会走 schedule fallback + 自动优化 + options）
+              if (!isDeepseekConfigured()) return { text: draftText };
+              const out = await router.complete({
+                task: "plan_assistant",
+                cacheKey: `${cacheKeyBase}:${task}:${cacheKey}`,
+                messages,
+              });
+              return {
+                text: out.text,
+                providerId: out.providerId,
+                cached: out.cached,
+              };
+            },
+          },
+        });
+
+        return reply.send({
+          reply: agentRes.draft.reply,
+          suggestedContent: agentRes.revised.suggestedContent,
+          schedule: agentRes.revised.schedule,
+          meta: {
+            usedAgent: "pro",
+            score: agentRes.review.scoreTotal,
+            scoreBreakdown: agentRes.review.scoreBreakdown,
+            issues: agentRes.review.issues,
+            options: agentRes.options,
+            diffSummary: agentRes.revised.diffSummary,
+            assumptions: agentRes.draft.assumptions,
+            adviceText: buildProAssistantAdviceText(
+              agentRes.review.scoreTotal,
+              agentRes.review.issues,
+            ),
+          },
+        });
+      }
 
       const deepseekResult = await tryDeepseekAssistant(
         request.log,
@@ -992,6 +1191,272 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
         reply:
           "收到，我已将你的补充合并进计划内容。是否需要我再拆分为更细的每周任务清单？",
         suggestedContent: merged,
+      });
+    },
+  );
+
+  // —— 创建页：流式计划助手（SSE，像 ChatGPT 一样逐字输出；结束后给 meta 建议/选项）——
+  fastify.post(
+    "/plans/assistant-stream",
+    { preHandler: fastify.requireRole("user") },
+    async (request, reply) => {
+      const parsed = validateAssistantStreamBody(request.body);
+      if (!parsed.ok) return reply.code(400).send({ message: parsed.message });
+      const body = parsed.data;
+      const payload = await request.jwtVerify<{ sub: string }>();
+
+      const draftText = formatDraftToText({
+        goal: body.goal,
+        startDate: body.startDate,
+        endDate: body.endDate,
+        cycle: body.cycle,
+        requirement: body.requirement,
+      });
+
+      const proUserIds = (process.env.PRO_USER_IDS ?? "")
+        .split(",")
+        .map((x) => x.trim())
+        .filter(Boolean);
+      const proEnabledForAll =
+        (process.env.PRO_PLAN_AGENT_ENABLED ?? "").trim() === "1";
+      const isPro = proEnabledForAll || proUserIds.includes(payload.sub);
+      const wantProAgent =
+        isPro && (body.tier === "pro" || body.agent === "pro");
+
+      const pass = new PassThrough();
+      reply
+        .header("Content-Type", "text/event-stream; charset=utf-8")
+        .header("Cache-Control", "no-cache, no-transform")
+        .header("Connection", "keep-alive")
+        .header("X-Accel-Buffering", "no");
+      reply.send(pass);
+      pass.write(": stream\n\n");
+
+      const writeEv = (obj: unknown) => {
+        pass.write(`data: ${JSON.stringify(obj)}\n\n`);
+      };
+
+      const abort = new AbortController();
+      const onClose = () => abort.abort();
+      request.raw.socket?.once("close", onClose);
+
+      void (async () => {
+        let full = "";
+        try {
+          if (isDeepseekConfigured()) {
+            const splitter = createDraftStreamSplitter();
+            // 复用 /plans/assistant 的 system + user prompt 结构（draft 模式为主）
+            const effectiveMode: GranularityMode = isOneOf(
+              body.granularityMode,
+              granularityModes,
+            )
+              ? body.granularityMode
+              : "smart";
+            const startDateIso = new Date(
+              `${body.startDate}T00:00:00.000Z`,
+            ).toISOString();
+            const endDateIso = new Date(
+              `${body.endDate}T00:00:00.000Z`,
+            ).toISOString();
+            const expectedGranularity = decideScheduleGranularity({
+              mode: effectiveMode,
+              startDate: startDateIso,
+              endDate: endDateIso,
+            });
+            const slotKeys = buildScheduleSlotKeys({
+              granularity: expectedGranularity,
+              startDate: startDateIso,
+              endDate: endDateIso,
+            });
+            const baseRequirement =
+              body.requirement.trim().length > 0
+                ? body.requirement
+                : `请根据以下目标生成计划：${body.goal}`;
+            const userContent = [
+              `目标：${body.goal}`,
+              `起始：${body.startDate}，预计完成：${body.endDate}，周期代码：${body.cycle}`,
+              "",
+              `补充说明：`,
+              baseRequirement,
+              "",
+              `请输出两部分：`,
+              `1) 可直接保存为「计划内容」的中文正文；`,
+              `2) 在最后输出一个严格的 JSON 代码块（\`\`\`json ...\`\`\`），仅包含如下结构：`,
+              `{`,
+              `  "schedule": {`,
+              `    "granularity": "${expectedGranularity}",`,
+              `    "slots": [`,
+              `      { "slotKey": "...", "content": "..." }`,
+              `    ]`,
+              `  }`,
+              `}`,
+              `注意：slotKey 必须严格来自下方「时间槽」列表，且顺序必须完全一致；content 为当期计划一段中文（1-3句，具体可执行）。`,
+              "",
+              "时间槽：",
+              ...slotKeys.map((k) => `- ${k}`),
+            ].join("\n");
+
+            for await (const chunk of streamDeepseekChat(
+              [
+                { role: "system", content: DEEPSEEK_SYSTEM },
+                { role: "user", content: userContent },
+              ],
+              { signal: abort.signal },
+            )) {
+              const { deltaText, scheduleJsonStarted } =
+                splitter.addChunk(chunk);
+              if (deltaText) writeEv({ type: "delta_text", text: deltaText });
+              if (scheduleJsonStarted) writeEv({ type: "body_complete" });
+            }
+            full = splitter.getFull();
+          } else {
+            full = draftText;
+            writeEv({ type: "delta_text", text: full });
+            writeEv({ type: "body_complete" });
+          }
+
+          // 流式正文结束后，生成建议/选项（Pro 才做）
+          if (wantProAgent) {
+            const cacheKeyBase = buildPlanAssistantCacheKey({
+              mode: "draft",
+              goal: body.goal,
+              requirement: body.requirement,
+              startDate: body.startDate,
+              endDate: body.endDate,
+              cycle: body.cycle,
+              granularityMode: body.granularityMode,
+            });
+            const router = createLlmRouter({
+              providers: [createDeepseekProvider()],
+              defaultTtlMs: 60_000,
+              onMetric: (m) => request.log.info(m, "llm metric"),
+            });
+            // 让 pro agent 复用同一份 full 输出（不再二次调用模型）
+            const agentRes = await runProPlanAgent({
+              input: {
+                userId: payload.sub,
+                mode: "draft",
+                goal: body.goal,
+                requirement: body.requirement,
+                startDate: body.startDate,
+                endDate: body.endDate,
+                cycle: body.cycle,
+                granularityMode: body.granularityMode,
+              },
+              llm: {
+                complete: async () => {
+                  // 为了让 agent 的缓存 key 形态一致，仍用 router.complete 记录 metric，但内容直接返回 full
+                  if (!isDeepseekConfigured()) return { text: full };
+                  // 如果 DeepSeek 已配置，走一次 router 缓存“同输入的 full”，避免未来重复生成
+                  const out = await router
+                    .complete({
+                      task: "plan_assistant",
+                      cacheKey: `${cacheKeyBase}:stream:final`,
+                      messages: [{ role: "user", content: "stream-final" }],
+                    })
+                    .catch(() => null);
+                  void out;
+                  return { text: full };
+                },
+              },
+            });
+            writeEv({
+              type: "meta_ready",
+              meta: {
+                score: agentRes.review.scoreTotal,
+                scoreBreakdown: agentRes.review.scoreBreakdown,
+                issues: agentRes.review.issues,
+                options: agentRes.options,
+                diffSummary: agentRes.revised.diffSummary,
+                assumptions: agentRes.draft.assumptions,
+                adviceText: buildProAssistantAdviceText(
+                  agentRes.review.scoreTotal,
+                  agentRes.review.issues,
+                ),
+              },
+              suggestedContent: agentRes.revised.suggestedContent,
+              schedule: agentRes.revised.schedule,
+            });
+          }
+
+          writeEv({ type: "done", ok: true });
+        } catch (err) {
+          request.log.warn({ err }, "assistant-stream failed");
+          writeEv({
+            type: "error",
+            message: err instanceof Error ? err.message : "stream failed",
+          });
+        } finally {
+          request.raw.socket?.off("close", onClose);
+          pass.end();
+        }
+      })();
+    },
+  );
+
+  // —— Pro：对已生成的优化版应用“选项/自定义优化”（用于创建页 B gate 的确认动作） ——
+  fastify.post(
+    "/plans/assistant/apply-option",
+    { preHandler: fastify.requireRole("user") },
+    async (request, reply) => {
+      const parsed = validateAssistantApplyOptionBody(request.body);
+      if (!parsed.ok) return reply.code(400).send({ message: parsed.message });
+      const body = parsed.data;
+
+      // v1：先做稳定可复现的“局部增强”，不依赖外部模型；后续可接 pro-plan-agent 的二次优化能力
+      const optionMap: Record<
+        string,
+        { title: string; patch: string; diff: string }
+      > = {
+        more_granular: {
+          title: "更细到天（更具体）",
+          patch:
+            "将每个时间槽进一步拆成更小的可执行动作；每个动作都包含“证据/产出”。",
+          diff: "按更细粒度补充行动与证据提示",
+        },
+        save_time: {
+          title: "更省时（更轻量）",
+          patch:
+            "将每个时间槽压缩为 30–45 分钟内可完成的最小动作，同时保留证据记录。",
+          diff: "将行动项收敛为更轻量的最小动作",
+        },
+        more_steady: {
+          title: "更稳（更抗波动）",
+          patch:
+            "为每个时间槽增加“保底动作 + 加分动作”，保证最差情况下也能推进。",
+          diff: "增加保底/加分动作以提升抗波动能力",
+        },
+        more_aggressive: {
+          title: "更激进（更快达成）",
+          patch: "在不超出时间预算前提下提高每周产出强度，并明确每周验收产物。",
+          diff: "提高产出强度并明确周验收产物",
+        },
+      };
+
+      const diffSummary: string[] = [];
+      let suggestedContent = body.baseSuggestedContent.trim();
+
+      if (body.optionId) {
+        const opt = optionMap[body.optionId];
+        if (opt) {
+          diffSummary.push(opt.diff);
+          suggestedContent =
+            `${suggestedContent}\n\n## 已应用优化选项：${opt.title}\n- ${opt.patch}`.trim();
+        }
+      }
+      if (body.customText?.trim()) {
+        diffSummary.push("应用用户自定义优化内容");
+        suggestedContent =
+          `${suggestedContent}\n\n## 用户自定义优化\n${body.customText.trim()}`.trim();
+      }
+
+      if (diffSummary.length === 0)
+        diffSummary.push("无额外优化变更（保持默认优化版）");
+
+      return reply.send({
+        suggestedContent,
+        schedule: body.baseSchedule,
+        meta: { diffSummary },
       });
     },
   );

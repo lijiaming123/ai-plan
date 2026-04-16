@@ -77,6 +77,10 @@ export function formatApiErrorForUser(err: unknown): string {
   if (/failed to fetch|networkerror|network request failed|load failed|fetch.*aborted/i.test(msg)) {
     return '网络连接失败，请检查网络或服务地址后重试。';
   }
+  const bareHttp = msg.match(/^HTTP\s+(\d{3})$/);
+  if (bareHttp) {
+    return formatHttpApiUserMessage(Number(bareHttp[1]), '');
+  }
   if (/[\u4e00-\u9fff]/.test(msg)) return msg;
   return '操作失败，请稍后重试。';
 }

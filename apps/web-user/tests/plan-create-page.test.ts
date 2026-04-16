@@ -213,7 +213,7 @@ describe('PlanCreatePage', () => {
     );
   });
 
-  it('专业版点击AI生成初稿后应填充计划内容', async () => {
+  it('专业版点击生成初稿后初稿出现在助手区且不覆盖「计划内容」输入框', async () => {
     setAuthToken('token_123');
     setAuthTier('pro');
     const router = createAppRouter(createMemoryHistory());
@@ -225,11 +225,14 @@ describe('PlanCreatePage', () => {
 
     await wrapper.get('[data-testid="tier-tab-pro"]').trigger('click');
     await wrapper.get('input[aria-label="计划名称"]').setValue('英语口语冲刺');
+    await wrapper.get('textarea[aria-label="计划内容"]').setValue('用户手写的目标说明');
+    const before = (wrapper.get('textarea[aria-label="计划内容"]').element as HTMLTextAreaElement).value;
     await wrapper.get('[data-testid="ai-generate-draft"]').trigger('click');
     await flushPromises();
 
-    const content = (wrapper.get('textarea[aria-label="计划内容"]').element as HTMLTextAreaElement).value;
-    expect(content).toContain('目标：英语口语冲刺');
+    expect(wrapper.text()).toContain('目标：英语口语冲刺');
+    const after = (wrapper.get('textarea[aria-label="计划内容"]').element as HTMLTextAreaElement).value;
+    expect(after).toBe(before);
     expect(planAssistantMock).toHaveBeenCalledWith(
       expect.objectContaining({
         mode: 'draft',
@@ -238,7 +241,54 @@ describe('PlanCreatePage', () => {
     );
   });
 
-  it('专业版对话支持Enter发送并可应用AI建议', async () => {
+  it('专业版先生成初稿但未确认优化时应禁止提交（B gate）', async () => {
+    setAuthToken('token_123');
+    setAuthTier('pro');
+
+    planAssistantMock.mockResolvedValueOnce({
+      reply: 'Pro已生成并优化',
+      suggestedContent: '优化版内容',
+      schedule: {
+        granularity: 'week',
+        slots: [
+          {
+            slotKey: 'W1',
+            generatedContent: 'g',
+            content: 'c',
+            contentSource: 'generated',
+          },
+        ],
+      },
+      meta: {
+        usedAgent: 'pro',
+        score: 88,
+        options: [{ id: 'more_steady', title: '更稳', pros: [], cons: [] }],
+      },
+    });
+
+    const router = createAppRouter(createMemoryHistory());
+    const wrapper = mount(PlanCreatePage, {
+      global: { plugins: [router] },
+    });
+    await flushPromises();
+
+    await wrapper.get('input[aria-label="计划名称"]').setValue('提升英语口语');
+    await wrapper.get('textarea[aria-label="计划内容"]').setValue('3个月提升到可流畅表达日常和工作场景');
+    await setPlanSelect(wrapper, 'field-plan-scenario', 'study');
+
+    await wrapper.get('[data-testid="ai-generate-draft"]').trigger('click');
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="pro-agent-review"]').exists()).toBe(true);
+
+    await wrapper.get('form').trigger('submit');
+    await flushPromises();
+
+    expect(createPlanMock).not.toHaveBeenCalled();
+    expect(wrapper.text()).toContain('请先在「计划助手」完成一次优化确认');
+  });
+
+  it('专业版对话支持Enter发送并自动合并到助手草稿', async () => {
     setAuthToken('token_123');
     setAuthTier('pro');
     const router = createAppRouter(createMemoryHistory());
@@ -250,6 +300,7 @@ describe('PlanCreatePage', () => {
 
     await wrapper.get('[data-testid="tier-tab-pro"]').trigger('click');
     await wrapper.get('input[aria-label="计划名称"]').setValue('英语口语冲刺');
+    await wrapper.get('textarea[aria-label="计划内容"]').setValue('原始说明');
     await wrapper.get('textarea[aria-label="对话完善计划"]').setValue('请拆成每周任务');
     await wrapper.get('textarea[aria-label="对话完善计划"]').trigger('keydown', { key: 'Enter', shiftKey: false });
     await flushPromises();
@@ -261,10 +312,10 @@ describe('PlanCreatePage', () => {
       })
     );
 
-    await wrapper.findAll('button').find((btn) => btn.text().includes('应用到计划内容'))?.trigger('click');
-    await flushPromises();
-    const content = (wrapper.get('textarea[aria-label="计划内容"]').element as HTMLTextAreaElement).value;
-    expect(content).toContain('用户补充：请拆成每周任务');
+    expect(wrapper.text()).toContain('用户补充：请拆成每周任务');
+    expect(wrapper.text()).not.toContain('应用到计划内容');
+    const planField = (wrapper.get('textarea[aria-label="计划内容"]').element as HTMLTextAreaElement).value;
+    expect(planField).toBe('原始说明');
   });
 
   it('专业版上传txt文件后应自动填充计划内容', async () => {
@@ -310,12 +361,31 @@ describe('PlanCreatePage', () => {
     await wrapper.get('form').trigger('submit');
     await flushPromises();
 
-    expect(planAssistantMock).not.toHaveBeenCalled();
+    // Pro：未点「生成初稿」直接提交时会先走一次 Pro Agent 自生成自优化（不阻塞草稿流式）
+    expect(planAssistantMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mode: 'draft',
+        tier: 'pro',
+        agent: 'pro',
+      }),
+    );
     expect(createPlanMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        requirement: '完成季度目标与里程碑交付',
+        requirement: expect.stringMatching(/目标：工作项目推进/),
       })
     );
+    expect(createPlanMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requirement: expect.stringContaining('【用户在「计划内容」中的说明】'),
+      })
+    );
+    expect(createPlanMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requirement: expect.stringContaining('完成季度目标与里程碑交付'),
+      })
+    );
+    const ta = (wrapper.get('textarea[aria-label="计划内容"]').element as HTMLTextAreaElement).value;
+    expect(ta).toBe('完成季度目标与里程碑交付');
     const raw = sessionStorage.getItem('ai-plan:draft-stream:plan_1');
     expect(raw).toBeTruthy();
     const payload = JSON.parse(raw as string) as { assistantPrompt?: string };

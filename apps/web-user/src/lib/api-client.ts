@@ -1,4 +1,7 @@
-import { formatApiErrorForUser, formatHttpApiUserMessage } from './api-error-message';
+import {
+  formatApiErrorForUser,
+  formatHttpApiUserMessage,
+} from "./api-error-message";
 
 export type ApiClientOptions = {
   baseURL?: string;
@@ -13,12 +16,12 @@ export type LoginInput = {
 export type AuthMeResponse = {
   userId: string;
   email: string;
-  role: 'user' | 'admin';
+  role: "user" | "admin";
 };
 
 export type PlanHeatmapDay = {
   date: string;
-  status: 'completed' | 'missed' | 'pending' | 'none';
+  status: "completed" | "missed" | "pending" | "none";
   summary?: { due: number; done: number };
 };
 
@@ -32,28 +35,34 @@ export type CreatePlanInput = {
   goal: string;
   deadline: string;
   requirement: string;
-  type: 'general' | 'study' | 'work';
+  type: "general" | "study" | "work";
   token: string;
   profile?: {
-    planMode: 'basic' | 'pro';
+    planMode: "basic" | "pro";
     basicInfo: {
-      planScenario: 'study' | 'work' | 'exam' | 'fitness' | 'other';
+      planScenario: "study" | "work" | "exam" | "fitness" | "other";
       planName: string;
       planContent: string;
-      currentLevel: 'none' | 'newbie' | 'junior' | 'intermediate' | 'advanced';
-      startingPoint?: '' | 'none' | 'newbie' | 'junior' | 'intermediate' | 'advanced';
+      currentLevel: "none" | "newbie" | "junior" | "intermediate" | "advanced";
+      startingPoint?:
+        | ""
+        | "none"
+        | "newbie"
+        | "junior"
+        | "intermediate"
+        | "advanced";
       startDate: string;
-      cycle: '1w' | '1m' | '3m' | '6m' | 'custom';
+      cycle: "1w" | "1m" | "3m" | "6m" | "custom";
       endDate: string;
       preference: string;
       focusAreas?: string[];
       timeInvestment: string;
       timeInvestmentCustomHours?: number;
-      granularityMode?: 'smart' | 'deep' | 'rough';
+      granularityMode?: "smart" | "deep" | "rough";
     };
     proSettings?: {
-      aiDepth: 'basic' | 'advanced';
-      reminderMode: 'standard' | 'smart';
+      aiDepth: "basic" | "advanced";
+      reminderMode: "standard" | "smart";
     };
   };
 };
@@ -67,30 +76,79 @@ export type CreateSubmissionInput = {
 
 export type PlanAssistantInput = {
   token: string;
-  mode: 'draft' | 'chat';
+  mode: "draft" | "chat";
   goal: string;
   requirement: string;
   startDate: string;
-  cycle: '1w' | '1m' | '3m' | '6m' | 'custom';
+  cycle: "1w" | "1m" | "3m" | "6m" | "custom";
   endDate: string;
-  granularityMode?: 'smart' | 'deep' | 'rough';
+  granularityMode?: "smart" | "deep" | "rough";
   message?: string;
+  tier?: "basic" | "pro";
+  agent?: "basic" | "pro";
 };
 
 export type PlanAssistantResult = {
   reply: string;
   suggestedContent: string;
   schedule?: {
-    granularity: 'day' | 'week';
+    granularity: "day" | "week";
     slots: Array<{
       slotKey: string;
       generatedContent: string;
       content: string;
-      contentSource: 'generated' | 'edited';
+      contentSource: "generated" | "edited";
       editedAt?: string;
       editedByUserId?: string;
     }>;
   };
+  meta?: {
+    usedAgent?: "basic" | "pro";
+    score?: number;
+    scoreBreakdown?: Record<string, number>;
+    issues?: Array<{
+      code: string;
+      severity: string;
+      title: string;
+      detail: string;
+      suggestion: string;
+    }>;
+    options?: Array<{
+      id: string;
+      title: string;
+      pros: string[];
+      cons: string[];
+    }>;
+    diffSummary?: string[];
+    assumptions?: string[];
+  };
+};
+
+export type PlanAssistantApplyOptionInput = {
+  token: string;
+  baseSuggestedContent: string;
+  baseSchedule: {
+    granularity: "day" | "week";
+    slots: Array<{ slotKey: string; content: string }>;
+  };
+  optionId?: "more_granular" | "save_time" | "more_steady" | "more_aggressive";
+  customText?: string;
+  context: {
+    goal: string;
+    startDate: string;
+    endDate: string;
+    cycle: "1w" | "1m" | "3m" | "6m" | "custom";
+    type: "general" | "study" | "work";
+  };
+};
+
+export type PlanAssistantApplyOptionResult = {
+  suggestedContent: string;
+  schedule: {
+    granularity: "day" | "week";
+    slots: Array<{ slotKey: string; content: string }>;
+  };
+  meta?: { diffSummary?: string[] };
 };
 
 export type ParsePlanFileInput = {
@@ -129,12 +187,12 @@ export type PlanRecord = {
       deadline: string;
       createdAt: string;
       schedule?: {
-        granularity: 'day' | 'week';
+        granularity: "day" | "week";
         slots: Array<{
           slotKey: string;
           generatedContent: string;
           content: string;
-          contentSource: 'generated' | 'edited';
+          contentSource: "generated" | "edited";
           editedAt?: string;
           editedByUserId?: string;
         }>;
@@ -146,9 +204,9 @@ export type PlanRecord = {
           id: string;
           title: string;
           order: number;
-          timeSlotType?: 'day' | 'week' | 'month';
+          timeSlotType?: "day" | "week" | "month";
           timeSlotKey?: string;
-          taskType?: 'action' | 'weekly_summary' | 'monthly_summary';
+          taskType?: "action" | "weekly_summary" | "monthly_summary";
         }>;
       }>;
     }>;
@@ -166,7 +224,7 @@ export type PlanDraftSessionPayload = {
   deadline: string;
   type: string;
   requirement: string;
-} & NonNullable<PlanRecord['draft']>;
+} & NonNullable<PlanRecord["draft"]>;
 
 export type PresetTemplateBrief = {
   id: string;
@@ -246,18 +304,27 @@ export type ScheduleSlotCheckinRecord = {
 export type ApiClient = {
   login(input: LoginInput): Promise<{ token: string }>;
   getAuthMe(input: { token: string }): Promise<AuthMeResponse>;
-  getPlanHeatmap(input: { token: string; year?: number }): Promise<PlanHeatmapResponse>;
+  getPlanHeatmap(input: {
+    token: string;
+    year?: number;
+  }): Promise<PlanHeatmapResponse>;
   listPlans(input: {
     token: string;
     /** `deadline`：按截止日期升序（更近的在前）。默认按创建时间倒序。 */
-    sort?: 'created' | 'deadline';
+    sort?: "created" | "deadline";
   }): Promise<{ plans: PlanListRow[] }>;
   createPlan(input: CreatePlanInput): Promise<PlanRecord>;
   createSubmission(input: CreateSubmissionInput): Promise<SubmissionRecord>;
   planAssistant(input: PlanAssistantInput): Promise<PlanAssistantResult>;
+  planAssistantApplyOption(
+    input: PlanAssistantApplyOptionInput,
+  ): Promise<PlanAssistantApplyOptionResult>;
   parsePlanFile(input: ParsePlanFileInput): Promise<ParsePlanFileResult>;
   getPlan(input: { id: string; token: string }): Promise<PlanRecord>;
-  getPlanDraft(input: { id: string; token: string }): Promise<PlanDraftSessionPayload>;
+  getPlanDraft(input: {
+    id: string;
+    token: string;
+  }): Promise<PlanDraftSessionPayload>;
   patchPlanScheduleSlot(input: {
     id: string;
     slotKey: string;
@@ -267,8 +334,12 @@ export type ApiClient = {
     /** 草稿多版本时指定 PlanVersion.version，避免误改 currentVersion 对应行 */
     version?: number;
   }): Promise<{
-    schedule: NonNullable<NonNullable<PlanRecord['draft']>['versions'][number]['schedule']>;
-    slot: NonNullable<NonNullable<PlanRecord['draft']>['versions'][number]['schedule']>['slots'][number];
+    schedule: NonNullable<
+      NonNullable<PlanRecord["draft"]>["versions"][number]["schedule"]
+    >;
+    slot: NonNullable<
+      NonNullable<PlanRecord["draft"]>["versions"][number]["schedule"]
+    >["slots"][number];
   }>;
   postPlanScheduleSlotCheckin(input: {
     id: string;
@@ -281,9 +352,9 @@ export type ApiClient = {
     id: string;
     token: string;
     requirement?: string;
-    granularityMode?: 'smart' | 'deep' | 'rough';
+    granularityMode?: "smart" | "deep" | "rough";
   }): Promise<{
-    versions: NonNullable<PlanRecord['draft']>['versions'];
+    versions: NonNullable<PlanRecord["draft"]>["versions"];
     maxVersions: number;
     confirmedVersion: number | null;
     canRegenerate: boolean;
@@ -292,7 +363,12 @@ export type ApiClient = {
     plan: PlanRecord;
     confirmedVersion: number;
   }>;
-  comparePlanVersions(input: { id: string; token: string; base: number; target: number }): Promise<{
+  comparePlanVersions(input: {
+    id: string;
+    token: string;
+    base: number;
+    target: number;
+  }): Promise<{
     baseVersion: number;
     targetVersion: number;
     addedStages: string[];
@@ -300,12 +376,14 @@ export type ApiClient = {
     addedTasks: string[];
     removedTasks: string[];
   }>;
-  listPresets(input?: { category?: string }): Promise<{ items: PresetTemplateBrief[] }>;
+  listPresets(input?: {
+    category?: string;
+  }): Promise<{ items: PresetTemplateBrief[] }>;
   listMarketTemplates(input: {
     q?: string;
     category?: string;
     tag?: string;
-    sort?: 'likes' | 'new';
+    sort?: "likes" | "new";
     page?: number;
     pageSize?: number;
     /** 传入则列表项含 favorited / likedByMe */
@@ -313,11 +391,11 @@ export type ApiClient = {
   }): Promise<MarketListResult>;
   listMyMarketTemplates(input: {
     token: string;
-    scope: 'created' | 'favorited' | 'liked';
+    scope: "created" | "favorited" | "liked";
     q?: string;
     category?: string;
     tag?: string;
-    sort?: 'likes' | 'new';
+    sort?: "likes" | "new";
     page?: number;
     pageSize?: number;
   }): Promise<MarketListResult>;
@@ -330,12 +408,30 @@ export type ApiClient = {
     likeCount: number;
     publishedAt: string | null;
   }>;
-  likeMarketTemplate(input: { id: string; token: string }): Promise<{ liked: boolean; likeCount: number }>;
-  unlikeMarketTemplate(input: { id: string; token: string }): Promise<{ liked: boolean; likeCount: number }>;
-  favoriteMarketTemplate(input: { id: string; token: string }): Promise<{ favorited: boolean }>;
-  unfavoriteMarketTemplate(input: { id: string; token: string }): Promise<{ favorited: boolean }>;
-  applyPresetTemplate(input: { id: string; token: string }): Promise<{ planId: string }>;
-  applyMarketTemplate(input: { id: string; token: string }): Promise<{ planId: string }>;
+  likeMarketTemplate(input: {
+    id: string;
+    token: string;
+  }): Promise<{ liked: boolean; likeCount: number }>;
+  unlikeMarketTemplate(input: {
+    id: string;
+    token: string;
+  }): Promise<{ liked: boolean; likeCount: number }>;
+  favoriteMarketTemplate(input: {
+    id: string;
+    token: string;
+  }): Promise<{ favorited: boolean }>;
+  unfavoriteMarketTemplate(input: {
+    id: string;
+    token: string;
+  }): Promise<{ favorited: boolean }>;
+  applyPresetTemplate(input: {
+    id: string;
+    token: string;
+  }): Promise<{ planId: string }>;
+  applyMarketTemplate(input: {
+    id: string;
+    token: string;
+  }): Promise<{ planId: string }>;
   /** multipart 单文件，字段名 `file`；返回可写入提交的公开 URL */
   uploadUserFile(input: {
     token: string;
@@ -344,31 +440,31 @@ export type ApiClient = {
 };
 
 function joinUrl(baseURL: string, path: string) {
-  const normalizedBase = baseURL.replace(/\/$/, '');
-  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  const normalizedBase = baseURL.replace(/\/$/, "");
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
   return `${normalizedBase}${normalizedPath}`;
 }
 
 async function readHttpErrorDetail(response: Response): Promise<string> {
   try {
     const payload = await response.json();
-    if (payload && typeof payload === 'object' && 'message' in payload) {
-      return String((payload as { message?: string }).message ?? '');
+    if (payload && typeof payload === "object" && "message" in payload) {
+      return String((payload as { message?: string }).message ?? "");
     }
-    return typeof payload === 'string' ? payload : JSON.stringify(payload);
+    return typeof payload === "string" ? payload : JSON.stringify(payload);
   } catch {
     try {
-      return (await response.text()) || '';
+      return (await response.text()) || "";
     } catch {
-      return '';
+      return "";
     }
   }
 }
 
 /** 与 createApiClient 默认行为一致（去掉末尾 `/`），供流式 fetch 等与 JSON API 共用同一基址 */
 export function getApiBaseURL(): string {
-  const raw = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '';
-  return raw.replace(/\/$/, '');
+  const raw = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "";
+  return raw.replace(/\/$/, "");
 }
 
 export function createApiClient(options: ApiClientOptions = {}): ApiClient {
@@ -379,9 +475,9 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
     const headers: Record<string, string> = {
       ...(init.headers as Record<string, string> | undefined),
     };
-    const method = (init.method ?? 'GET').toUpperCase();
-    if (method !== 'GET' && method !== 'HEAD' && !headers['Content-Type']) {
-      headers['Content-Type'] = 'application/json';
+    const method = (init.method ?? "GET").toUpperCase();
+    if (method !== "GET" && method !== "HEAD" && !headers["Content-Type"]) {
+      headers["Content-Type"] = "application/json";
     }
     let response: Response;
     try {
@@ -403,23 +499,26 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
 
   return {
     login(input) {
-      return request<{ token: string }>('/auth/login', {
-        method: 'POST',
+      return request<{ token: string }>("/auth/login", {
+        method: "POST",
         body: JSON.stringify(input),
       });
     },
     getAuthMe(input) {
-      return request<AuthMeResponse>('/auth/me', {
-        method: 'GET',
+      return request<AuthMeResponse>("/auth/me", {
+        method: "GET",
         headers: {
           Authorization: `Bearer ${input.token}`,
         },
       });
     },
     getPlanHeatmap(input) {
-      const q = input.year != null ? `?year=${encodeURIComponent(String(input.year))}` : '';
+      const q =
+        input.year != null
+          ? `?year=${encodeURIComponent(String(input.year))}`
+          : "";
       return request<PlanHeatmapResponse>(`/me/plan-heatmap${q}`, {
-        method: 'GET',
+        method: "GET",
         headers: {
           Authorization: `Bearer ${input.token}`,
         },
@@ -427,22 +526,22 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
     },
     listPlans(input) {
       const params = new URLSearchParams();
-      if (input.sort === 'deadline') {
-        params.set('sort', 'deadline');
-      } else if (input.sort === 'created') {
-        params.set('sort', 'created');
+      if (input.sort === "deadline") {
+        params.set("sort", "deadline");
+      } else if (input.sort === "created") {
+        params.set("sort", "created");
       }
       const qs = params.toString();
-      return request<{ plans: PlanListRow[] }>(`/plans${qs ? `?${qs}` : ''}`, {
-        method: 'GET',
+      return request<{ plans: PlanListRow[] }>(`/plans${qs ? `?${qs}` : ""}`, {
+        method: "GET",
         headers: {
           Authorization: `Bearer ${input.token}`,
         },
       });
     },
     createPlan(input) {
-      return request<PlanRecord>('/plans', {
-        method: 'POST',
+      return request<PlanRecord>("/plans", {
+        method: "POST",
         headers: {
           Authorization: `Bearer ${input.token}`,
         },
@@ -457,7 +556,7 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
     },
     createSubmission(input) {
       return request<SubmissionRecord>(`/tasks/${input.taskId}/submissions`, {
-        method: 'POST',
+        method: "POST",
         headers: {
           Authorization: `Bearer ${input.token}`,
         },
@@ -468,8 +567,8 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
       });
     },
     planAssistant(input) {
-      return request<PlanAssistantResult>('/plans/assistant', {
-        method: 'POST',
+      return request<PlanAssistantResult>("/plans/assistant", {
+        method: "POST",
         headers: {
           Authorization: `Bearer ${input.token}`,
         },
@@ -482,12 +581,32 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
           endDate: input.endDate,
           granularityMode: input.granularityMode,
           message: input.message,
+          tier: input.tier,
+          agent: input.agent,
         }),
       });
     },
+    planAssistantApplyOption(input) {
+      return request<PlanAssistantApplyOptionResult>(
+        "/plans/assistant/apply-option",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${input.token}`,
+          },
+          body: JSON.stringify({
+            baseSuggestedContent: input.baseSuggestedContent,
+            baseSchedule: input.baseSchedule,
+            optionId: input.optionId,
+            customText: input.customText,
+            context: input.context,
+          }),
+        },
+      );
+    },
     parsePlanFile(input) {
-      return request<ParsePlanFileResult>('/plans/parse-file', {
-        method: 'POST',
+      return request<ParsePlanFileResult>("/plans/parse-file", {
+        method: "POST",
         headers: {
           Authorization: `Bearer ${input.token}`,
         },
@@ -499,7 +618,7 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
     },
     getPlan(input) {
       return request<PlanRecord>(`/plans/${input.id}`, {
-        method: 'GET',
+        method: "GET",
         headers: {
           Authorization: `Bearer ${input.token}`,
         },
@@ -507,7 +626,7 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
     },
     getPlanDraft(input) {
       return request<PlanDraftSessionPayload>(`/plans/${input.id}/draft`, {
-        method: 'GET',
+        method: "GET",
         headers: {
           Authorization: `Bearer ${input.token}`,
         },
@@ -515,25 +634,32 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
     },
     patchPlanScheduleSlot(input) {
       return request<{
-        schedule: NonNullable<NonNullable<PlanRecord['draft']>['versions'][number]['schedule']>;
-        slot: NonNullable<NonNullable<PlanRecord['draft']>['versions'][number]['schedule']>['slots'][number];
-      }>(`/plans/${input.id}/schedule/slots/${encodeURIComponent(input.slotKey)}`, {
-        method: 'PATCH',
-        headers: {
-          Authorization: `Bearer ${input.token}`,
+        schedule: NonNullable<
+          NonNullable<PlanRecord["draft"]>["versions"][number]["schedule"]
+        >;
+        slot: NonNullable<
+          NonNullable<PlanRecord["draft"]>["versions"][number]["schedule"]
+        >["slots"][number];
+      }>(
+        `/plans/${input.id}/schedule/slots/${encodeURIComponent(input.slotKey)}`,
+        {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${input.token}`,
+          },
+          body: JSON.stringify({
+            content: input.content,
+            restore: input.restore,
+            version: input.version,
+          }),
         },
-        body: JSON.stringify({
-          content: input.content,
-          restore: input.restore,
-          version: input.version,
-        }),
-      });
+      );
     },
     postPlanScheduleSlotCheckin(input) {
       return request<{ submission: ScheduleSlotCheckinRecord }>(
         `/plans/${input.id}/schedule/slots/${encodeURIComponent(input.slotKey)}/checkins`,
         {
-          method: 'POST',
+          method: "POST",
           headers: {
             Authorization: `Bearer ${input.token}`,
           },
@@ -541,17 +667,17 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
             content: input.content,
             attachments: input.attachments,
           }),
-        }
+        },
       );
     },
     regeneratePlan(input) {
       return request<{
-        versions: NonNullable<PlanRecord['draft']>['versions'];
+        versions: NonNullable<PlanRecord["draft"]>["versions"];
         maxVersions: number;
         confirmedVersion: number | null;
         canRegenerate: boolean;
       }>(`/plans/${input.id}/regenerate`, {
-        method: 'POST',
+        method: "POST",
         headers: {
           Authorization: `Bearer ${input.token}`,
         },
@@ -566,7 +692,7 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
         plan: PlanRecord;
         confirmedVersion: number;
       }>(`/plans/${input.id}/confirm`, {
-        method: 'POST',
+        method: "POST",
         headers: {
           Authorization: `Bearer ${input.token}`,
         },
@@ -585,7 +711,7 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
         addedTasks: string[];
         removedTasks: string[];
       }>(`/plans/${input.id}/compare?${query}`, {
-        method: 'GET',
+        method: "GET",
         headers: {
           Authorization: `Bearer ${input.token}`,
         },
@@ -594,39 +720,47 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
     listPresets(input) {
       const q = input?.category?.trim()
         ? `?category=${encodeURIComponent(input.category.trim())}`
-        : '';
-      return request<{ items: PresetTemplateBrief[] }>(`/templates/presets${q}`, {
-        method: 'GET',
-      });
+        : "";
+      return request<{ items: PresetTemplateBrief[] }>(
+        `/templates/presets${q}`,
+        {
+          method: "GET",
+        },
+      );
     },
     listMarketTemplates(input) {
       const params = new URLSearchParams();
-      if (input.q?.trim()) params.set('q', input.q.trim());
-      if (input.category?.trim()) params.set('category', input.category.trim());
-      if (input.tag?.trim()) params.set('tag', input.tag.trim());
-      if (input.sort) params.set('sort', input.sort);
-      if (input.page != null) params.set('page', String(input.page));
-      if (input.pageSize != null) params.set('pageSize', String(input.pageSize));
+      if (input.q?.trim()) params.set("q", input.q.trim());
+      if (input.category?.trim()) params.set("category", input.category.trim());
+      if (input.tag?.trim()) params.set("tag", input.tag.trim());
+      if (input.sort) params.set("sort", input.sort);
+      if (input.page != null) params.set("page", String(input.page));
+      if (input.pageSize != null)
+        params.set("pageSize", String(input.pageSize));
       const qs = params.toString();
       const headers: Record<string, string> = {};
       if (input.token) headers.Authorization = `Bearer ${input.token}`;
-      return request<MarketListResult>(`/templates/market${qs ? `?${qs}` : ''}`, {
-        method: 'GET',
-        headers,
-      });
+      return request<MarketListResult>(
+        `/templates/market${qs ? `?${qs}` : ""}`,
+        {
+          method: "GET",
+          headers,
+        },
+      );
     },
     listMyMarketTemplates(input) {
       const params = new URLSearchParams();
-      params.set('scope', input.scope);
-      if (input.q?.trim()) params.set('q', input.q.trim());
-      if (input.category?.trim()) params.set('category', input.category.trim());
-      if (input.tag?.trim()) params.set('tag', input.tag.trim());
-      if (input.sort) params.set('sort', input.sort);
-      if (input.page != null) params.set('page', String(input.page));
-      if (input.pageSize != null) params.set('pageSize', String(input.pageSize));
+      params.set("scope", input.scope);
+      if (input.q?.trim()) params.set("q", input.q.trim());
+      if (input.category?.trim()) params.set("category", input.category.trim());
+      if (input.tag?.trim()) params.set("tag", input.tag.trim());
+      if (input.sort) params.set("sort", input.sort);
+      if (input.page != null) params.set("page", String(input.page));
+      if (input.pageSize != null)
+        params.set("pageSize", String(input.pageSize));
       const qs = params.toString();
       return request<MarketListResult>(`/templates/my/market?${qs}`, {
-        method: 'GET',
+        method: "GET",
         headers: { Authorization: `Bearer ${input.token}` },
       });
     },
@@ -640,54 +774,72 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
       if (input.planId) body.planId = input.planId;
       if (input.payload) body.payload = input.payload;
       return request(`/templates/market`, {
-        method: 'POST',
+        method: "POST",
         headers: { Authorization: `Bearer ${input.token}` },
         body: JSON.stringify(body),
       });
     },
     likeMarketTemplate(input) {
-      return request<{ liked: boolean; likeCount: number }>(`/templates/market/${input.id}/like`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${input.token}` },
-      });
+      return request<{ liked: boolean; likeCount: number }>(
+        `/templates/market/${input.id}/like`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${input.token}` },
+        },
+      );
     },
     unlikeMarketTemplate(input) {
-      return request<{ liked: boolean; likeCount: number }>(`/templates/market/${input.id}/like`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${input.token}` },
-      });
+      return request<{ liked: boolean; likeCount: number }>(
+        `/templates/market/${input.id}/like`,
+        {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${input.token}` },
+        },
+      );
     },
     favoriteMarketTemplate(input) {
-      return request<{ favorited: boolean }>(`/templates/market/${input.id}/favorite`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${input.token}` },
-      });
+      return request<{ favorited: boolean }>(
+        `/templates/market/${input.id}/favorite`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${input.token}` },
+        },
+      );
     },
     unfavoriteMarketTemplate(input) {
-      return request<{ favorited: boolean }>(`/templates/market/${input.id}/favorite`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${input.token}` },
-      });
+      return request<{ favorited: boolean }>(
+        `/templates/market/${input.id}/favorite`,
+        {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${input.token}` },
+        },
+      );
     },
     applyPresetTemplate(input) {
-      return request<{ planId: string }>(`/templates/presets/${input.id}/apply`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${input.token}` },
-      });
+      return request<{ planId: string }>(
+        `/templates/presets/${input.id}/apply`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${input.token}` },
+        },
+      );
     },
     applyMarketTemplate(input) {
-      return request<{ planId: string }>(`/templates/market/${input.id}/apply`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${input.token}` },
-      });
+      return request<{ planId: string }>(
+        `/templates/market/${input.id}/apply`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${input.token}` },
+        },
+      );
     },
     async uploadUserFile(input) {
       const fd = new FormData();
-      fd.append('file', input.file);
+      fd.append("file", input.file);
       let response: Response;
       try {
-        response = await fetchImpl(joinUrl(baseURL, '/uploads'), {
-          method: 'POST',
+        response = await fetchImpl(joinUrl(baseURL, "/uploads"), {
+          method: "POST",
           headers: {
             Authorization: `Bearer ${input.token}`,
           },

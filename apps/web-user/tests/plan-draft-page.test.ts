@@ -237,6 +237,17 @@ describe("PlanDraftPage", () => {
   });
 
   it("流式生成进行中应禁用重新生成按钮", async () => {
+    getPlanDraftMock.mockResolvedValueOnce({
+      goal: "测试目标",
+      deadline: new Date().toISOString(),
+      type: "general",
+      requirement: "",
+      ...draftPayload,
+      versions: [
+        { ...draftPayload.versions[0], requirement: "" },
+        draftPayload.versions[1],
+      ],
+    });
     vi.mocked(consumeAssistantDraftStream).mockImplementation(
       async (_base, _planId, _token, _payload, _handlers) => {
         await new Promise(() => {
@@ -265,6 +276,26 @@ describe("PlanDraftPage", () => {
     const regen = wrapper.get('[data-testid="draft-regenerate"]');
     expect(regen.attributes("disabled")).toBeDefined();
 
+    wrapper.unmount();
+  });
+
+  it("v1 已有正文时跳过 assistant-draft-stream 并清空 session 载荷", async () => {
+    storeDraftStreamPayload("plan_1", {
+      assistantPrompt: "p",
+      startDate: "2026-01-01",
+      cycle: "week",
+      endDate: "2026-01-08",
+    });
+    const router = createAppRouter(createMemoryHistory());
+    await router.push("/plans/plan_1/draft");
+    await router.isReady();
+    const wrapper = mount(PlanDraftPage, {
+      global: { plugins: [router] },
+      attachTo: document.body,
+    });
+    await flushPromises();
+    expect(consumeAssistantDraftStream).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem("ai-plan:draft-stream:plan_1")).toBeNull();
     wrapper.unmount();
   });
 
@@ -311,6 +342,17 @@ describe("PlanDraftPage", () => {
   });
 
   it("流式生成时：贴底才自动滚到最新，上滑后不抢滚动条", async () => {
+    getPlanDraftMock.mockResolvedValueOnce({
+      goal: "测试目标",
+      deadline: new Date().toISOString(),
+      type: "general",
+      requirement: "",
+      ...draftPayload,
+      versions: [
+        { ...draftPayload.versions[0], requirement: "" },
+        draftPayload.versions[1],
+      ],
+    });
     let capturedHandlers:
       | Parameters<typeof consumeAssistantDraftStream>[4]
       | null = null;

@@ -1,5 +1,73 @@
 # 操作日志
 
+## 2026-04-16 17:39:53
+
+- 操作人：用户
+- 操作：用户提示
+- 提示词：「不需要用户点击应用到计划内容」
+- 内容：去掉「应用到计划内容」按钮，对话结果自动进入 pending 草稿
+- 状态：已接收
+- 相关文件：
+- apps/web-user/src/features/plans/PlanCreatePage.vue
+
+## 2026-04-16 17:39:53
+
+- 操作人：AI
+- 操作：Story实施
+- 提示词：响应用户「不需要用户点击应用到计划内容」
+- 内容：移除「应用到计划内容」按钮与 `applyAssistantSuggestion`；新增 `applyChatAssistantResult` / `normalizedPendingScheduleFromAssistant`，对话成功或降级时自动更新 `proPendingContent`、可选 `schedule`/`meta`；助手气泡展示合并后正文；`planAssistant` chat 请求 `requirement` 改为 `resolveExecutablePlanRequirement()`。更新单测。
+- 状态：成功
+- 相关文件：
+- apps/web-user/src/features/plans/PlanCreatePage.vue
+- apps/web-user/tests/plan-create-page.test.ts
+- .ai/logs/operation-log.md
+
+## 2026-04-16 17:29:22
+
+- 操作人：用户
+- 操作：用户提示
+- 提示词：「计划内容是用户手动输入或者上传文件之后填入的，生成初稿生成计划不要动这个框」
+- 内容：要求生成初稿/生成计划流程不得覆盖「计划内容」输入框
+- 状态：已接收
+- 相关文件：
+- apps/web-user/src/features/plans/PlanCreatePage.vue
+
+## 2026-04-16 17:29:22
+
+- 操作人：AI
+- 操作：Story实施
+- 提示词：响应用户「计划内容是用户手动输入或者上传文件之后填入的，生成初稿生成计划不要动这个框」
+- 内容：移除生成初稿、Pro 直达提交、确认默认优化、应用选项等路径对 `form.requirement` 的写入；失败回退改为写入 `proPendingContent`。新增 `resolveExecutablePlanRequirement()`：提交时优先 `proPendingContent`，若与用户「计划内容」并存则合并为可执行正文。非流式初稿气泡展示全文。更新 `plan-create-page` 单测。
+- 状态：成功
+- 相关文件：
+- apps/web-user/src/features/plans/PlanCreatePage.vue
+- apps/web-user/tests/plan-create-page.test.ts
+- .ai/logs/operation-log.md
+
+## 2026-04-16 17:12:45
+
+- 操作人：用户
+- 操作：用户提示
+- 提示词：「刚才因为意外中断了，请你继续」
+- 内容：接续流式初稿与 Pro 建议相关工作；要求继续验证与收尾
+- 状态：已接收
+- 相关文件：
+- apps/web-user/tests/plan-create-page.test.ts
+
+## 2026-04-16 17:12:45
+
+- 操作人：AI
+- 操作：Story实施 / 测试执行
+- 提示词：响应用户「刚才因为意外中断了，请你继续」
+- 内容：确认 `plan-create-page.test.ts` 在 Windows 下以 `--pool=forks --maxWorkers=1 --fileParallelism=false` 全绿（19）；`plan-generation.test.ts` 全绿（14）。抽取 `buildProAssistantAdviceText`，非流式 `POST /plans/assistant`（Pro）`meta` 增加 `adviceText`，与 `assistant-stream` 的 `meta_ready` 一致。`web-user` 增加 `test:plan-create` 脚本便于低内存环境复跑。
+- 状态：成功
+- 相关文件：
+- apps/api/src/modules/plans/plan.routes.ts
+- apps/web-user/package.json
+- apps/web-user/tests/plan-create-page.test.ts
+- apps/api/tests/plan-generation.test.ts
+- .ai/logs/operation-log.md
+
 ## 2026-04-14 21:59:50
 
 - 操作人：用户
@@ -591,4 +659,62 @@
 - apps/web-user/tests/plan-detail-page.test.ts
 - docs/superpowers/specs/2026-04-14-plan-detail-page-revision-design.md
 - .gitignore
+- .ai/logs/operation-log.md
+
+## 2026-04-16 11:18:48
+
+- 操作人：AI
+- 操作：Story实施
+- 提示词：响应用户「按 A/B 方案更新计划并开始实现（这个agent的代码可以抽离出来吗？我想想看看它的实现）」 
+- 内容：将 Pro 计划助手按 A/B（可执行性优先/优化后再问）升级为“生成→批评→打分→自动优化→选项”的受控编排器；抽离核心实现到 `packages/pro-plan-agent`（纯函数，可单独阅读与单测）；在 `POST /plans/assistant` 增加 Pro 分流（满足 PRO_USER_IDS 或 PRO_PLAN_AGENT_ENABLED=1 且 body.agent/tier=pro 时启用），返回兼容字段并附 `meta`（score/issues/options/diff/assumptions）；补回 assistant-cache-key 与 llm router 文件及单测，确保 plan-generation 与 pro-plan-agent 测试通过。
+- 状态：成功
+- 相关文件：
+- docs/superpowers/plans/2026-04-15-pro-plan-assistant-agent.md
+- packages/pro-plan-agent/package.json
+- packages/pro-plan-agent/src/types.ts
+- packages/pro-plan-agent/src/run.ts
+- packages/pro-plan-agent/src/index.ts
+- apps/api/src/modules/plans/plan.routes.ts
+- apps/api/src/modules/plans/assistant-cache-key.ts
+- apps/api/src/lib/llm/llm-types.ts
+- apps/api/src/lib/llm/llm-router.ts
+- apps/api/src/lib/llm/providers/deepseek-provider.ts
+- apps/api/tests/pro-plan-agent.test.ts
+- apps/api/tests/assistant-cache-key.test.ts
+
+## 2026-04-16 13:59:22
+
+- 操作人：AI
+- 操作：文档创建
+- 提示词：响应用户「确认规格，写文档。但是Pro 专属补充字段这个可以先不要」
+- 内容：创建 Pro 创建计划页的计划助手工作流规格：两条路径（先生成初稿对话优化 / 直接立即生成），显式状态机（含 B：必须完成一次优化确认才允许生成草稿的 gate），接口契约（复用 /plans/assistant + 推荐新增 apply-option），错误恢复与验收标准；并将“Pro 专属补充字段”标注为后续增强项，不纳入本期范围。
+- 状态：成功
+- 相关文件：
+- docs/superpowers/specs/2026-04-16-pro-create-plan-agent-flow-design.md
+
+## 2026-04-16 14:29:25
+
+- 操作人：AI
+- 操作：Story实施
+- 提示词：响应用户「请你执行这个计划，并且使用 frontend-design 优化创建计划专业版的页面风格和样式」
+- 内容：落地 Pro 创建页计划助手工作流：后端新增 `POST /plans/assistant/apply-option`（用于选项/自定义优化确认）；前端 `api-client` 增加 `tier/agent` 参数与 `planAssistantApplyOption`；创建计划页实现 B gate（Pro 先生成初稿则必须完成一次优化确认才允许提交），并支持 Pro 直接“立即生成计划”时自动走一次 Pro Agent 自生成自优化闭环；为 Pro 助手面板增加评分/选项/确认 UI，整体风格与现有绿/石色玻璃质感对齐；补充并更新 vitest 用例覆盖 gate 与直达闭环。
+- 状态：成功
+- 相关文件：
+- apps/api/src/modules/plans/plan.routes.ts
+- apps/web-user/src/lib/api-client.ts
+- apps/web-user/src/features/plans/PlanCreatePage.vue
+- apps/web-user/tests/plan-create-page.test.ts
+- .ai/logs/operation-log.md
+
+## 2026-04-16 15:08:38
+
+- 操作人：AI
+- 操作：Story实施
+- 提示词：响应用户「我是希望点击生成初稿之后会像chatgpt那样流式输出计划内容...」
+- 内容：新增创建页流式计划助手接口 `POST /plans/assistant-stream`（SSE 推送 `delta_text` / `body_complete` / `meta_ready` / `done`）；web-user 新增 `consumePlanAssistantStream` 消费 SSE，并在创建计划页（非 test 环境）点击「生成初稿」时以流式方式逐步追加助手输出，流结束后接收 `meta_ready` 展示建议/选项并进入确认流程。
+- 状态：成功
+- 相关文件：
+- apps/api/src/modules/plans/plan.routes.ts
+- apps/web-user/src/lib/plan-assistant-stream.ts
+- apps/web-user/src/features/plans/PlanCreatePage.vue
 - .ai/logs/operation-log.md

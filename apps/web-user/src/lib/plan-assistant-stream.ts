@@ -5,6 +5,19 @@ export type PendingDraftStreamPayload = {
   endDate: string;
 };
 
+export type PlanAssistantStreamBody = {
+  mode: 'draft' | 'chat';
+  goal: string;
+  requirement: string;
+  startDate: string;
+  cycle: '1w' | '1m' | '3m' | '6m' | 'custom';
+  endDate: string;
+  granularityMode?: 'smart' | 'deep' | 'rough';
+  message?: string;
+  tier?: 'basic' | 'pro';
+  agent?: 'basic' | 'pro';
+};
+
 const keyFor = (planId: string) => `ai-plan:draft-stream:${planId}`;
 
 export function storeDraftStreamPayload(planId: string, payload: PendingDraftStreamPayload) {
@@ -155,6 +168,113 @@ export async function consumeRegenerateDraftStream(
       for (const line of carry.split('\n')) {
         processLine(line);
       }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  if (!aborted && !sawDone) {
+    handlers.onError('流式响应未正常结束');
+  }
+}
+
+function buildPlanAssistantStreamUrl(baseURL: string): string {
+  const path = `/plans/assistant-stream`;
+  const b = baseURL.replace(/\/$/, '').trim();
+  if (!b) return path;
+  return `${b}${path}`;
+}
+
+export async function consumePlanAssistantStream(
+  baseURL: string,
+  token: string,
+  body: PlanAssistantStreamBody,
+  handlers: {
+    onDelta: (t: string) => void;
+    onBodyComplete?: () => void;
+    onMetaReady?: (payload: { suggestedContent?: string; schedule?: unknown; meta?: unknown }) => void;
+    onDone: () => void;
+    onError: (msg: string) => void;
+  },
+): Promise<void> {
+  const url = buildPlanAssistantStreamUrl(baseURL);
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    let msg = `HTTP ${res.status}`;
+    try {
+      const j = (await res.json()) as { message?: string };
+      if (j.message) msg = j.message;
+    } catch {
+      /* keep msg */
+    }
+    handlers.onError(msg);
+    return;
+  }
+
+  const reader = res.body?.getReader();
+  if (!reader) {
+    handlers.onError('无法读取流式响应');
+    return;
+  }
+
+  const decoder = new TextDecoder();
+  let carry = '';
+  let sawDone = false;
+  let aborted = false;
+
+  const processLine = (line: string) => {
+    if (aborted) return;
+    const trimmed = line.trim();
+    if (!trimmed.startsWith('data:')) return;
+    const jsonStr = trimmed.replace(/^data:\s*/i, '').trim();
+    if (!jsonStr || jsonStr === '[DONE]') return;
+    try {
+      const ev = JSON.parse(jsonStr) as {
+        type?: string;
+        text?: string;
+        message?: string;
+        ok?: boolean;
+        meta?: unknown;
+        suggestedContent?: string;
+        schedule?: unknown;
+      };
+      if ((ev.type === 'delta_text' || ev.type === 'delta') && typeof ev.text === 'string') {
+        handlers.onDelta(ev.text);
+      } else if (ev.type === 'body_complete') {
+        handlers.onBodyComplete?.();
+      } else if (ev.type === 'meta_ready') {
+        handlers.onMetaReady?.({ meta: ev.meta, suggestedContent: ev.suggestedContent, schedule: ev.schedule });
+      } else if (ev.type === 'done' && ev.ok === true) {
+        sawDone = true;
+        handlers.onDone();
+      } else if (ev.type === 'error') {
+        aborted = true;
+        handlers.onError(typeof ev.message === 'string' ? ev.message : '生成失败');
+      }
+    } catch {
+      /* ignore */
+    }
+  };
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      carry += decoder.decode(value, { stream: true });
+      carry = carry.replace(/\r\n/g, '\n');
+      const lines = carry.split('\n');
+      carry = lines.pop() ?? '';
+      for (const line of lines) processLine(line);
+    }
+    if (carry.trim()) {
+      for (const line of carry.split('\n')) processLine(line);
     }
   } finally {
     reader.releaseLock();

@@ -523,10 +523,17 @@ async function loadDraftPage() {
     selectedVersion.value = full.confirmedVersion ?? latest;
     nextGranularityMode.value = selectedGranularityMode.value;
 
+    /** 创建页「立即生成计划」已写入完整 v1 时，不再用 session 载荷二次流式覆盖初稿 */
     const pending = peekDraftStreamPayload(id);
     if (pending) {
-      clearDraftStreamPayload(id);
-      void startAssistantDraftStream(seq, pending);
+      const v1Snap = full.versions.find((v) => v.version === 1);
+      const v1Req = (v1Snap?.requirement ?? "").trim();
+      if (v1Req.length > 0) {
+        clearDraftStreamPayload(id);
+      } else {
+        clearDraftStreamPayload(id);
+        void startAssistantDraftStream(seq, pending);
+      }
     }
   } catch (error) {
     if (seq !== loadDraftSeq) return;

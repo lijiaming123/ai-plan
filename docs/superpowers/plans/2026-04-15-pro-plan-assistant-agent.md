@@ -1,10 +1,10 @@
-# 专业版「计划助手 Agent」Implementation Plan
+# 专业版「计划助手 Agent（生成→批评→打分→优化→再问）」Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 为专业版（Pro）提供一个更强、更稳定、可控的“计划助手 Agent”，在不改变用户“一键生成”体验的前提下，通过“结构化产出（JSON First）+ 规则校验 + 小步可重试 + 缓存/降级/观测”同时提升质量与可用性，并将成本控制在可预期范围内。
+**Goal:** 为专业版（Pro）提供一个更强、更稳定、可控的“计划助手 Agent”，实现你定义的闭环：**先生成计划 → 自动批评 → 打分并找问题 → 自动优化出更可执行版本 → 再询问用户选择（少量选项） → 基于反馈微调**。在不改变用户“一键生成”体验的前提下，通过 **JSON First + 规则校验 + 小步可重试 + 缓存/降级/观测** 同时提升质量与可用性，并控制调用成本。
 
-**Architecture:** 在 `apps/api` 增加一个“受控编排器（orchestrator）”作为 Agent：将一次请求拆成固定阶段（Normalize → Clarify(≤1轮) → Skeleton(JSON) → Validate → Patch → Render），每阶段可独立重试/降级；底层统一通过现有 `LLM Router`（provider 路由、幂等缓存、指标）调用第三方模型。输出与前端保持兼容：`reply + suggestedContent + schedule`；schedule 仍走 `deepseek-schedule.ts` 的 strict 校验与 fallback。
+**Architecture:** 将 Pro Agent 核心逻辑抽离为独立 package（纯函数、可单测、无 Fastify 依赖），在 `apps/api` 仅做薄封装与鉴权分流。Agent 采用“受控编排器（orchestrator）”：一次请求内部拆为固定阶段，并且 **先自动优化再问用户**（你确认的 A/B：可执行性优先、优化后再问）。底层统一通过现有 `LLM Router` 调用模型；schedule 仍走 `deepseek-schedule.ts` 的 strict 校验与 fallback。
 
 **Tech Stack:** Fastify + TypeScript（apps/api）、Vitest（单测）、现有 `LLM Router`（`apps/api/src/lib/llm/*`）、现有 schedule 校验（`apps/api/src/modules/plans/deepseek-schedule.ts`）。
 
@@ -13,10 +13,26 @@
 ## 0. 约束与决策（先写死，避免后期返工）
 
 - **触达范围**：仅 Pro 用户可使用“Agent增强能力”。非 Pro 继续走现有 `/plans/assistant`（或走同接口但能力降级）。
-- **澄清轮数**：最多 **1 轮**（对应你“成本 A”的策略），缺信息则给“最小可用假设”并在输出的 `assumptions[]` 明示。
+- **交互策略（A/B）**：
+  - **A 可执行性优先**：评分与批评以“可执行/可验收/时间预算/节奏/风险”维度为核心；生成输出必须落到可行动任务。
+  - **B 优化后再问**：先自动把计划优化到更可执行版本，再给用户 2–4 个可选项做微调，减少来回沟通成本。
+- **澄清轮数**：最多 **1 轮**（对应你“成本 A”的策略）。如果关键信息缺失，则用“最小可用假设”继续生成，并在输出的 `assumptions[]` 明示。
 - **输出形态**：**JSON First**（至少包含 schedule；可逐步扩展为 planOutline JSON），再渲染为 `suggestedContent`。
 - **可观测性**：记录每阶段耗时、是否走缓存、是否触发降级、是否触发“贵模型兜底”（只对 Pro/失败≥2 触发）。
 - **幂等缓存**：同一输入（含用户ID、goal、日期、requirement、granularityMode、message）命中缓存，避免重复烧钱。
+
+---
+
+## 0.1 你定义的 Pro Agent 闭环（产品语义）
+
+一次请求内部执行：
+
+1. **Draft（生成）**：产出“计划正文 + 严格 schedule JSON”。
+2. **Critique（批评）**：找出 Top 问题（可执行性 rubric）。
+3. **Score（打分）**：输出总分 + 分维度分数 + 解释（可执行性权重最高）。
+4. **Auto-Revise（自动优化）**：在不推倒重来的前提下，仅针对 Top 问题修补并输出优化版正文 +（必要时）修补后的 schedule。
+5. **Ask（优化后再问）**：给用户 2–4 个选项（更细/更省时/更稳/更激进），并说明利弊。
+6. **Apply Choice（可选）**：用户选择后，仅对相关段落/slot 内容进行二次微调（最多 1 次）。
 
 ---
 
@@ -46,7 +62,7 @@
 
 ## 2. Agent 编排器（服务端）设计
 
-新增：`apps/api/src/modules/plans/pro-assistant-agent.ts`
+新增：抽离到 package：`packages/pro-plan-agent/`（核心实现），`apps/api` 仅接入。
 
 ### 阶段定义（固定流水线）
 
@@ -65,6 +81,17 @@
    - JSON 不合法时，优先用“便宜模型修补 JSON”，失败才升级兜底
 6. **Render**
    - 将 JSON + 用户信息渲染为 `suggestedContent`（可用便宜模型或模板渲染）
+
+7. **Critique + Score（可执行性优先）**
+   - 规则优先：硬约束（日期/slotKeys/空内容/时长预算缺失）先判定
+   - 模型补充：软约束（表达是否可操作、是否有证据、风险是否具体）
+   - 产出：`issues[]`、`scoreBreakdown`、`scoreTotal`
+
+8. **Auto-Revise（先优化后再问）**
+   - 仅针对 issues TopN 做“局部修补”，避免整篇重写导致漂移
+
+9. **Options（选择题）**
+   - 给 2–4 个选项：每个选项含“你将得到什么 / 代价是什么”
 
 ### 失败策略（成本 A + 质量 B）
 
@@ -87,13 +114,15 @@
 
 ## 4. 任务拆解（TDD 优先，逐步落地）
 
-### Task 1：定义 Pro Agent 的接口与纯函数编排器（不接网络）
+### Task 1：抽离 package + 定义 Pro Agent 的纯函数编排器（不接网络）
 
 **Files:**
-- Create: `apps/api/src/modules/plans/pro-assistant-agent.ts`
-- Test: `apps/api/tests/pro-assistant-agent.test.ts`
+- Create: `packages/pro-plan-agent/package.json`
+- Create: `packages/pro-plan-agent/src/index.ts`
+- Create: `packages/pro-plan-agent/src/types.ts`
+- Test: `apps/api/tests/pro-plan-agent.test.ts`（先在 api 工程里跑 vitest，避免额外测试配置）
 
-- [ ] **Step 1: 写 failing test（输入→输出包含 schedule 且可 fallback）**
+- [ ] **Step 1: 写 failing test（生成→批评→打分→自动优化→选项）**
 
 ```ts
 import { describe, expect, it } from 'vitest';
@@ -121,8 +150,13 @@ describe('pro assistant agent', () => {
         },
       },
     });
-    expect(res.suggestedContent.length).toBeGreaterThan(0);
-    expect(res.schedule).toBeDefined();
+    expect(res.draft.suggestedContent.length).toBeGreaterThan(0);
+    expect(res.draft.schedule).toBeDefined();
+    expect(res.review.scoreTotal).toBeGreaterThanOrEqual(0);
+    expect(res.review.scoreTotal).toBeLessThanOrEqual(100);
+    expect(res.review.issues.length).toBeGreaterThan(0);
+    expect(res.revised.suggestedContent.length).toBeGreaterThan(0);
+    expect(res.options.length).toBeGreaterThan(0);
   });
 });
 ```

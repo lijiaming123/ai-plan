@@ -8,6 +8,10 @@ import {
   type PlanHeatmapResponse,
   type PlanListRow,
 } from "../../lib/api-client";
+import {
+  cardReadableRequirement,
+  descriptionFromReadable,
+} from "../../lib/plan-list-card-text";
 import { authState } from "../../stores/auth";
 
 const RECENT_PLANS_LIMIT = 6;
@@ -66,14 +70,9 @@ function deadlineDayFromIso(iso: string): string {
   return /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : iso;
 }
 
-function plainDescription(raw: string, max = 120): string {
-  const t = raw
-    .replace(/<[^>]+>/g, " ")
-    .replace(/```[\s\S]*?```/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  if (t.length <= max) return t || "暂无描述";
-  return `${t.slice(0, max)}…`;
+function dashboardPlanDescription(p: PlanListRow, max = 120): string {
+  const readable = cardReadableRequirement(p.requirement ?? "");
+  return descriptionFromReadable(readable, p.goal ?? "", max);
 }
 
 /** 相对「今天」的截止紧迫度（本地日历日） */
@@ -501,7 +500,7 @@ const yearSelectFilterable = computed(() => yearOptions.value.length > 12);
                 <p
                   class="mt-1 line-clamp-2 text-[12.5px] leading-relaxed text-stone-500 sm:line-clamp-1 sm:text-[13px]"
                 >
-                  {{ plainDescription(p.requirement) }}
+                  {{ dashboardPlanDescription(p) }}
                 </p>
               </div>
               <div

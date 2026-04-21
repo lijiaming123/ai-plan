@@ -50,6 +50,7 @@ describe('PlanCreatePage', () => {
 
     clearAuthToken();
     setAuthTier('basic');
+    sessionStorage.clear();
     const noopFetch = vi.fn(() =>
       Promise.reject(new Error('unexpected fetch')),
     ) as unknown as typeof fetch;
@@ -96,6 +97,9 @@ describe('PlanCreatePage', () => {
       })
     );
     expect(push).toHaveBeenCalledWith({ name: 'plan-draft', params: { id: 'plan_1' } });
+    const draftRaw = sessionStorage.getItem('ai-plan:draft-stream:plan_1');
+    expect(draftRaw).toBeTruthy();
+    expect(JSON.parse(draftRaw as string).createTier).toBe('basic');
   });
 
   it('未登录访问计划页时应跳转到登录页', async () => {
@@ -388,8 +392,12 @@ describe('PlanCreatePage', () => {
     expect(ta).toBe('完成季度目标与里程碑交付');
     const raw = sessionStorage.getItem('ai-plan:draft-stream:plan_1');
     expect(raw).toBeTruthy();
-    const payload = JSON.parse(raw as string) as { assistantPrompt?: string };
+    const payload = JSON.parse(raw as string) as {
+      assistantPrompt?: string;
+      createTier?: string;
+    };
     expect(payload.assistantPrompt).toContain('你是一名资深 AI 计划顾问与执行教练');
+    expect(payload.createTier).toBe('pro');
   });
 
   it('新协议创建失败时应降级为老协议重试', async () => {

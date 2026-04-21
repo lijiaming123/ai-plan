@@ -3,6 +3,11 @@ export type PendingDraftStreamPayload = {
   startDate: string;
   cycle: string;
   endDate: string;
+  /**
+   * 创建页「立即生成计划」时的 Tab：普通版需在草稿页对流式生成 v1；专业版若创建接口已写入完整 v1 则跳过流式避免覆盖。
+   * 缺省按专业版逻辑处理（与 v1 有正文则跳过）兼容旧 session。
+   */
+  createTier?: 'basic' | 'pro';
 };
 
 export type PlanAssistantStreamBody = {
@@ -298,13 +303,14 @@ export async function consumeAssistantDraftStream(
   },
 ): Promise<void> {
   const url = buildAssistantStreamUrl(baseURL, planId);
+  const { createTier: _ct, ...apiBody } = payload;
   const res = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`,
     },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(apiBody),
   });
   if (!res.ok) {
     storeDraftStreamPayload(planId, payload);

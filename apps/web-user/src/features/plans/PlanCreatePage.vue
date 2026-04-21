@@ -657,6 +657,7 @@ async function handleSubmit() {
     startDate: form.startDate,
     cycle: form.cycle,
     endDate: effectiveDeadline.value || form.startDate,
+    createTier: isProMode.value ? "pro" : "basic",
   });
 
   await router.push({ name: "plan-draft", params: { id: plan.id } });

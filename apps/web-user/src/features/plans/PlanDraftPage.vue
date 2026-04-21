@@ -523,12 +523,17 @@ async function loadDraftPage() {
     selectedVersion.value = full.confirmedVersion ?? latest;
     nextGranularityMode.value = selectedGranularityMode.value;
 
-    /** 创建页「立即生成计划」已写入完整 v1 时，不再用 session 载荷二次流式覆盖初稿 */
+    /**
+     * 普通版：创建接口往往已写入用户说明，仍应在草稿页流式生成完整 v1。
+     * 专业版：若创建时已落库完整初稿（proPending），跳过流式以免覆盖。
+     */
     const pending = peekDraftStreamPayload(id);
     if (pending) {
       const v1Snap = full.versions.find((v) => v.version === 1);
       const v1Req = (v1Snap?.requirement ?? "").trim();
-      if (v1Req.length > 0) {
+      const tier = pending.createTier ?? "pro";
+      const skipStream = tier === "pro" && v1Req.length > 0;
+      if (skipStream) {
         clearDraftStreamPayload(id);
       } else {
         clearDraftStreamPayload(id);

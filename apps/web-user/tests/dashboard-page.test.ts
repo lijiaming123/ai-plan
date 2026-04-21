@@ -88,6 +88,50 @@ describe("DashboardPage 概览与热力图", () => {
     expect(wrapper.text()).toContain("示例计划 Alpha");
   });
 
+  it("最近计划的需求摘要应去除 Markdown 脚手架", async () => {
+    setApiClient({
+      ...createApiClient({
+        baseURL: "http://test.local",
+        fetchImpl: vi.fn() as unknown as typeof fetch,
+      }),
+      getPlanHeatmap: vi.fn().mockResolvedValue({
+        year: 2026,
+        timeZone: "local",
+        days: emptyYearDays(2026),
+      }),
+      listPlans: vi.fn().mockResolvedValue({
+        plans: [
+          {
+            id: "plan_md",
+            goal: "前端学习",
+            deadline: "2026-12-01T00:00:00.000Z",
+            requirement:
+              "**场景判断** ***类型**: 学习***依据**: 用户明确指定要完成 Vue3。",
+            type: "study",
+            status: "active",
+            createdAt: "2026-04-01T00:00:00.000Z",
+          },
+        ],
+      }),
+    });
+
+    const router = createAppRouter(createMemoryHistory());
+    await router.push("/dashboard");
+    await router.isReady();
+
+    setAuthToken(demoJwt());
+    setUserEmail("u@test.dev");
+
+    const wrapper = mount(DashboardPage, {
+      global: { plugins: [router] },
+    });
+    await flushPromises();
+
+    const text = wrapper.text();
+    expect(text).toContain("用户明确指定要完成 Vue3");
+    expect(text).not.toContain("**");
+  });
+
   it("接口失败时应触发错误提示", async () => {
     setApiClient({
       ...createApiClient({

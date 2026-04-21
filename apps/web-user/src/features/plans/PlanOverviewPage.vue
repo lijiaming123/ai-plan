@@ -4,6 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import PageSectionHeading from "../../components/PageSectionHeading.vue";
 import UiErrorToast from "../../components/UiErrorToast.vue";
 import { getApiClient, type PlanListRow } from "../../lib/api-client";
+import { buildPlanCardDisplayTexts } from "../../lib/plan-list-card-text";
 import { authState } from "../../stores/auth";
 import { planListSearchQuery } from "../../stores/plan-search-query";
 
@@ -15,6 +16,8 @@ type PlanCard = {
   id: string;
   title: string;
   description: string;
+  /** 封面区一行摘要（已去 Markdown / 脚手架） */
+  coverLine: string;
   deadline: string;
   progress: number;
   status: PlanStatus;
@@ -70,16 +73,6 @@ function titleColorClass(plan: Pick<PlanCard, "id" | "type">) {
   return TITLE_COLOR_CLASSES[hashToIndex(plan.id, TITLE_COLOR_CLASSES.length)];
 }
 
-function plainDescription(raw: string, max = 160): string {
-  const t = raw
-    .replace(/<[^>]+>/g, " ")
-    .replace(/```[\s\S]*?```/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  if (t.length <= max) return t || "暂无描述";
-  return `${t.slice(0, max)}…`;
-}
-
 function deadlineDayFromIso(iso: string): string {
   const d = iso.slice(0, 10);
   return /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : iso;
@@ -88,11 +81,16 @@ function deadlineDayFromIso(iso: string): string {
 /** 列表仅展示已定稿计划；暂无任务完成度字段时统一显示「进行中」占位，进度 0（后续可接任务统计） */
 function rowToCard(row: PlanListRow): PlanCard {
   const deadline = deadlineDayFromIso(row.deadline);
-  const description = plainDescription(row.requirement);
+  const { description, coverLine } = buildPlanCardDisplayTexts({
+    requirement: row.requirement ?? "",
+    type: row.type,
+    goal: row.goal ?? "",
+  });
   return {
     id: row.id,
     title: row.goal,
     description,
+    coverLine,
     deadline,
     image: "",
     progress: 0,
@@ -170,7 +168,8 @@ const filteredPlans = computed(() => {
     list = list.filter(
       (plan) =>
         plan.title.toLowerCase().includes(q) ||
-        plan.description.toLowerCase().includes(q),
+        plan.description.toLowerCase().includes(q) ||
+        plan.coverLine.toLowerCase().includes(q),
     );
   }
   return list;
@@ -242,13 +241,6 @@ function relativeText(deadline: string): string {
   if (dd > 0) return `还剩 ${dd} 天`;
   if (dd < 0) return `已逾期 ${Math.abs(dd)} 天`;
   return "今天截止";
-}
-
-function shortCoverSummary(plan: PlanCard): string {
-  const desc = plan.description?.trim();
-  if (!desc) return "";
-  const max = 34;
-  return desc.length > max ? `${desc.slice(0, max)}…` : desc;
 }
 
 watch(
@@ -484,10 +476,10 @@ watch(
                   </span>
                 </div>
                 <p
-                  v-if="shortCoverSummary(plan)"
+                  v-if="plan.coverLine"
                   class="mt-2 line-clamp-1 text-[12px] font-medium text-stone-900/65"
                 >
-                  {{ shortCoverSummary(plan) }}
+                  {{ plan.coverLine }}
                 </p>
               </div>
             </div>
@@ -501,7 +493,7 @@ watch(
               {{ plan.title }}
             </h2>
             <p
-              class="mb-5 line-clamp-2 text-[14px] leading-relaxed text-stone-600"
+              class="mb-5 line-clamp-3 text-[14px] leading-relaxed text-stone-600"
             >
               {{ plan.description }}
             </p>

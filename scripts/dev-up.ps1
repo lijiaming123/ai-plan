@@ -115,17 +115,9 @@ if (-not (Test-Path $tsxEntry)) {
 
 $env:DATABASE_URL = $databaseUrl
 
+# 不用 Get-NetTCPConnection：在部分 Windows/集成终端上会扫全表极慢或长时间无输出，像「卡死」
+Write-Host "[dev-up] Choosing API listen port..."
 foreach ($candidate in $apiPortCandidates) {
-  $isListening = $false
-  try {
-    Get-NetTCPConnection -LocalPort $candidate -State Listen -ErrorAction Stop | Out-Null
-    $isListening = $true
-  } catch {}
-
-  if ($isListening) {
-    continue
-  }
-
   if (Test-PortBindable -Port $candidate) {
     $apiPort = $candidate
     break
@@ -139,14 +131,17 @@ if (-not $apiPort) {
   $probe.Stop()
 }
 
+Write-Host "[dev-up] API port: $apiPort"
+
 $apiBaseUrl = "http://localhost:$apiPort"
 $env:PORT = "$apiPort"
 $env:VITE_API_BASE_URL = $apiBaseUrl
 
-Write-Host "[dev-up] Applying database migrations..."
+# migrate dev 会等待 stdin（漂移/重置提示等），在「一键起服务」里极易表现为卡死；本地起库用 deploy 即可
+Write-Host "[dev-up] Applying database migrations (prisma migrate deploy)..."
 Push-Location (Join-Path $projectRoot "apps\api")
 try {
-  & node $prismaEntry migrate dev --name dev_bootstrap
+  & node $prismaEntry migrate deploy
 } finally {
   Pop-Location
 }

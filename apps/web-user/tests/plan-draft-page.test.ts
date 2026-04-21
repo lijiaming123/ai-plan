@@ -285,6 +285,7 @@ describe("PlanDraftPage", () => {
       startDate: "2026-01-01",
       cycle: "week",
       endDate: "2026-01-08",
+      createTier: "pro",
     });
     const router = createAppRouter(createMemoryHistory());
     await router.push("/plans/plan_1/draft");
@@ -295,6 +296,27 @@ describe("PlanDraftPage", () => {
     });
     await flushPromises();
     expect(consumeAssistantDraftStream).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem("ai-plan:draft-stream:plan_1")).toBeNull();
+    wrapper.unmount();
+  });
+
+  it("普通版载荷：v1 已有正文仍应发起 assistant-draft-stream（流式首版）", async () => {
+    storeDraftStreamPayload("plan_1", {
+      assistantPrompt: "p",
+      startDate: "2026-01-01",
+      cycle: "week",
+      endDate: "2026-01-08",
+      createTier: "basic",
+    });
+    const router = createAppRouter(createMemoryHistory());
+    await router.push("/plans/plan_1/draft");
+    await router.isReady();
+    const wrapper = mount(PlanDraftPage, {
+      global: { plugins: [router] },
+      attachTo: document.body,
+    });
+    await flushPromises();
+    expect(consumeAssistantDraftStream).toHaveBeenCalled();
     expect(sessionStorage.getItem("ai-plan:draft-stream:plan_1")).toBeNull();
     wrapper.unmount();
   });

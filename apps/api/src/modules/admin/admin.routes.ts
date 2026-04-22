@@ -9,12 +9,12 @@ import { prisma } from '../../lib/prisma';
 
 export async function registerAdminRoutes(fastify: FastifyInstance) {
   /** 自动评判等功能的规则阈值配置（键值对），供后台页展示或编辑（当前路由只读） */
-  fastify.get('/admin/rules', { preHandler: fastify.requireRole('admin') }, async () => {
+  fastify.get('/admin/rules', { preHandler: fastify.requirePermission('analytics:read') }, async () => {
     return prisma.ruleConfig.findMany({ orderBy: { key: 'asc' } });
   });
 
   /** 聚合：计划数、提交总数、规则条数、已完成/待重提交流、最近 5 条提交摘要 */
-  fastify.get('/admin/dashboard', { preHandler: fastify.requireRole('admin') }, async () => {
+  fastify.get('/admin/dashboard', { preHandler: fastify.requirePermission('analytics:read') }, async () => {
     const [planCount, submissionCount, ruleCount, completedCount, retryCount, recentSubmissions] =
       await Promise.all([
         prisma.plan.count(),
@@ -47,7 +47,7 @@ export async function registerAdminRoutes(fastify: FastifyInstance) {
   });
 
   /** 最近 20 条提交，含图片关联行（体积可能较大，仅管理端使用） */
-  fastify.get('/admin/submissions', { preHandler: fastify.requireRole('admin') }, async () => {
+  fastify.get('/admin/submissions', { preHandler: fastify.requirePermission('analytics:read') }, async () => {
     return prisma.taskSubmission.findMany({
       orderBy: { createdAt: 'desc' },
       take: 20,

@@ -62,4 +62,55 @@ describe('admin routes', () => {
     expect(JSON.parse(dashboardRes.body)).toHaveProperty('planCount');
     expect(Array.isArray(JSON.parse(submissionsRes.body))).toBe(true);
   });
+
+  it('管理员缺少 analytics:read 权限时应被拒绝', async () => {
+    const login = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      payload: { email: 'limited-admin@ai-plan.dev', password: 'Limited1234!' },
+    });
+    const { token } = JSON.parse(login.body) as { token: string };
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/admin/rules',
+      headers: { authorization: `Bearer ${token}` },
+    });
+
+    expect(res.statusCode).toBe(403);
+  });
+
+  it('审计日志查询应受 audit:read 权限控制', async () => {
+    const okLogin = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      payload: { email: 'admin@ai-plan.dev', password: 'Admin1234!' },
+    });
+    const { token: okToken } = JSON.parse(okLogin.body) as { token: string };
+
+    const denyLogin = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      payload: { email: 'limited-admin@ai-plan.dev', password: 'Limited1234!' },
+    });
+    const { token: denyToken } = JSON.parse(denyLogin.body) as { token: string };
+
+    const [okRes, denyRes] = await Promise.all([
+      app.inject({
+        method: 'GET',
+        url: '/admin/audit-logs',
+        headers: { authorization: `Bearer ${okToken}` },
+      }),
+      app.inject({
+        method: 'GET',
+        url: '/admin/audit-logs',
+        headers: { authorization: `Bearer ${denyToken}` },
+      }),
+    ]);
+
+    expect(denyRes.statusCode).toBe(403);
+    expect(okRes.statusCode).toBe(200);
+    expect(JSON.parse(okRes.body)).toHaveProperty('items');
+    expect(Array.isArray(JSON.parse(okRes.body).items)).toBe(true);
+  });
 });

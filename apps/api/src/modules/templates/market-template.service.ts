@@ -270,13 +270,17 @@ export async function publishMarketTemplate(rawBody: unknown, userId: string) {
   let sourcePlanId: string | null = null;
 
   if (body.planId) {
-    const plan = await prisma.plan.findFirst({
-      where: { id: body.planId, userId },
-    });
+    const plan =
+      (await prisma.plan.findFirst({
+        where: { id: body.planId, userId },
+      })) ??
+      (await prisma.planGenerationDraft.findFirst({
+        where: { id: body.planId, userId },
+      }));
     if (!plan) {
       return { ok: false as const, code: 404 as const, message: 'plan not found' };
     }
-    sourcePlanId = plan.id;
+    sourcePlanId = body.planId;
     payload = planToPayload(plan);
   } else {
     payload = body.payload;

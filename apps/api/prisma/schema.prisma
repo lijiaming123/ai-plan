@@ -269,3 +269,43 @@ model UserNotificationSettings {
   createdAt              DateTime  @default(now())
   updatedAt              DateTime  @updatedAt
 }
+
+/// 管理端审计日志（导出/权限变更/用户治理/敏感查询等）
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String
+  actorEmail String
+  action     String
+  targetType String?
+  targetId   String?
+  summary    String?
+  meta       Json?
+  ip         String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  @@index([actorId, createdAt(sort: Desc)])
+  @@index([action, createdAt(sort: Desc)])
+  @@index([createdAt(sort: Desc)])
+}
+
+/// Telemetry 原始事件（短期保留，用于聚合与排障）
+model TelemetryRawEvent {
+  id            String   @id @default(cuid())
+  receivedAt    DateTime @default(now())
+  eventTime     DateTime
+  eventName     String
+  userId        String?
+  anonymousKey  String?
+  sessionId     String?
+  page          String?
+  source        String?
+  platform      String   @default("unknown")
+  clientVersion String?
+  properties    Json?
+
+  @@index([eventName, receivedAt(sort: Desc)])
+  @@index([userId, receivedAt(sort: Desc)])
+  @@index([anonymousKey, receivedAt(sort: Desc)])
+  @@index([source, platform, clientVersion, receivedAt(sort: Desc)])
+}

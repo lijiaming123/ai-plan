@@ -14,12 +14,14 @@ import { authPlugin } from './plugins/auth';
 import { registerAuthRoutes } from './modules/auth/auth.routes';
 import { registerMeRoutes } from './modules/me/me.routes';
 import { registerAdminRoutes } from './modules/admin/admin.routes';
+import { registerAuditLogRoutes } from './modules/admin/audit-log.routes';
 import { registerPlanRoutes } from './modules/plans/plan.routes';
 import { registerSubmissionRoutes } from './modules/submissions/submission.routes';
 import { registerTemplateRoutes } from './modules/templates/template.routes';
 import { registerNotificationRoutes } from './modules/notifications/notification.routes';
 import multipart from '@fastify/multipart';
 import { registerUploadRoutes } from './modules/uploads/upload.routes';
+import { registerTelemetryRoutes } from './modules/telemetry/telemetry.routes';
 
 export function buildApp() {
   // logger: false 减少默认控制台噪音；需要排障时可改为 true 或接 pino 目标
@@ -44,10 +46,12 @@ export function buildApp() {
     await registerAuthRoutes(fastify);
     await registerMeRoutes(fastify);
     await registerAdminRoutes(fastify);
+    await registerAuditLogRoutes(fastify);
     await registerPlanRoutes(fastify);
     await registerSubmissionRoutes(fastify);
     await registerTemplateRoutes(fastify);
     await registerNotificationRoutes(fastify);
+    await registerTelemetryRoutes(fastify);
   });
 
   return app;

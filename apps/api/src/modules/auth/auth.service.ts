@@ -15,6 +15,7 @@ export type AuthUser = {
   id: string;
   email: string;
   role: AuthUserRole;
+  permissions?: string[];
 };
 
 /** 键为邮箱；password 仅用于演示，与 README/前端提示一致 */
@@ -30,6 +31,15 @@ const DEMO_USERS: Record<string, AuthUser & { password: string }> = {
     email: 'admin@ai-plan.dev',
     password: 'Admin1234!',
     role: 'admin',
+    permissions: ['analytics:read', 'analytics:export', 'users:read', 'audit:read', 'rbac:manage'],
+  },
+  // 用于测试/演示最小授权：role=admin 但不授予任何权限点
+  'limited-admin@ai-plan.dev': {
+    id: 'admin_limited',
+    email: 'limited-admin@ai-plan.dev',
+    password: 'Limited1234!',
+    role: 'admin',
+    permissions: [],
   },
 };
 
@@ -44,5 +54,6 @@ export async function authenticateUser(input: LoginCredentials): Promise<AuthUse
     id: user.id,
     email: user.email,
     role: user.role,
+    permissions: user.permissions,
   };
 }

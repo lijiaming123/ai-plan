@@ -26,16 +26,23 @@ export async function registerAuthRoutes(fastify: FastifyInstance) {
         sub: user.id,
         email: user.email,
         role: user.role,
+        permissions: user.permissions,
       }),
     };
   });
 
   fastify.get('/auth/me', { preHandler: fastify.requireRole('user') }, async (request) => {
-    const payload = await request.jwtVerify<{ sub: string; email: string; role: 'user' | 'admin' }>();
+    const payload = await request.jwtVerify<{
+      sub: string;
+      email: string;
+      role: 'user' | 'admin';
+      permissions?: string[];
+    }>();
     return {
       userId: payload.sub,
       email: payload.email,
       role: payload.role,
+      permissions: payload.permissions,
     };
   });
 

@@ -5,6 +5,7 @@ $projectRoot = Split-Path -Parent $scriptDir
 
 $defs = @(
   @{ AppRel = "apps\api"; ScopeName = "ai-engine"; PackageRel = "packages\ai-engine" },
+  @{ AppRel = "apps\api"; ScopeName = "pro-plan-agent"; PackageRel = "packages\pro-plan-agent" },
   @{ AppRel = "apps\web-user"; ScopeName = "ui-theme"; PackageRel = "packages\ui-theme" },
   @{ AppRel = "apps\web-admin"; ScopeName = "ui-theme"; PackageRel = "packages\ui-theme" }
 )

@@ -9,10 +9,14 @@
  * JWT payload 字段由登录路由 `jwt.sign` 写入，需与 `src/types/jwt.d.ts` 一致（sub / email / role）。
  */
 import type { FastifyReply, FastifyRequest, FastifyInstance } from 'fastify';
+import { ADMIN_PERMISSIONS, type AdminPermission } from '../modules/admin/admin-permissions';
 
 declare module 'fastify' {
   interface FastifyInstance {
     requireRole: (role: 'user' | 'admin') => (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
+    requirePermission: (
+      permission: AdminPermission,
+    ) => (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
   }
 }
 
@@ -21,6 +25,27 @@ export async function authPlugin(fastify: FastifyInstance) {
     return async (request: FastifyRequest, reply: FastifyReply) => {
       const payload = await request.jwtVerify<{ role: 'user' | 'admin' }>();
       if (payload.role !== role) {
+        return reply.code(403).send({ message: 'Forbidden' });
+      }
+    };
+  });
+
+  fastify.decorate('requirePermission', (permission: AdminPermission) => {
+    return async (request: FastifyRequest, reply: FastifyReply) => {
+      const payload = await request.jwtVerify<{
+        role: 'user' | 'admin';
+        permissions?: string[];
+      }>();
+
+      if (payload.role !== 'admin') {
+        return reply.code(403).send({ message: 'Forbidden' });
+      }
+
+      // permissions:
+      // - undefined: 兼容旧 token（admin 默认全量权限）
+      // - []: 显式无权限（用于最小授权/测试）
+      const effective = payload.permissions ?? ADMIN_PERMISSIONS;
+      if (!effective.includes(permission)) {
         return reply.code(403).send({ message: 'Forbidden' });
       }
     };

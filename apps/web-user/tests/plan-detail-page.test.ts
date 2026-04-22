@@ -121,5 +121,22 @@ describe('PlanDetailPage schedule', () => {
     );
     expect(wrapper.text()).toContain('B');
   });
+
+  it('编辑弹窗应按 Escape 关闭', async () => {
+    const router = createAppRouter(createMemoryHistory());
+    await router.push('/plans/plan_1');
+    await router.isReady();
+
+    const wrapper = mount(PlanDetailPage, { global: { plugins: [router] } });
+    await flushPromises();
+
+    await wrapper.get('[data-testid="schedule-slot-edit"]').trigger('click');
+    await flushPromises();
+    expect(wrapper.find('[data-testid="schedule-edit-dialog"]').exists()).toBe(true);
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    await flushPromises();
+    expect(wrapper.find('[data-testid="schedule-edit-dialog"]').exists()).toBe(false);
+  });
 });
 

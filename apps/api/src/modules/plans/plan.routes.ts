@@ -37,6 +37,10 @@ import {
   validateScheduleStrict,
 } from "./deepseek-schedule";
 import { createDraftStreamSplitter } from "./draft-stream-split";
+import {
+  createScheduleSlotAppeal,
+  withdrawScheduleSlotAppeal,
+} from "./schedule-slot-appeal.service";
 import { createScheduleSlotCheckin } from "./schedule-slot-checkin.service";
 import {
   buildScheduleSlotKeys,
@@ -470,11 +474,11 @@ async function tryDeepseekAssistant(
         `  "schedule": {`,
         `    "granularity": "${expectedGranularity}",`,
         `    "slots": [`,
-        `      { "slotKey": "...", "content": "..." }`,
+        `      { "slotKey": "...", "content": "...", "checkinSpec": { "criteria": ["..."], "evidenceHint": "..." } }`,
         `    ]`,
         `  }`,
         `}`,
-        `注意：slotKey 必须严格来自下方「时间槽」列表，且顺序必须完全一致；content 为当期计划一段中文（1-3句，具体可执行）。`,
+        `注意：slotKey 必须严格来自下方「时间槽」列表，且顺序必须完全一致；content 为当期计划一段中文（1-3句，具体可执行）。可选 checkinSpec：criteria 为 2-5 条可验收短句，evidenceHint 提示应提交何种证明。`,
         "",
         "时间槽：",
         ...slotKeys.map((k) => `- ${k}`),
@@ -726,9 +730,57 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
         content,
         attachments,
       });
-      if (!result.ok)
+      if (!result.ok) {
+        if (result.code === 422) {
+          return reply.code(422).send({
+            message: result.message,
+            code: "CHECKIN_NOT_PASSED",
+            review: result.review,
+          });
+        }
         return reply.code(result.code).send({ message: result.message });
+      }
       return reply.code(201).send({ submission: result.submission });
+    },
+  );
+
+  fastify.post(
+    "/plans/:id/schedule/slots/:slotKey/appeals",
+    { preHandler: fastify.requireRole("user") },
+    async (request, reply) => {
+      const payload = await request.jwtVerify<{ sub: string }>();
+      const { id, slotKey } = request.params as { id: string; slotKey: string };
+      const body = normalizeBody(request.body);
+      const content =
+        isRecord(body) && typeof body.content === "string" ? body.content : "";
+      const result = await createScheduleSlotAppeal({
+        planId: id,
+        userId: payload.sub,
+        slotKey,
+        content,
+      });
+      if (!result.ok) {
+        return reply.code(result.code).send({ message: result.message });
+      }
+      return reply.code(201).send({ appeal: result.appeal });
+    },
+  );
+
+  fastify.delete(
+    "/plans/:id/schedule/slots/:slotKey/appeals",
+    { preHandler: fastify.requireRole("user") },
+    async (request, reply) => {
+      const payload = await request.jwtVerify<{ sub: string }>();
+      const { id, slotKey } = request.params as { id: string; slotKey: string };
+      const result = await withdrawScheduleSlotAppeal({
+        planId: id,
+        userId: payload.sub,
+        slotKey,
+      });
+      if (!result.ok) {
+        return reply.code(result.code).send({ message: result.message });
+      }
+      return reply.send({ ok: true });
     },
   );
 
@@ -1012,11 +1064,11 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
               '  "schedule": {',
               `    "granularity": "${expectedGranularity}",`,
               '    "slots": [',
-              '      { "slotKey": "...", "content": "..." }',
+              '      { "slotKey": "...", "content": "...", "checkinSpec": { "criteria": ["..."], "evidenceHint": "..." } }',
               "    ]",
               "  }",
               "}",
-              "要求：slotKey 必须严格来自下方「时间槽」列表，且顺序必须完全一致；content 为当期计划一段中文（1-3句，具体可执行）。",
+              "要求：slotKey 必须严格来自下方「时间槽」列表，且顺序必须完全一致；content 为当期计划一段中文（1-3句，具体可执行）。可选 checkinSpec：criteria 为 2-5 条可验收短句，evidenceHint 提示应提交何种证明。",
               "",
               "时间槽：",
               ...slotKeys.map((k) => `- ${k}`),
@@ -1286,11 +1338,11 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
               `  "schedule": {`,
               `    "granularity": "${expectedGranularity}",`,
               `    "slots": [`,
-              `      { "slotKey": "...", "content": "..." }`,
+              `      { "slotKey": "...", "content": "...", "checkinSpec": { "criteria": ["..."], "evidenceHint": "..." } }`,
               `    ]`,
               `  }`,
               `}`,
-              `注意：slotKey 必须严格来自下方「时间槽」列表，且顺序必须完全一致；content 为当期计划一段中文（1-3句，具体可执行）。`,
+              `注意：slotKey 必须严格来自下方「时间槽」列表，且顺序必须完全一致；content 为当期计划一段中文（1-3句，具体可执行）。可选 checkinSpec：criteria 为 2-5 条可验收短句，evidenceHint 提示应提交何种证明。`,
               "",
               "时间槽：",
               ...slotKeys.map((k) => `- ${k}`),

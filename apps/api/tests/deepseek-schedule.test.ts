@@ -64,6 +64,40 @@ describe('deepseek schedule protocol', () => {
     expect(s.slots).toHaveLength(2);
     expect(s.slots[0]?.generatedContent).toContain('本周目标');
     expect(s.slots[0]?.contentSource).toBe('generated');
+    expect(s.slots[0]?.checkinSpec?.criteria?.length).toBeGreaterThan(0);
+  });
+
+  it('validate should preserve optional checkinSpec.criteria', () => {
+    const wire = parseScheduleWireOrNull(
+      JSON.stringify({
+        schedule: {
+          granularity: 'day',
+          slots: [
+            {
+              slotKey: '2026-04-13',
+              content: '阅读一章并做笔记。',
+              checkinSpec: {
+                criteria: ['读完指定章节', '提交笔记要点'],
+                evidenceHint: '上传笔记截图',
+              },
+            },
+          ],
+        },
+      })
+    )!;
+    const ok = validateScheduleStrict({
+      expectedGranularity: 'day',
+      expectedSlotKeys: ['2026-04-13'],
+      wire,
+    });
+    expect(ok.ok).toBe(true);
+    if (ok.ok) {
+      expect(ok.schedule.slots[0]?.checkinSpec?.criteria).toEqual([
+        '读完指定章节',
+        '提交笔记要点',
+      ]);
+      expect(ok.schedule.slots[0]?.checkinSpec?.evidenceHint).toContain('截图');
+    }
   });
 });
 

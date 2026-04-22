@@ -23,12 +23,14 @@ import {
 } from "./granularity";
 import {
   buildFallbackSchedule,
+  deriveCheckinSpecFromSlotContent,
   extractLastJsonCodeBlock,
   parseScheduleWireOrNull,
   stripLastJsonCodeBlock,
   validateScheduleStrict,
   type CheckinSchedule,
 } from "./deepseek-schedule";
+import { listOpenScheduleSlotAppeals } from "./schedule-slot-appeal.service";
 import { listScheduleSlotSubmissionsBySlot } from "./schedule-slot-checkin.service";
 
 const editableFields = ["deadline", "note"] as const;
@@ -475,6 +477,10 @@ export async function getPlanWithDraft(planId: string, userId: string) {
     planId,
     userId,
   );
+  const scheduleSlotOpenAppeals = await listOpenScheduleSlotAppeals(
+    planId,
+    userId,
+  );
   return {
     ...plan,
     status: "active",
@@ -487,6 +493,7 @@ export async function getPlanWithDraft(planId: string, userId: string) {
         state.confirmedVersion === null,
     },
     scheduleSlotSubmissions,
+    scheduleSlotOpenAppeals,
   };
 }
 
@@ -572,11 +579,11 @@ function buildRegenerateUserContentForModel(params: {
     '  "schedule": {',
     `    "granularity": "${expectedGranularity}",`,
     '    "slots": [',
-    '      { "slotKey": "...", "content": "..." }',
+    '      { "slotKey": "...", "content": "...", "checkinSpec": { "criteria": ["..."], "evidenceHint": "..." } }',
     "    ]",
     "  }",
     "}",
-    "注意：slotKey 必须严格来自下方「时间槽」列表，且顺序必须完全一致；content 为当期计划一段中文（1-3句，具体可执行）。",
+    "注意：slotKey 必须严格来自下方「时间槽」列表，且顺序必须完全一致；content 为当期计划一段中文（1-3句，具体可执行）。可选 checkinSpec：criteria 为 2-5 条可验收短句，evidenceHint 提示用户应提交何种证明（利于打卡核验）。",
     "",
     "时间槽：",
     ...slotKeys.map((k) => `- ${k}`),
@@ -1330,6 +1337,7 @@ export async function updatePlanScheduleSlot(params: {
     slot.contentSource = "generated";
     delete slot.editedAt;
     delete slot.editedByUserId;
+    slot.checkinSpec = deriveCheckinSpecFromSlotContent(slot.content);
   } else {
     const next = (params.content ?? "").trim();
     if (!next)
@@ -1342,6 +1350,7 @@ export async function updatePlanScheduleSlot(params: {
     slot.contentSource = "edited";
     slot.editedAt = nowIso;
     slot.editedByUserId = params.userId;
+    slot.checkinSpec = deriveCheckinSpecFromSlotContent(slot.content);
   }
   schedule.slots[idx] = slot;
 

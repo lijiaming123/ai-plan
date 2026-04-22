@@ -8,8 +8,8 @@ import { buildPlanCardDisplayTexts } from "../../lib/plan-list-card-text";
 import { authState } from "../../stores/auth";
 import { planListSearchQuery } from "../../stores/plan-search-query";
 
-type PlanStatus = "进行中" | "已完成" | "未开始";
-type FilterType = "全部" | "进行中" | "已完成" | "未开始";
+type PlanStatus = "执行中" | "已完成" | "未开始";
+type FilterType = "全部" | "执行中" | "已完成" | "未开始";
 type StatusQuery = "in_progress" | "completed" | "not_started";
 
 type PlanCard = {
@@ -78,7 +78,7 @@ function deadlineDayFromIso(iso: string): string {
   return /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : iso;
 }
 
-/** 列表仅展示已定稿计划；暂无任务完成度字段时统一显示「进行中」占位，进度 0（后续可接任务统计） */
+/** 列表仅展示已定稿计划；与详情页「执行中」一致；任务完成度后续可接，进度 0 占位。 */
 function rowToCard(row: PlanListRow): PlanCard {
   const deadline = deadlineDayFromIso(row.deadline);
   const { description, coverLine } = buildPlanCardDisplayTexts({
@@ -94,7 +94,7 @@ function rowToCard(row: PlanListRow): PlanCard {
     deadline,
     image: "",
     progress: 0,
-    status: "进行中",
+    status: "执行中",
     type: row.type,
   };
 }
@@ -125,22 +125,22 @@ onMounted(() => {
   void loadPlans();
 });
 
-const filters: FilterType[] = ["全部", "进行中", "已完成", "未开始"];
+const filters: FilterType[] = ["全部", "执行中", "已完成", "未开始"];
 const route = useRoute();
 const router = useRouter();
 
 function filterToQuery(filter: FilterType): StatusQuery | null {
-  if (filter === "进行中") return "in_progress";
+  if (filter === "执行中") return "in_progress";
   if (filter === "已完成") return "completed";
   if (filter === "未开始") return "not_started";
   return null;
 }
 
 function queryToFilter(status: string): FilterType | null {
-  if (status === "in_progress") return "进行中";
+  if (status === "in_progress" || status === "执行中" || status === "进行中")
+    return "执行中";
   if (status === "completed") return "已完成";
   if (status === "not_started") return "未开始";
-  // legacy: 中文
   if (filters.includes(status as FilterType)) return status as FilterType;
   return null;
 }
@@ -199,7 +199,7 @@ function setFilter(filter: FilterType) {
 }
 
 function statusClass(status: PlanStatus) {
-  if (status === "进行中") {
+  if (status === "执行中") {
     return "bg-emerald-50 text-emerald-800 ring-1 ring-emerald-200/80";
   }
   if (status === "已完成") {
@@ -209,7 +209,7 @@ function statusClass(status: PlanStatus) {
 }
 
 function coverTheme(status: PlanStatus) {
-  if (status === "进行中") return "cover--active";
+  if (status === "执行中") return "cover--active";
   if (status === "已完成") return "cover--done";
   return "cover--idle";
 }
@@ -527,14 +527,36 @@ watch(
         <div
           v-if="filteredPlans.length === 0"
           class="flex min-h-[280px] flex-col items-center justify-center rounded-3xl border border-dashed border-stone-300/90 bg-white/60 px-8 py-12 text-center lg:col-span-2"
+          data-testid="plan-overview-empty"
         >
-          <span class="material-symbols-outlined mb-3 text-4xl text-stone-400"
+          <span
+            v-if="!listLoading && plans.length === 0 && !searchText"
+            class="material-symbols-outlined mb-3 text-4xl text-emerald-500/80"
+            >calendar_add_on</span
+          >
+          <span
+            v-else
+            class="material-symbols-outlined mb-3 text-4xl text-stone-400"
             >search_off</span
           >
-          <p class="text-lg font-semibold text-stone-800">这里暂时空空如也</p>
-          <p class="mt-2 max-w-sm text-sm leading-relaxed text-stone-600">
-            换个筛选条件，或清空顶栏搜索看看。也可以新建一个计划，从小目标开始。
-          </p>
+          <template v-if="!listLoading && plans.length === 0 && !searchText">
+            <p class="text-lg font-semibold text-stone-800">从这里开始你的第一个计划</p>
+            <p class="mt-2 max-w-md text-sm leading-relaxed text-stone-600">
+              定稿后的计划会出现在本页；在「新建计划」里填写目标与要求、生成并确认，即可在详情里按时间槽打卡。全程可随时回到草稿继续改。
+            </p>
+          </template>
+          <template v-else-if="searchText">
+            <p class="text-lg font-semibold text-stone-800">没有匹配当前搜索的计划</p>
+            <p class="mt-2 max-w-sm text-sm leading-relaxed text-stone-600">
+              试试别的关键词，或清空顶栏搜索；已有计划时会在下方卡片中显示。
+            </p>
+          </template>
+          <template v-else>
+            <p class="text-lg font-semibold text-stone-800">这里暂时空空如也</p>
+            <p class="mt-2 max-w-sm text-sm leading-relaxed text-stone-600">
+              当前筛选下没有计划。可换一个标签，或新建一个计划，从小目标开始。
+            </p>
+          </template>
         </div>
 
         <router-link

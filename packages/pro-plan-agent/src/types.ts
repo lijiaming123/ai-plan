@@ -14,10 +14,15 @@ export type ProAgentInput = {
 
 export type ScheduleGranularity = 'day' | 'week';
 
+export type CheckinSpec = {
+  criteria: string[];
+  evidenceHint?: string;
+};
+
 export type ScheduleWire = {
   schedule: {
     granularity: ScheduleGranularity;
-    slots: Array<{ slotKey: string; content: string }>;
+    slots: Array<{ slotKey: string; content: string; checkinSpec?: unknown }>;
   };
 };
 
@@ -28,6 +33,7 @@ export type Schedule = {
     generatedContent: string;
     content: string;
     contentSource: 'generated' | 'edited';
+    checkinSpec?: CheckinSpec;
   }>;
 };
 

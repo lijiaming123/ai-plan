@@ -31,8 +31,12 @@ export function isDeepseekConfigured(): boolean {
  *
  * @throws Error 未配置 KEY、HTTP 非 2xx、响应非 JSON、或正文为空
  * @param messages 通常含一条 system（人设）+ 一条或多条 user/assistant
+ * @param options 可选；如 `temperature` 未传则默认 0.6（与历史行为一致）
  */
-export async function completeDeepseekChat(messages: DeepseekChatMessage[]): Promise<string> {
+export async function completeDeepseekChat(
+  messages: DeepseekChatMessage[],
+  options?: { temperature?: number },
+): Promise<string> {
   const apiKey = process.env.DEEPSEEK_API_KEY?.trim();
   if (!apiKey) {
     throw new Error('DEEPSEEK_API_KEY is not set');
@@ -56,7 +60,10 @@ export async function completeDeepseekChat(messages: DeepseekChatMessage[]): Pro
       body: JSON.stringify({
         model,
         messages,
-        temperature: 0.6,
+        temperature:
+          options?.temperature !== undefined && Number.isFinite(options.temperature)
+            ? options.temperature
+            : 0.6,
       }),
     });
 

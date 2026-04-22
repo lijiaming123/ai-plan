@@ -169,4 +169,88 @@ describe('schedule slot check-in', () => {
     });
     expect(post.statusCode).toBe(400);
   });
+
+  it('未通过核验时应 422 且不写入提交记录', async () => {
+    const login = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      payload: { email: 'demo@ai-plan.dev', password: 'Pass1234!' },
+    });
+    const { token } = JSON.parse(login.body) as { token: string };
+
+    const requirementWithJson = [
+      '正文',
+      '```json',
+      JSON.stringify({
+        schedule: {
+          granularity: 'day',
+          slots: [{ slotKey: '2026-08-01', content: '完成阅读与练习' }],
+        },
+      }),
+      '```',
+    ].join('\n');
+
+    const create = await app.inject({
+      method: 'POST',
+      url: '/plans',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        goal: '核验拦截测',
+        deadline: '2026-08-10T00:00:00.000Z',
+        requirement: requirementWithJson,
+        type: 'general',
+        profile: {
+          planMode: 'basic',
+          basicInfo: {
+            planName: '核验拦截测',
+            planContent: '测',
+            currentLevel: 'none',
+            startDate: '2026-08-01',
+            cycle: 'custom',
+            endDate: '2026-08-10',
+            preference: '',
+            timeInvestment: 'none',
+            outputMode: 'daily',
+            granularityMode: 'deep',
+          },
+        },
+      },
+    });
+    const { id: planId } = JSON.parse(create.body) as { id: string };
+
+    await app.inject({
+      method: 'POST',
+      url: `/plans/${planId}/confirm`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: { version: 1 },
+    });
+
+    const post = await app.inject({
+      method: 'POST',
+      url: `/plans/${planId}/schedule/slots/2026-08-01/checkins`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        content: 'ok',
+        attachments: [],
+      },
+    });
+    expect(post.statusCode).toBe(422);
+    const err = JSON.parse(post.body) as {
+      code?: string;
+      review?: { passed: boolean; dimensions: unknown[] };
+    };
+    expect(err.code).toBe('CHECKIN_NOT_PASSED');
+    expect(err.review?.passed).toBe(false);
+    expect(Array.isArray(err.review?.dimensions)).toBe(true);
+
+    const detail = await app.inject({
+      method: 'GET',
+      url: `/plans/${planId}`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const plan = JSON.parse(detail.body) as {
+      scheduleSlotSubmissions?: Record<string, unknown[]>;
+    };
+    expect(plan.scheduleSlotSubmissions?.['2026-08-01']?.length ?? 0).toBe(0);
+  });
 });

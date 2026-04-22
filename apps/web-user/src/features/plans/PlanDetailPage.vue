@@ -2,9 +2,10 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import UiErrorToast from '../../components/UiErrorToast.vue';
-import type { PlanRecord } from '../../lib/api-client';
-import { getApiClient } from '../../lib/api-client';
+import type { CheckinPublicReview, PlanRecord } from '../../lib/api-client';
+import { getApiClient, HttpApiError } from '../../lib/api-client';
 import { renderMarkdownToHtml } from '../../lib/render-markdown';
+import { useCloseOnEscape } from '../../composables/useCloseOnEscape';
 import { authState } from '../../stores/auth';
 
 const route = useRoute();
@@ -222,6 +223,79 @@ const checkinManualLinks = ref<Array<{ url: string; fileName: string }>>([{ url:
 const checkinSaving = ref(false);
 const checkinFileUploading = ref(false);
 const checkinDropActive = ref(false);
+/** 多文件上传时「1 / 3」进度文案 */
+const checkinUploadProgress = ref('');
+let checkinDraftSaveTimer: ReturnType<typeof setTimeout> | null = null;
+/** 最近一次核验未通过时，服务端返回的模糊维度（422） */
+const checkinReview = ref<CheckinPublicReview | null>(null);
+const checkinAppealText = ref('');
+const appealSubmitting = ref(false);
+const appealWithdrawKey = ref<string | null>(null);
+const okBanner = ref('');
+
+function checkinBandLabel(band: CheckinPublicReview['dimensions'][number]['band']): string {
+  if (band === 'high') return '良好';
+  if (band === 'mid') return '一般';
+  return '偏低';
+}
+
+type SlotCheckinState = '未提交' | '已提交' | '申诉中';
+
+function slotCheckinStateLabel(slotKey: string): SlotCheckinState {
+  if (plan.value?.scheduleSlotOpenAppeals?.[slotKey]) return '申诉中';
+  if (slotSubmissions(slotKey).length > 0) return '已提交';
+  return '未提交';
+}
+
+function slotCheckinStatePillClass(slotKey: string): string {
+  const s = slotCheckinStateLabel(slotKey);
+  if (s === '申诉中') {
+    return 'bg-amber-50 text-amber-900 ring-1 ring-amber-200/80';
+  }
+  if (s === '已提交') {
+    return 'bg-emerald-50 text-emerald-900 ring-1 ring-emerald-200/80';
+  }
+  return 'bg-slate-100 text-slate-600 ring-1 ring-slate-200/80';
+}
+
+function checkinDraftStorageKey(slotKey: string): string {
+  return `planCheckinDraft:${planId.value}:${slotKey}`;
+}
+
+function tryLoadCheckinDraft(slotKey: string) {
+  try {
+    const raw = localStorage.getItem(checkinDraftStorageKey(slotKey));
+    if (!raw) return;
+    const d = JSON.parse(raw) as {
+      content?: string;
+      uploaded?: Array<{ url: string; fileName: string }>;
+      manual?: Array<{ url: string; fileName: string }>;
+    };
+    if (typeof d.content === 'string') checkinContent.value = d.content;
+    if (Array.isArray(d.uploaded) && d.uploaded.length > 0) {
+      checkinUploadedFiles.value = d.uploaded.map((r) => ({
+        url: String(r.url ?? ''),
+        fileName: String(r.fileName ?? '附件'),
+      })).filter((r) => r.url.length > 0);
+    }
+    if (Array.isArray(d.manual) && d.manual.length > 0) {
+      checkinManualLinks.value = d.manual.map((r) => ({
+        url: String(r.url ?? ''),
+        fileName: String(r.fileName ?? ''),
+      }));
+    }
+  } catch {
+    /* 忽略坏数据 */
+  }
+}
+
+function clearCheckinDraftForSlot(slotKey: string) {
+  try {
+    localStorage.removeItem(checkinDraftStorageKey(slotKey));
+  } catch {
+    /* ignore */
+  }
+}
 
 function openCheckinSubmit(slotKey: string, planText: string) {
   checkinSlotKey.value = slotKey;
@@ -229,8 +303,41 @@ function openCheckinSubmit(slotKey: string, planText: string) {
   checkinContent.value = '';
   checkinUploadedFiles.value = [];
   checkinManualLinks.value = [{ url: '', fileName: '' }];
+  checkinReview.value = null;
+  checkinAppealText.value = '';
   checkinOpen.value = true;
+  tryLoadCheckinDraft(slotKey);
 }
+
+watch([checkinContent, checkinUploadedFiles, checkinManualLinks], () => {
+  checkinReview.value = null;
+}, { deep: true });
+
+watch(
+  [checkinOpen, checkinContent, checkinUploadedFiles, checkinManualLinks],
+  () => {
+    if (!checkinOpen.value) return;
+    const sk = checkinSlotKey.value;
+    if (!sk) return;
+    if (checkinDraftSaveTimer) clearTimeout(checkinDraftSaveTimer);
+    checkinDraftSaveTimer = setTimeout(() => {
+      checkinDraftSaveTimer = null;
+      try {
+        localStorage.setItem(
+          checkinDraftStorageKey(sk),
+          JSON.stringify({
+            content: checkinContent.value,
+            uploaded: checkinUploadedFiles.value,
+            manual: checkinManualLinks.value,
+          }),
+        );
+      } catch {
+        /* 可能超出配额 */
+      }
+    }, 500);
+  },
+  { deep: true },
+);
 
 function removeCheckinUploaded(idx: number) {
   checkinUploadedFiles.value.splice(idx, 1);
@@ -265,15 +372,21 @@ function addCheckinManualLinkRow() {
 
 async function onCheckinFilesPicked(files: FileList | null) {
   if (!files?.length || !authState.token) return;
+  const arr = Array.from(files);
   checkinFileUploading.value = true;
+  checkinUploadProgress.value = '';
   try {
-    for (const f of Array.from(files)) {
+    const total = arr.length;
+    for (let i = 0; i < total; i++) {
+      if (total > 1) checkinUploadProgress.value = `${i + 1} / ${total}`;
+      const f = arr[i]!;
       const res = await getApiClient().uploadUserFile({ token: authState.token, file: f });
       checkinUploadedFiles.value.push({ url: res.url, fileName: res.fileName || f.name });
     }
   } catch (e) {
     showError(e instanceof Error ? e.message : '文件上传失败');
   } finally {
+    checkinUploadProgress.value = '';
     checkinFileUploading.value = false;
   }
 }
@@ -296,14 +409,77 @@ async function submitCheckin() {
       attachments: atts.length ? atts : undefined,
     });
     const slot = checkinSlotKey.value;
+    clearCheckinDraftForSlot(slot);
     const cur = { ...(plan.value?.scheduleSlotSubmissions ?? {}) };
     cur[slot] = [submission, ...(cur[slot] ?? [])];
     if (plan.value) plan.value = { ...plan.value, scheduleSlotSubmissions: cur };
     checkinOpen.value = false;
+    checkinReview.value = null;
   } catch (e) {
+    if (e instanceof HttpApiError && e.status === 422) {
+      const body = e.body as { review?: CheckinPublicReview } | null | undefined;
+      if (body && body.review && Array.isArray(body.review.dimensions)) {
+        checkinReview.value = body.review;
+        showError(body.review.summary || e.message);
+        return;
+      }
+    }
+    checkinReview.value = null;
     showError(e instanceof Error ? e.message : '提交失败');
   } finally {
     checkinSaving.value = false;
+  }
+}
+
+async function submitCheckinAppeal() {
+  if (!authState.token || !checkinSlotKey.value) return;
+  const t = checkinAppealText.value.trim();
+  if (t.length < 4) {
+    showError('请至少填写 4 个字的申诉说明');
+    return;
+  }
+  appealSubmitting.value = true;
+  try {
+    await getApiClient().postPlanScheduleSlotAppeal({
+      id: planId.value,
+      slotKey: checkinSlotKey.value,
+      token: authState.token,
+      content: t,
+    });
+    checkinOpen.value = false;
+    checkinReview.value = null;
+    checkinAppealText.value = '';
+    okBanner.value =
+      '申诉已提交。该时间槽在工作人员处理前会显示「申诉中」；你也可在列表中撤销申诉，再补充材料后重试。';
+    window.setTimeout(() => {
+      okBanner.value = '';
+    }, 5000);
+    await loadPlanDetail();
+  } catch (e) {
+    showError(e instanceof Error ? e.message : '提交申诉失败');
+  } finally {
+    appealSubmitting.value = false;
+  }
+}
+
+async function withdrawSlotAppeal(slotKey: string) {
+  if (!authState.token) return;
+  appealWithdrawKey.value = slotKey;
+  try {
+    await getApiClient().deletePlanScheduleSlotAppeal({
+      id: planId.value,
+      slotKey,
+      token: authState.token,
+    });
+    await loadPlanDetail();
+    okBanner.value = '已撤销申诉。可以重新打开「提交证明」补充内容后再次尝试，或再次发起申诉。';
+    window.setTimeout(() => {
+      okBanner.value = '';
+    }, 6000);
+  } catch (e) {
+    showError(e instanceof Error ? e.message : '撤销申诉失败');
+  } finally {
+    appealWithdrawKey.value = null;
   }
 }
 
@@ -314,6 +490,16 @@ function showError(message: string) {
 function clearError() {
   errorToastMessage.value = '';
 }
+
+useCloseOnEscape(scheduleEditOpen, () => {
+  scheduleEditOpen.value = false;
+});
+useCloseOnEscape(checkinOpen, () => {
+  checkinOpen.value = false;
+});
+useCloseOnEscape(showPublishForm, () => {
+  showPublishForm.value = false;
+});
 
 async function loadPlanDetail() {
   loading.value = true;
@@ -329,12 +515,33 @@ async function loadPlanDetail() {
   }
 }
 
+const lastOpenedCheckinQueryKey = ref('');
+
 onMounted(loadPlanDetail);
 watch(
   () => route.params.id,
   () => {
+    lastOpenedCheckinQueryKey.value = '';
     void loadPlanDetail();
   }
+);
+
+/** 自通知中心跳转 ?openCheckin=1&slotKey= 时打开提交证明 */
+watch(
+  [() => route.query.openCheckin, () => route.query.slotKey, canSubmitCheckin, checkinSchedule],
+  () => {
+    if (route.query.openCheckin !== '1') return;
+    const sk = route.query.slotKey;
+    if (typeof sk !== 'string' || !checkinSchedule.value) return;
+    if (!canSubmitCheckin.value) return;
+    const key = `${planId.value}|${sk}`;
+    if (key === lastOpenedCheckinQueryKey.value) return;
+    const slot = checkinSchedule.value.slots.find((s) => s.slotKey === sk);
+    if (!slot) return;
+    lastOpenedCheckinQueryKey.value = key;
+    openCheckinSubmit(sk, slot.content);
+  },
+  { immediate: true },
 );
 </script>
 
@@ -343,6 +550,13 @@ watch(
     class="plan-detail-root flex h-full min-h-0 w-full flex-col overflow-y-auto bg-[#eef2ef] font-display text-[#111813]"
   >
     <UiErrorToast :message="errorToastMessage" @close="clearError" />
+    <div
+      v-if="okBanner"
+      class="pointer-events-none fixed left-1/2 top-4 z-[60] -translate-x-1/2 rounded-full bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-900 shadow-lg ring-1 ring-emerald-200/90"
+      role="status"
+    >
+      {{ okBanner }}
+    </div>
 
     <div class="mx-auto w-full max-w-6xl p-4 sm:p-6 lg:p-6">
         <nav
@@ -403,6 +617,13 @@ watch(
             >
               已超过截止日，仍可补记打卡
             </span>
+            <p
+              v-if="plan.status === 'active' && checkinSchedule"
+              class="mt-2 w-full text-[13px] leading-relaxed text-[#5a6f62]"
+              data-testid="plan-detail-phase-hint"
+            >
+              当前在「执行」阶段：在下方打卡表中按各时间槽提交说明与证明；已逾期的计划截止日也仍可补记，状态与表中一致。
+            </p>
           </div>
           <div
             v-if="plan && plan.requirement && plan.status === 'active'"
@@ -445,7 +666,7 @@ watch(
                 <tr>
                   <th class="whitespace-nowrap px-3 py-3 font-semibold">时间槽</th>
                   <th class="px-3 py-3 font-semibold">计划内容</th>
-                  <th class="whitespace-nowrap px-3 py-3 font-semibold">文案状态</th>
+                  <th class="whitespace-nowrap px-3 py-3 font-semibold">状态</th>
                   <th class="whitespace-nowrap px-3 py-3 font-semibold">提交记录</th>
                   <th class="whitespace-nowrap px-3 py-3 text-right font-semibold">操作</th>
                 </tr>
@@ -470,8 +691,14 @@ watch(
                       {{ slot.content }}
                     </p>
                   </td>
-                  <td class="whitespace-nowrap px-3 py-3 text-xs text-[#61896f]">
-                    {{ slot.contentSource === 'edited' ? '已改' : '生成' }}
+                  <td class="whitespace-nowrap px-3 py-3">
+                    <span
+                      :class="slotCheckinStatePillClass(slot.slotKey)"
+                      class="inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-bold"
+                      :data-testid="`schedule-slot-status-${slot.slotKey}`"
+                    >
+                      {{ slotCheckinStateLabel(slot.slotKey) }}
+                    </span>
                   </td>
                   <td class="whitespace-nowrap px-3 py-3 text-xs text-[#2a3832]">
                     {{ slotSubmissionSummary(slot.slotKey) }}
@@ -506,6 +733,18 @@ watch(
                       >
                         恢复
                       </button>
+                      <button
+                        v-if="slotCheckinStateLabel(slot.slotKey) === '申诉中'"
+                        type="button"
+                        class="rounded-lg border border-amber-200/90 bg-amber-50/90 px-2.5 py-1 text-xs font-bold text-amber-950 hover:bg-amber-100/90 disabled:opacity-50"
+                        :disabled="!!appealWithdrawKey"
+                        data-testid="schedule-slot-appeal-withdraw"
+                        @click="withdrawSlotAppeal(slot.slotKey)"
+                      >
+                        {{
+                          appealWithdrawKey === slot.slotKey ? '撤销中…' : '撤销申诉'
+                        }}
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -531,7 +770,16 @@ watch(
                     </span>
                   </p>
                   <p class="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-[#111813]">{{ slot.content }}</p>
-                  <p class="mt-2 text-xs text-[#61896f]">提交：{{ slotSubmissionSummary(slot.slotKey) }}</p>
+                  <p class="mt-1 text-xs text-[#61896f]">
+                    状态：
+                    <span
+                      :class="slotCheckinStatePillClass(slot.slotKey)"
+                      class="ml-0.5 inline-flex rounded-full px-2 py-0.5 text-[11px] font-bold"
+                    >
+                      {{ slotCheckinStateLabel(slot.slotKey) }}
+                    </span>
+                  </p>
+                  <p class="mt-1 text-xs text-[#61896f]">提交：{{ slotSubmissionSummary(slot.slotKey) }}</p>
                 </div>
                 <div class="flex flex-wrap gap-2">
                   <button
@@ -562,6 +810,18 @@ watch(
                   >
                     恢复
                   </button>
+                  <button
+                    v-if="slotCheckinStateLabel(slot.slotKey) === '申诉中'"
+                    type="button"
+                    class="rounded-lg border border-amber-200/90 bg-amber-50/90 px-3 py-1.5 text-xs font-bold text-amber-950 hover:bg-amber-100/90 disabled:opacity-50"
+                    :disabled="!!appealWithdrawKey"
+                    data-testid="schedule-slot-appeal-withdraw-mobile"
+                    @click="withdrawSlotAppeal(slot.slotKey)"
+                  >
+                    {{
+                      appealWithdrawKey === slot.slotKey ? '撤销中…' : '撤销申诉'
+                    }}
+                  </button>
                 </div>
               </div>
             </article>
@@ -572,6 +832,8 @@ watch(
           v-if="scheduleEditOpen"
           class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
           data-testid="schedule-edit-dialog"
+          role="dialog"
+          aria-modal="true"
           @click.self="scheduleEditOpen = false"
         >
           <div class="w-full max-w-xl rounded-2xl bg-white p-6 shadow-xl" @click.stop>
@@ -647,6 +909,12 @@ watch(
             </header>
 
             <div class="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-5">
+              <p
+                class="mb-4 rounded-xl border border-slate-200/80 bg-slate-50/90 px-3 py-2.5 text-xs leading-relaxed text-[#4a5c52]"
+                data-testid="schedule-checkin-privacy-note"
+              >
+                说明、链接与上传文件会随本期打卡一起保存。核验会综合参考文字与材料；除你本人外，材料仅经后端处理，不会公开展示于其他用户端。
+              </p>
               <section
                 v-if="checkinSlotPlanText.trim()"
                 class="rounded-xl border border-slate-200/90 bg-[#f8faf9] p-3 sm:p-3.5"
@@ -679,7 +947,13 @@ watch(
                   @drop.prevent="onCheckinDrop"
                 >
                   <span class="text-sm font-semibold text-[#1a3d2e]">
-                    {{ checkinFileUploading ? '正在上传…' : '将文件拖到这里，或点击选择' }}
+                    {{
+                      checkinFileUploading
+                        ? checkinUploadProgress
+                          ? `正在上传 ${checkinUploadProgress}…`
+                          : '正在上传…'
+                        : '将文件拖到这里，或点击选择'
+                    }}
                   </span>
                   <span class="mt-1.5 text-xs text-[#61896f]">支持多文件；单文件不超过 15MB</span>
                   <input
@@ -782,6 +1056,57 @@ watch(
                   </button>
                 </div>
               </details>
+
+              <section
+                v-if="checkinReview && !checkinReview.passed"
+                class="mt-4 rounded-xl border border-amber-200/90 bg-amber-50/90 px-3 py-3 sm:px-4"
+                data-testid="schedule-checkin-review-panel"
+              >
+                <p class="text-sm font-bold text-amber-950">未通过核验</p>
+                <p class="mt-1 text-xs leading-relaxed text-amber-900/90">
+                  本次不会保存。请按下方维度补充说明或附件后再点「提交」。
+                </p>
+                <ul class="mt-2 space-y-2">
+                  <li
+                    v-for="dim in checkinReview.dimensions"
+                    :key="dim.id"
+                    class="rounded-lg bg-white/80 px-2.5 py-2 text-xs leading-relaxed text-[#1a2e24] ring-1 ring-amber-100/80"
+                  >
+                    <span class="font-bold text-[#142820]">{{ dim.label }}</span>
+                    <span class="mx-1.5 text-[#61896f]">·</span>
+                    <span class="font-semibold text-amber-900/90">{{ checkinBandLabel(dim.band) }}</span>
+                    <p class="mt-1 text-[#2a3832]/90">{{ dim.hint }}</p>
+                  </li>
+                </ul>
+              </section>
+
+              <section
+                v-if="checkinReview && !checkinReview.passed"
+                class="mt-3 rounded-xl border border-rose-200/90 bg-rose-50/80 px-3 py-3 sm:px-4"
+                data-testid="schedule-checkin-appeal-panel"
+              >
+                <p class="text-sm font-bold text-rose-900">对核验结果有异议？可提交申诉</p>
+                <p class="mt-1 text-xs text-rose-800/90">
+                  说明情况与理由（至少 4 字）。提交后该时间槽为「申诉中」直至处理；你可随时在打卡表中「撤销申诉」后重新补充材料，再点「提交证明」。
+                </p>
+                <textarea
+                  v-model="checkinAppealText"
+                  rows="3"
+                  class="mt-2 w-full rounded-xl border border-rose-200/80 bg-white px-3 py-2 text-sm text-[#111813] placeholder:text-rose-300 focus:border-rose-400 focus:outline-none focus:ring-1 focus:ring-rose-300/50"
+                  placeholder="例：已上传的截图在附件中，申请人工复核…"
+                />
+                <div class="mt-2 flex justify-end">
+                  <button
+                    type="button"
+                    class="rounded-lg border border-rose-300/80 bg-white px-4 py-2 text-sm font-bold text-rose-900 shadow-sm hover:bg-rose-50 disabled:opacity-50"
+                    :disabled="appealSubmitting"
+                    data-testid="schedule-checkin-appeal-submit"
+                    @click="submitCheckinAppeal"
+                  >
+                    {{ appealSubmitting ? '提交中…' : '提交申诉' }}
+                  </button>
+                </div>
+              </section>
             </div>
 
             <footer
@@ -790,7 +1115,7 @@ watch(
               <button
                 type="button"
                 class="rounded-lg px-4 py-2 text-sm font-semibold text-[#61896f] hover:bg-slate-50"
-                :disabled="checkinSaving"
+                :disabled="checkinSaving || appealSubmitting"
                 @click="checkinOpen = false"
               >
                 取消
@@ -798,7 +1123,7 @@ watch(
               <button
                 type="button"
                 class="rounded-lg bg-[#111813] px-5 py-2 text-sm font-bold text-white shadow-sm hover:bg-[#0d1410] disabled:opacity-50"
-                :disabled="checkinSaving || checkinFileUploading"
+                :disabled="checkinSaving || checkinFileUploading || appealSubmitting"
                 data-testid="schedule-checkin-submit"
                 @click="submitCheckin"
               >

@@ -85,7 +85,7 @@ describe("PlanOverviewPage filter", () => {
 
     expect(wrapper.findAll('[data-testid="plan-card"]').length).toBe(5);
 
-    await wrapper.get('[data-testid="filter-进行中"]').trigger("click");
+    await wrapper.get('[data-testid="filter-执行中"]').trigger("click");
     await flushPromises();
     expect(wrapper.findAll('[data-testid="plan-card"]').length).toBe(5);
 

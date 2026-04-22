@@ -1,4 +1,5 @@
 import type {
+  CheckinSpec,
   LlmLike,
   ProAgentInput,
   ProAgentRunResult,
@@ -174,11 +175,11 @@ function buildDraftMessages(
     `  "schedule": {`,
     `    "granularity": "${expectedGranularity}",`,
     `    "slots": [`,
-    `      { "slotKey": "...", "content": "..." }`,
+    `      { "slotKey": "...", "content": "...", "checkinSpec": { "criteria": ["..."], "evidenceHint": "..." } }`,
     `    ]`,
     `  }`,
     `}`,
-    `注意：slotKey 必须严格来自下方「时间槽」列表，且顺序必须完全一致；content 为当期计划一段中文（1-3句，具体可执行，且包含可验收的“证据/产出”）。`,
+    `注意：slotKey 必须严格来自下方「时间槽」列表，且顺序必须完全一致；content 为当期计划一段中文（1-3句，具体可执行，且包含可验收的“证据/产出”）。可选 checkinSpec：criteria 为 2-5 条可验收短句，evidenceHint 提示应提交何种证明。`,
     "",
     "时间槽：",
     ...slotKeys.map((k) => `- ${k}`),
@@ -217,6 +218,51 @@ function stripLastJsonCodeBlock(text: string): string {
   return `${text.slice(0, last.start)}\n\n${text.slice(last.end)}`.trim();
 }
 
+function deriveCheckinSpecFromSlotContent(content: string): CheckinSpec {
+  const raw = (content ?? "").trim();
+  const segments = raw
+    .split(/[。.;；!！?？\n\r]+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length >= 4)
+    .slice(0, 5);
+  const criteria =
+    segments.length > 0
+      ? segments
+      : [
+          raw.slice(0, 160).trim() ||
+            "按计划完成本期任务，并提交可核验说明或附件。",
+        ];
+  return {
+    criteria,
+    evidenceHint:
+      "建议上传截图、文档或学习笔记链接；文字说明请写清「做了什么、产出是什么」，避免仅复制计划原文。",
+  };
+}
+
+function normalizeOptionalCheckinSpec(
+  raw: unknown,
+  fallbackContent: string,
+): CheckinSpec {
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    const c = (raw as { criteria?: unknown }).criteria;
+    if (Array.isArray(c) && c.length > 0) {
+      const criteria = c
+        .filter((x): x is string => typeof x === "string" && x.trim().length > 0)
+        .map((x) => x.trim())
+        .slice(0, 8);
+      if (criteria.length > 0) {
+        const eh = (raw as { evidenceHint?: unknown }).evidenceHint;
+        const evidenceHint =
+          typeof eh === "string" && eh.trim()
+            ? eh.trim().slice(0, 500)
+            : undefined;
+        return { criteria, evidenceHint };
+      }
+    }
+  }
+  return deriveCheckinSpecFromSlotContent(fallbackContent);
+}
+
 function parseScheduleWireOrNull(
   jsonText: string,
 ): ScheduleWire["schedule"] | null {
@@ -234,14 +280,23 @@ function parseScheduleWireOrNull(
   if (g !== "day" && g !== "week") return null;
   const slots = (schedule as any).slots;
   if (!Array.isArray(slots)) return null;
-  const out: Array<{ slotKey: string; content: string }> = [];
+  const out: Array<{
+    slotKey: string;
+    content: string;
+    checkinSpec?: unknown;
+  }> = [];
   for (const item of slots) {
     if (!item || typeof item !== "object") return null;
     const slotKey = (item as any).slotKey;
     const content = (item as any).content;
     if (typeof slotKey !== "string" || !slotKey.trim()) return null;
     if (typeof content !== "string" || !content.trim()) return null;
-    out.push({ slotKey: slotKey.trim(), content: content.trim() });
+    const row: { slotKey: string; content: string; checkinSpec?: unknown } = {
+      slotKey: slotKey.trim(),
+      content: content.trim(),
+    };
+    if ("checkinSpec" in item) row.checkinSpec = (item as any).checkinSpec;
+    out.push(row);
   }
   return { granularity: g, slots: out };
 }
@@ -251,7 +306,7 @@ function validateScheduleStrict(params: {
   expectedSlotKeys: string[];
   wire: {
     granularity: ScheduleGranularity;
-    slots: Array<{ slotKey: string; content: string }>;
+    slots: Array<{ slotKey: string; content: string; checkinSpec?: unknown }>;
   };
 }): { ok: true; schedule: Schedule } | { ok: false; reason: string } {
   if (params.wire.granularity !== params.expectedGranularity)
@@ -274,6 +329,7 @@ function validateScheduleStrict(params: {
         generatedContent: s.content,
         content: s.content,
         contentSource: "generated" as const,
+        checkinSpec: normalizeOptionalCheckinSpec(s.checkinSpec, s.content.trim()),
       })),
     },
   };
@@ -287,6 +343,7 @@ function buildFallbackSchedule(
     granularity === "day"
       ? "今日重点：围绕目标推进 1 个可验证动作。完成后记录证据。"
       : "本周目标：完成 1 个里程碑 + 复盘 1 次。";
+  const spec = deriveCheckinSpecFromSlotContent(generatedContent);
   return {
     granularity,
     slots: slotKeys.map((slotKey) => ({
@@ -294,6 +351,7 @@ function buildFallbackSchedule(
       generatedContent,
       content: generatedContent,
       contentSource: "generated" as const,
+      checkinSpec: spec,
     })),
   };
 }

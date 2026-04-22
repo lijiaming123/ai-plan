@@ -1,5 +1,11 @@
 import type { ScheduleGranularity } from './plan.service';
 
+/** 打卡判分用的结构化标准（可由模型生成，也可由系统从 content 派生） */
+export type CheckinSpec = {
+  criteria: string[];
+  evidenceHint?: string;
+};
+
 export type CheckinSlot = {
   slotKey: string;
   /** 系统生成/模型生成的原始内容（用于“恢复为生成内容”） */
@@ -10,12 +16,59 @@ export type CheckinSlot = {
   contentSource: 'generated' | 'edited';
   editedAt?: string;
   editedByUserId?: string;
+  /** 可选：明确打卡验收口径；缺省时由 deriveCheckinSpecFromSlotContent(content) 派生 */
+  checkinSpec?: CheckinSpec;
 };
 
 export type CheckinSchedule = {
   granularity: ScheduleGranularity;
   slots: CheckinSlot[];
 };
+
+export function deriveCheckinSpecFromSlotContent(content: string): CheckinSpec {
+  const raw = (content ?? '').trim();
+  const segments = raw
+    .split(/[。.;；!！?？\n\r]+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length >= 4)
+    .slice(0, 5);
+  const criteria =
+    segments.length > 0
+      ? segments
+      : [
+          raw.slice(0, 160).trim() ||
+            '按计划完成本期任务，并提交可核验说明或附件。',
+        ];
+  return {
+    criteria,
+    evidenceHint:
+      '建议上传截图、文档或学习笔记链接；文字说明请写清「做了什么、产出是什么」，避免仅复制计划原文。',
+  };
+}
+
+function normalizeOptionalCheckinSpec(
+  raw: unknown,
+  fallbackContent: string,
+): CheckinSpec {
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    const c = (raw as { criteria?: unknown }).criteria;
+    if (Array.isArray(c) && c.length > 0) {
+      const criteria = c
+        .filter((x): x is string => typeof x === 'string' && x.trim().length > 0)
+        .map((x) => x.trim())
+        .slice(0, 8);
+      if (criteria.length > 0) {
+        const eh = (raw as { evidenceHint?: unknown }).evidenceHint;
+        const evidenceHint =
+          typeof eh === 'string' && eh.trim()
+            ? eh.trim().slice(0, 500)
+            : undefined;
+        return { criteria, evidenceHint };
+      }
+    }
+  }
+  return deriveCheckinSpecFromSlotContent(fallbackContent);
+}
 
 /** 提取文本中最后一个 ```json ... ``` 代码块（返回块内内容），找不到则返回 null */
 export function extractLastJsonCodeBlock(text: string): string | null {
@@ -52,7 +105,10 @@ type ParsedScheduleWire = {
   };
 };
 
-export function parseScheduleWireOrNull(jsonText: string): { granularity: ScheduleGranularity; slots: Array<{ slotKey: string; content: string }> } | null {
+export function parseScheduleWireOrNull(jsonText: string): {
+  granularity: ScheduleGranularity;
+  slots: Array<{ slotKey: string; content: string; checkinSpec?: unknown }>;
+} | null {
   if (!jsonText || typeof jsonText !== 'string') return null;
   let parsed: unknown;
   try {
@@ -67,14 +123,19 @@ export function parseScheduleWireOrNull(jsonText: string): { granularity: Schedu
   if (g !== 'day' && g !== 'week') return null;
   const slots = (schedule as { slots?: unknown }).slots;
   if (!Array.isArray(slots)) return null;
-  const out: Array<{ slotKey: string; content: string }> = [];
+  const out: Array<{ slotKey: string; content: string; checkinSpec?: unknown }> = [];
   for (const item of slots) {
     if (!item || typeof item !== 'object') return null;
     const slotKey = (item as { slotKey?: unknown }).slotKey;
     const content = (item as { content?: unknown }).content;
     if (typeof slotKey !== 'string' || !slotKey.trim()) return null;
     if (typeof content !== 'string' || !content.trim()) return null;
-    out.push({ slotKey: slotKey.trim(), content: content.trim() });
+    const row: { slotKey: string; content: string; checkinSpec?: unknown } = {
+      slotKey: slotKey.trim(),
+      content: content.trim(),
+    };
+    if ('checkinSpec' in item) row.checkinSpec = (item as { checkinSpec?: unknown }).checkinSpec;
+    out.push(row);
   }
   return { granularity: g, slots: out };
 }
@@ -82,7 +143,10 @@ export function parseScheduleWireOrNull(jsonText: string): { granularity: Schedu
 export function validateScheduleStrict(params: {
   expectedGranularity: ScheduleGranularity;
   expectedSlotKeys: string[];
-  wire: { granularity: ScheduleGranularity; slots: Array<{ slotKey: string; content: string }> };
+  wire: {
+    granularity: ScheduleGranularity;
+    slots: Array<{ slotKey: string; content: string; checkinSpec?: unknown }>;
+  };
 }): { ok: true; schedule: CheckinSchedule } | { ok: false; reason: string } {
   if (params.wire.granularity !== params.expectedGranularity) {
     return { ok: false, reason: 'granularity mismatch' };
@@ -102,12 +166,16 @@ export function validateScheduleStrict(params: {
     ok: true,
     schedule: {
       granularity: params.expectedGranularity,
-      slots: params.wire.slots.map((s) => ({
-        slotKey: s.slotKey,
-        generatedContent: s.content,
-        content: s.content,
-        contentSource: 'generated' as const,
-      })),
+      slots: params.wire.slots.map((s) => {
+        const spec = normalizeOptionalCheckinSpec(s.checkinSpec, s.content.trim());
+        return {
+          slotKey: s.slotKey,
+          generatedContent: s.content,
+          content: s.content,
+          contentSource: 'generated' as const,
+          checkinSpec: spec,
+        };
+      }),
     },
   };
 }
@@ -124,6 +192,7 @@ export function buildFallbackSchedule(params: { granularity: ScheduleGranularity
       generatedContent,
       content: generatedContent,
       contentSource: 'generated' as const,
+      checkinSpec: deriveCheckinSpecFromSlotContent(generatedContent),
     })),
   };
 }

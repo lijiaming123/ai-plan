@@ -15,6 +15,7 @@ import {
   type PendingDraftStreamPayload,
 } from "../../lib/plan-assistant-stream";
 import { renderMarkdownToHtml } from "../../lib/render-markdown";
+import { useCloseOnEscape } from "../../composables/useCloseOnEscape";
 import { authState } from "../../stores/auth";
 
 type DraftBundle = NonNullable<PlanRecord["draft"]>;
@@ -764,6 +765,16 @@ function closeConfirmModal() {
   confirmModalError.value = "";
   granularityConfirmOpen.value = false;
 }
+
+useCloseOnEscape(scheduleEditOpen, () => {
+  scheduleEditOpen.value = false;
+});
+useCloseOnEscape(confirmOpen, () => {
+  closeConfirmModal();
+});
+useCloseOnEscape(granularityConfirmOpen, () => {
+  closeGranularityConfirmModal();
+});
 
 async function submitConfirm() {
   if (!selectedSnapshot.value || operating.value) return;

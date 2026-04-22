@@ -718,3 +718,42 @@
 - apps/web-user/src/lib/plan-assistant-stream.ts
 - apps/web-user/src/features/plans/PlanCreatePage.vue
 - .ai/logs/operation-log.md
+
+## 2026-04-22 14:06:36
+
+- 操作人：AI
+- 操作：Story实施
+- 提示词：响应用户「愿意，这些建议都可以开始做」
+- 内容：实现普通版体验增强：计划列表状态与详情页统一为「执行中」、空状态分首启/搜索/筛选三种文案；计划详情增加阶段说明、打卡弹窗隐私说明、多文件上传进度、本地 localStorage 打卡草稿；新增 `DELETE /plans/:id/schedule/slots/:slotKey/appeals` 撤销进行中的申诉与前端「撤销申诉」；补充 API 与列表筛选单测。
+- 状态：成功
+- 相关文件：
+- apps/api/src/modules/plans/schedule-slot-appeal.service.ts
+- apps/api/src/modules/plans/plan.routes.ts
+- apps/api/tests/schedule-slot-appeal.test.ts
+- apps/web-user/src/lib/api-client.ts
+- apps/web-user/src/features/plans/PlanDetailPage.vue
+- apps/web-user/src/features/plans/PlanOverviewPage.vue
+- apps/web-user/tests/plan-overview-filter.test.ts
+- .ai/logs/operation-log.md
+
+## 2026-04-22 14:19:13
+
+- 操作人：AI
+- 操作：文档创建
+- 提示词：「1，仅按天…按周改成当周周日提醒。2，先默认晚上8点，用户可以自选」
+- 内容：将用户确认的通知中心打卡提醒规则写入规格：按天槽=当日未交在用户设定时刻（默认 20:00）提醒；按周槽=当周周日同刻提醒；完成定义/去重/时区/MVP 假设与开放项；路径 `docs/superpowers/specs/2026-04-22-notification-center-checkin-reminders.md`。
+- 状态：成功
+- 相关文件：
+- docs/superpowers/specs/2026-04-22-notification-center-checkin-reminders.md
+- .ai/logs/operation-log.md
+
+## 2026-04-22 14:34:00
+
+- 操作人：AI
+- 操作：文档更新
+- 提示词：「分条，次日生效。」
+- 内容：在通知中心打卡提醒规格中确认：多未交槽**分条**各一条；提醒时间修改**次日生效**（当日仍按原时刻），并更新去重与验收表述。
+- 状态：成功
+- 相关文件：
+- docs/superpowers/specs/2026-04-22-notification-center-checkin-reminders.md
+- .ai/logs/operation-log.md

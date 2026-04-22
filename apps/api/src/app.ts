@@ -17,6 +17,7 @@ import { registerAdminRoutes } from './modules/admin/admin.routes';
 import { registerPlanRoutes } from './modules/plans/plan.routes';
 import { registerSubmissionRoutes } from './modules/submissions/submission.routes';
 import { registerTemplateRoutes } from './modules/templates/template.routes';
+import { registerNotificationRoutes } from './modules/notifications/notification.routes';
 import multipart from '@fastify/multipart';
 import { registerUploadRoutes } from './modules/uploads/upload.routes';
 
@@ -46,6 +47,7 @@ export function buildApp() {
     await registerPlanRoutes(fastify);
     await registerSubmissionRoutes(fastify);
     await registerTemplateRoutes(fastify);
+    await registerNotificationRoutes(fastify);
   });
 
   return app;

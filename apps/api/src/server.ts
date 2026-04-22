@@ -14,6 +14,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isDeepseekConfigured } from './lib/deepseek';
 import { buildApp } from './app';
+import { runCheckinReminderJob } from './modules/notifications/checkin-reminder.service';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const apiPackageRoot = resolve(__dirname, '..');
@@ -31,4 +32,18 @@ if (process.env.NODE_ENV !== 'production') {
 
 const app = buildApp();
 
-app.listen({ port: Number(process.env.PORT ?? 3000), host: '0.0.0.0' });
+const port = Number(process.env.PORT ?? 3000);
+void app
+  .listen({ port, host: '0.0.0.0' })
+  .then(() => {
+    if (process.env.NODE_ENV === 'test') return;
+    const ms = 5 * 60 * 1000;
+    setInterval(() => {
+      void runCheckinReminderJob().catch((err) => {
+        console.error('[checkin-reminder]', err);
+      });
+    }, ms);
+    void runCheckinReminderJob().catch((err) => {
+      console.error('[checkin-reminder:initial]', err);
+    });
+  });

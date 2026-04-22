@@ -20,6 +20,7 @@ model Plan {
   stages                  PlanStage[]
   versions                PlanVersion[]
   scheduleSlotSubmissions PlanScheduleSlotSubmission[]
+  scheduleSlotAppeals     PlanScheduleSlotAppeal[]
   createdAt               DateTime                     @default(now())
 }
 
@@ -37,6 +38,22 @@ model PlanScheduleSlotSubmission {
 
   @@index([planId, slotKey])
   @@index([userId])
+}
+
+/// 打卡核验未通过时用户可发起申诉；open=申诉处理中，closed=已处理/已关闭
+model PlanScheduleSlotAppeal {
+  id        String   @id @default(cuid())
+  planId    String
+  slotKey   String
+  userId    String
+  content   String   @default("")
+  status    String   @default("open")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  plan      Plan     @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@index([planId, userId])
+  @@index([planId, slotKey, status])
 }
 
 model PlanScheduleSlotAttachment {
@@ -220,4 +237,35 @@ model MarketTemplateFavorite {
 
   @@unique([userId, templateId])
   @@index([templateId])
+}
+
+/// 打卡提醒等站内消息；dedupeKey 幂等防重复
+model InAppNotification {
+  id        String   @id @default(cuid())
+  userId    String
+  type      String
+  planId    String
+  slotKey   String
+  title     String
+  body      String
+  dedupeKey String   @unique
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+  payload   Json?
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([userId, readAt])
+}
+
+/// 用户打卡提醒时间；次日 0:00 起用 pending* + switchAt 切换
+model UserNotificationSettings {
+  userId                 String    @id
+  timeZone               String    @default("Asia/Shanghai")
+  /// 当前生效的本地 0:00 起第几分钟 0..1439，默认 20:00 = 1200
+  remindAtMinutes        Int       @default(1200)
+  pendingRemindAtMinutes Int?
+  /// UTC 到达后合并 pending
+  switchAt               DateTime?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
 }

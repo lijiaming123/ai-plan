@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ElTooltip } from "element-plus";
-import { computed, onMounted } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import UserAvatarBadge from "../components/UserAvatarBadge.vue";
 import {
@@ -8,6 +8,7 @@ import {
   refreshDisplayProfileFromStorage,
 } from "../stores/display-profile";
 import { authState, clearAuthToken } from "../stores/auth";
+import { getApiClient } from "../lib/api-client";
 import { planListSearchQuery } from "../stores/plan-search-query";
 import {
   shellSidebarCollapsed,
@@ -107,6 +108,23 @@ function goUpgrade() {
   void router.push({ path: "/settings", query: { focus: "pro" } });
 }
 
+const notifUnread = ref(0);
+
+async function refreshNotifUnread() {
+  if (!authState.token) {
+    notifUnread.value = 0;
+    return;
+  }
+  try {
+    const { unreadCount } = await getApiClient().getNotificationsUnreadCount({
+      token: authState.token,
+    });
+    notifUnread.value = unreadCount;
+  } catch {
+    notifUnread.value = 0;
+  }
+}
+
 function goNotifications() {
   void router.push("/notifications");
 }
@@ -119,7 +137,21 @@ function logout() {
 
 onMounted(() => {
   refreshDisplayProfileFromStorage();
+  void refreshNotifUnread();
 });
+
+watch(
+  () => [authState.token, route.path],
+  () => {
+    void refreshNotifUnread();
+  },
+);
+
+if (typeof window !== "undefined") {
+  window.addEventListener("notif-refresh", () => {
+    void refreshNotifUnread();
+  });
+}
 </script>
 
 <template>
@@ -321,12 +353,24 @@ onMounted(() => {
             </router-link>
             <button
               type="button"
-              class="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-transparent text-[#555] hover:bg-white/80"
-              aria-label="通知"
+              class="relative inline-flex h-11 w-11 items-center justify-center rounded-xl border border-transparent text-[#555] hover:bg-white/80"
+              :aria-label="
+                notifUnread > 0
+                  ? `通知，有 ${notifUnread} 条未读`
+                  : '通知'
+              "
               data-testid="header-notifications"
               @click="goNotifications"
             >
               <span class="material-symbols-outlined">notifications</span>
+              <span
+                v-if="notifUnread > 0"
+                class="absolute right-1.5 top-1.5 min-w-[1.125rem] rounded-full bg-amber-500 px-0.5 text-center text-[10px] font-black leading-4 text-[#0f1f0c] ring-1 ring-amber-200/90"
+                data-testid="header-notifications-badge"
+                >{{
+                  notifUnread > 9 ? "9+" : notifUnread
+                }}</span
+              >
             </button>
             <ElDropdown
               trigger="click"

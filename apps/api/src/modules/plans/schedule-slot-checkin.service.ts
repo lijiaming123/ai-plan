@@ -4,7 +4,11 @@
  */
 import { prisma } from '../../lib/prisma';
 import { hashUrl } from '../storage/storage.service';
-import type { CheckinSchedule } from './deepseek-schedule';
+import type { CheckinSchedule, CheckinSlot } from './deepseek-schedule';
+import {
+  evaluateCheckinSubmission,
+  type CheckinPublicReview,
+} from './checkin-submission-score.service';
 
 export type ScheduleSlotCheckinAttachmentInput = {
   url: string;
@@ -101,13 +105,14 @@ export async function createScheduleSlotCheckin(params: {
   attachments?: ScheduleSlotCheckinAttachmentInput[];
 }): Promise<
   | { ok: false; code: 400 | 404; message: string }
+  | { ok: false; code: 422; message: string; review: CheckinPublicReview }
   | { ok: true; submission: SerializedScheduleSlotSubmission }
 > {
   const scheduleCtx = await loadPlanScheduleForUser(params.planId, params.userId);
   if (!scheduleCtx.ok) return scheduleCtx;
 
-  const slotExists = scheduleCtx.schedule.slots.some((s) => s.slotKey === params.slotKey);
-  if (!slotExists) return { ok: false, code: 404, message: 'slot not found' };
+  const slot = scheduleCtx.schedule.slots.find((s) => s.slotKey === params.slotKey) as CheckinSlot | undefined;
+  if (!slot) return { ok: false, code: 404, message: 'slot not found' };
 
   const content = (params.content ?? '').trim();
   const attachments = Array.isArray(params.attachments) ? params.attachments : [];
@@ -121,6 +126,25 @@ export async function createScheduleSlotCheckin(params: {
 
   if (!content && normalizedUrls.length === 0) {
     return { ok: false, code: 400, message: 'content or attachments required' };
+  }
+
+  const attachmentMeta = normalizedUrls.map((a) => ({
+    fileName: a.fileName,
+    kind: normalizeKind(a.kind, a.fileName, a.url),
+  }));
+  const { pass, review } = await evaluateCheckinSubmission({
+    slot,
+    userContent: content,
+    attachmentCount: normalizedUrls.length,
+    attachmentMeta,
+  });
+  if (!pass) {
+    return {
+      ok: false,
+      code: 422,
+      message: review.summary,
+      review,
+    };
   }
 
   const created = await prisma.planScheduleSlotSubmission.create({

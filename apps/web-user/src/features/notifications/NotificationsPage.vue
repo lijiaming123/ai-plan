@@ -24,32 +24,6 @@ const saveOk = ref(false);
 
 const canUse = computed(() => Boolean(authState.token));
 
-type NotifRuleTip = {
-  icon: string;
-  title: string;
-  desc: string;
-  badge?: string;
-};
-
-const tipItems: NotifRuleTip[] = [
-  {
-    icon: "calendar_today",
-    title: "日计划",
-    desc: "今天未打的时间槽，在提醒时刻前后约 10 分钟各推一条。",
-  },
-  {
-    icon: "date_range",
-    title: "周计划",
-    badge: "周日",
-    desc: "不每日推送，仅在当周周日同一时刻提醒本周未打周槽。",
-  },
-  {
-    icon: "update",
-    title: "改时间",
-    desc: "新时刻自次日 0:00 起生效。",
-  },
-];
-
 function planLink(n: InAppNotificationItem) {
   return {
     path: `/plans/${n.planId}`,
@@ -209,50 +183,13 @@ watch(
       class="notif-content ui-scrollbar notif-content--tight min-h-0 flex-1 px-4 py-4 sm:px-6"
     >
       <div
-        class="notif-col mx-auto max-w-2xl space-y-6 pb-10"
+        class="notif-col mx-auto w-full max-w-3xl space-y-6 pb-10"
         data-testid="notifications-col"
       >
-        <!-- 规则 + 设置：单面板成组，减少「两块漂浮」感 -->
+        <!-- 设置：时间选择（更贴近系统控件风格） -->
         <div
           class="notif-unified notif-unified--in overflow-hidden rounded-[1.35rem] border border-[#0a3d22]/[0.08] bg-gradient-to-b from-white via-white to-[#f4faf6] shadow-[0_24px_50px_-38px_rgba(6,40,22,0.45)] ring-1 ring-[#cfe9d6]/50"
         >
-          <section
-            class="notif-tips notif-tips--in flex flex-col sm:flex-row sm:items-stretch"
-            aria-label="打卡提醒规则"
-          >
-            <div
-              v-for="(it, i) in tipItems"
-              :key="`tip-${i}`"
-              class="notif-tip-pill notif-tip-pill--in sm:flex-1"
-            >
-              <div class="notif-tip-pill__top">
-                <span
-                  class="notif-tip-pill-ico"
-                  :class="i === 0 ? 'notif-ico--day' : i === 1 ? 'notif-ico--week' : 'notif-ico--time'"
-                  aria-hidden="true"
-                >
-                  <span class="material-symbols-outlined notif-ico-raw">{{
-                    it.icon
-                  }}</span>
-                </span>
-                <p class="notif-tip-pill-t">
-                  {{ it.title }}
-                  <span
-                    v-if="it.badge"
-                    class="notif-tip-pill-badge"
-                    >{{ it.badge }}</span
-                  >
-                </p>
-              </div>
-              <p class="notif-tip-pill-b">{{ it.desc }}</p>
-            </div>
-          </section>
-
-          <div
-            class="notif-unified__sep"
-            aria-hidden="true"
-          />
-
           <section
             class="notif-pref-card notif-pref-card--in relative p-4 sm:p-5"
             data-testid="notifications-prefs"
@@ -284,18 +221,19 @@ watch(
                   >每日时刻</span
                 >
                 <div class="min-w-0 flex-1">
-                  <label
-                    class="block w-full min-w-0"
-                  >
-                    <span class="sr-only">选择提醒时间</span>
-                    <input
+                  <div class="notif-time-shell">
+                    <ElTimePicker
                       v-model="remindAtInput"
-                      type="time"
                       :disabled="!canUse || prefsLoading"
-                      class="notif-time-in h-12 w-full max-w-[12rem] cursor-pointer rounded-xl border-2 border-[#8fbf9e]/80 bg-white/95 px-3.5 text-base font-semibold text-[#0a1810] [color-scheme:light] shadow-inner shadow-white/40 transition focus:border-primary/45 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                      format="HH:mm"
+                      value-format="HH:mm"
+                      :clearable="false"
+                      :editable="false"
+                      :teleported="false"
+                      placeholder="选择时间"
                       data-testid="notifications-prefs-time"
                     />
-                  </label>
+                  </div>
                   <p
                     class="notif-mute mt-2 pl-0.5 text-[11px] leading-snug sm:pl-0"
                   >
@@ -386,111 +324,76 @@ watch(
           v-else
           class="space-y-3"
         >
-        <ul
-          v-if="items.length > 0"
-          class="notif-stagger space-y-3"
-        >
-          <li
-            v-for="(n, i) in items"
-            :key="n.id"
-            class="notif-tile notif-tile-anim group relative overflow-hidden rounded-2xl"
-            :style="{ '--d': `${40 + i * 55}ms` } as Record<string, string>"
-          >
-            <button
-              type="button"
-              class="notif-tile-button flex w-full min-w-0 text-left"
-              :class="
-                n.readAt
-                  ? 'border-white/30 bg-white/55'
-                  : 'notif-tile--unread border-l-[3px] border-l-[#c4a000] border-white/40 bg-white/88 shadow-[0_1px_0_rgba(255,255,255,0.65)_inset]'
-              "
-              data-testid="notification-item"
-              :data-nid="n.id"
-              @click="onOpen(n)"
-            >
-              <div
-                class="notif-rip pointer-events-none absolute -left-8 top-0 h-24 w-24 rotate-12 rounded-3xl bg-gradient-to-br from-amber-400/20 to-transparent opacity-0 transition group-hover:opacity-100"
-                aria-hidden="true"
-              />
-              <div class="relative min-w-0 flex-1 p-4 sm:p-4">
-                <div
-                  class="mb-1 flex flex-wrap items-baseline gap-2"
-                >
-                  <span
-                    v-if="!n.readAt"
-                    class="inline-block h-2 w-2 rounded-full bg-amber-500"
-                    title="未读"
-                  />
-                  <span
-                    class="line-clamp-1 font-jakarta text-sm font-extrabold text-[#0a1810] [font-family:var(--notif-sans,Plus_Jakarta_Sans,system-ui,sans-serif)]"
-                    >{{ n.title }}</span
-                  >
-                </div>
-                <p
-                  class="mt-0.5 line-clamp-2 text-[13px] leading-relaxed text-[#3a4e44]"
-                >
-                  {{ n.body }}
-                </p>
-                <p
-                  class="notif-tile-meta mt-2 text-[11px] text-[#6a7a72] tabular-nums"
-                >
-                  {{
-                    new Date(n.createdAt).toLocaleString("zh-CN", {
-                      month: "short",
-                      day: "numeric",
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })
-                  }}
-                  <span
-                    v-if="n.type === 'checkin_due_week'"
-                    class="ml-1.5 rounded bg-emerald-100/90 px-1.5 py-0.5 text-[10px] font-bold text-emerald-900"
-                    >周</span
-                  >
-                </p>
-              </div>
-            </button>
-          </li>
-        </ul>
-
-        <div
-          v-else
-          class="notif-empty notif-empty--hero flex min-h-[min(52vh,360px)] flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-[#7aab8e]/45 bg-gradient-to-b from-white/80 to-[#e8f3ec]/90 px-6 py-12 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]"
-          data-testid="notifications-empty"
-        >
-          <div
-            class="notif-empty-orbit relative mb-1"
-            aria-hidden="true"
-          >
-            <div
-              class="notif-empty-ring pointer-events-none absolute -inset-3 rounded-[2rem] bg-gradient-to-tr from-primary/25 via-emerald-200/35 to-amber-100/45 opacity-90 blur-md"
-            />
-            <div
-              class="notif-empty-icon-tile relative flex h-[7.5rem] w-[7.5rem] items-center justify-center rounded-[1.35rem] bg-gradient-to-br from-[#0a2218] via-[#0e3d27] to-[#166b3a] text-primary shadow-[0_20px_50px_-24px_rgba(8,90,48,0.75)] ring-2 ring-primary/35"
-            >
-              <span
-                class="material-symbols-outlined text-[4.25rem] leading-none text-primary drop-shadow-md"
-                >notifications</span
+          <ul class="notif-list" data-testid="notifications-list">
+            <template v-if="items.length > 0">
+              <li
+                v-for="n in items"
+                :key="n.id"
+                class="notif-row"
+                :class="n.readAt ? 'notif-row--read' : 'notif-row--unread'"
               >
-            </div>
-          </div>
-          <p
-            class="fr-title mt-1 text-2xl font-[Fraunces,Georgia,serif] font-bold text-[#0a1810]"
-          >
-            暂无未读
-          </p>
-          <p
-            class="notif-mute max-w-xs text-sm leading-relaxed [text-wrap:balance]"
-          >
-            有未打时间槽时，会按规则在此推送。
-          </p>
-          <router-link
-            to="/plans"
-            class="notif-cta notif-cta--ghost mt-2 inline-flex h-10 items-center justify-center rounded-full border-2 border-[#0a8f4a]/32 bg-white/95 px-5 text-sm font-bold text-[#0b3d24] shadow-sm transition hover:border-primary/45 hover:bg-[#f0fdf4]"
-          >
-            去我的计划
-          </router-link>
-        </div>
+                <button
+                  type="button"
+                  class="notif-row-btn"
+                  data-testid="notification-item"
+                  :data-nid="n.id"
+                  @click="onOpen(n)"
+                >
+                  <span
+                    class="notif-row-dot"
+                    :class="n.readAt ? 'opacity-0' : 'opacity-100'"
+                    aria-hidden="true"
+                  />
+                  <div class="min-w-0 flex-1">
+                    <div class="flex items-start justify-between gap-3">
+                      <p class="notif-row-title line-clamp-1">
+                        {{ n.title }}
+                      </p>
+                      <p class="notif-row-time shrink-0 tabular-nums">
+                        {{
+                          new Date(n.createdAt).toLocaleString("zh-CN", {
+                            month: "short",
+                            day: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })
+                        }}
+                      </p>
+                    </div>
+                    <p class="notif-row-body line-clamp-2">
+                      {{ n.body }}
+                    </p>
+                  </div>
+                </button>
+              </li>
+            </template>
+
+            <li
+              v-else
+              class="notif-row notif-row--empty"
+              data-testid="notifications-empty"
+            >
+              <div class="notif-row-empty">
+                <span
+                  class="material-symbols-outlined text-[22px] text-[#0b5c32]/75"
+                  aria-hidden="true"
+                  >notifications</span
+                >
+                <div class="min-w-0">
+                  <p class="font-extrabold text-[#0a1810]">暂无消息</p>
+                  <p class="notif-mute mt-0.5 text-[12px]">
+                    有未打时间槽时，会在这里出现提醒。
+                  </p>
+                </div>
+                <router-link
+                  to="/plans"
+                  class="notif-cta notif-cta--ghost ms-auto inline-flex h-9 items-center justify-center rounded-full border border-[#0a8f4a]/25 bg-white/90 px-4 text-[13px] font-bold text-[#0b3d24] shadow-sm transition hover:border-primary/40 hover:bg-[#f0fdf4]"
+                >
+                  去我的计划
+                </router-link>
+              </div>
+            </li>
+          </ul>
 
         <div
           v-if="nextCursor"
@@ -537,7 +440,7 @@ watch(
 }
 
 .notif-tile-button {
-  @apply border border-transparent;
+  border: 1px solid transparent;
   min-height: 4.5rem;
   border-radius: 1rem;
 }
@@ -572,85 +475,108 @@ watch(
     transform: translateY(0);
   }
 }
-.notif-unified__sep {
-  height: 1px;
-  margin: 0 0.5rem;
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    rgba(12, 90, 50, 0.14) 50%,
-    transparent 100%
-  );
+/* 时间选择：Element Plus 输入外观对齐系统 */
+.notif-time-shell :deep(.el-date-editor.el-input),
+.notif-time-shell :deep(.el-date-editor) {
+  width: 100%;
+  max-width: 12rem;
+}
+.notif-time-shell :deep(.el-input__wrapper) {
+  min-height: 48px;
+  border-radius: 0.9rem;
+  border: 2px solid rgba(143, 191, 158, 0.7);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(250, 253, 251, 0.98) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 2px 10px rgba(18, 74, 49, 0.05);
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.22s ease;
+}
+.notif-time-shell :deep(.el-input__wrapper.is-focus) {
+  border-color: rgba(15, 139, 78, 0.5);
+  box-shadow:
+    0 0 0 3px rgba(15, 139, 78, 0.12),
+    0 4px 16px rgba(18, 74, 49, 0.08);
+}
+.notif-time-shell :deep(.el-input__inner) {
+  font-weight: 800;
+  color: #0a1810;
+}
+.notif-time-shell :deep(.el-input__prefix) {
+  color: rgba(10, 24, 16, 0.55);
 }
 
-/* 规则条：行首图标 + 桌面分栏 */
-.notif-tips--in {
-  @apply p-3.5 sm:px-4 sm:py-4;
+/* 消息列表：标准列表行，而非卡片 */
+.notif-list {
+  border: 1px solid rgba(15, 60, 40, 0.12);
+  border-radius: 1.15rem;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 20px 48px -40px rgba(8, 60, 32, 0.25);
 }
-.notif-tip-pill--in {
-  @apply flex flex-col gap-0;
+.notif-row {
+  border-top: 1px solid rgba(15, 60, 40, 0.08);
 }
-.notif-tip-pill__top {
-  @apply flex items-start gap-2.5;
+.notif-row:first-child {
+  border-top: 0;
 }
-.notif-tip-pill-ico {
-  @apply mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl;
+.notif-row-btn {
+  width: 100%;
+  display: flex;
+  gap: 0.75rem;
+  padding: 0.95rem 1rem;
+  text-align: left;
+  background: transparent;
+  transition: background 0.16s ease;
 }
-.notif-tip-pill-t {
-  @apply min-w-0 flex-1 text-sm font-extrabold leading-snug text-[#0a1810];
+.notif-row-btn:hover {
+  background: rgba(200, 230, 210, 0.28);
 }
-.notif-tip-pill-badge {
-  @apply ms-1 inline-flex align-middle rounded-md bg-amber-200/90 px-1.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wider text-amber-950/95;
-  vertical-align: 0.08em;
+.notif-row--unread .notif-row-btn {
+  background: rgba(255, 255, 255, 0.88);
 }
-.notif-tips--in .notif-tip-pill--in {
-  @apply border-b border-[#0a8f4a]/[0.1] py-1 pb-3;
+.notif-row-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  margin-top: 0.35rem;
+  background: #c4a000;
+  box-shadow: 0 0 0 4px rgba(196, 160, 0, 0.12);
 }
-.notif-tips--in .notif-tip-pill--in:last-of-type {
-  @apply border-b-0 pb-1;
+.notif-row-title {
+  font-size: 0.95rem;
+  font-weight: 900;
+  color: #0a1810;
 }
-@media (min-width: 640px) {
-  .notif-tips--in .notif-tip-pill--in {
-    @apply border-b-0 border-r border-[#0a8f4a]/[0.12] px-3 py-0 pb-0;
-  }
-  .notif-tips--in .notif-tip-pill--in:first-of-type {
-    @apply pl-0;
-  }
-  .notif-tips--in .notif-tip-pill--in:last-of-type {
-    @apply border-r-0 pr-0;
-  }
+.notif-row-body {
+  margin-top: 0.25rem;
+  font-size: 0.82rem;
+  line-height: 1.35;
+  color: rgba(48, 74, 60, 0.92);
 }
-.notif-tip-pill-b {
-  @apply mt-2 text-[12.5px] leading-relaxed text-[#304a3c] [text-wrap:balance];
-  padding-left: 2.5rem;
+.notif-row-time {
+  font-size: 0.72rem;
+  color: rgba(74, 99, 85, 0.95);
+  padding-top: 0.15rem;
 }
-@media (min-width: 640px) {
-  .notif-tips--in .notif-tip-pill--in .notif-tip-pill-b {
-    @apply mt-1.5 max-w-none pl-0;
-  }
+.notif-row--empty {
+  background: rgba(255, 255, 255, 0.82);
 }
-.notif-ico--day {
-  @apply bg-emerald-200/50 text-[#0b2818];
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
-}
-.notif-ico--week {
-  @apply bg-amber-200/55 text-amber-950/95;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
-}
-.notif-ico--time {
-  @apply bg-[#c5ddd0]/80 text-[#0f2418];
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
-}
-.notif-ico-raw {
-  @apply text-[1.1rem] leading-none;
-}
-/* 下方偏好区与规则共用外轮廓 */
-.notif-pref-card--in {
-  @apply border-t-0;
+.notif-row-empty {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1.1rem 1rem;
 }
 /* 偏好卡片顶条，与主色绿衔接 */
 .notif-pref-ribbon {
-  @apply pointer-events-none absolute left-0 right-0 top-0 h-1.5;
+  pointer-events: none;
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 0.375rem;
   background: linear-gradient(
     90deg,
     rgba(19, 236, 91, 0.85) 0%,
@@ -660,11 +586,11 @@ watch(
 }
 /* 次要说明（部分区块仍用 Tailwind text- 颜色） */
 .notif-mute {
-  @apply text-[#4a6355];
+  color: #4a6355;
 }
 /* 空态 CTA：与保存按钮成体系 */
 .notif-cta--ghost {
-  @apply no-underline;
+  text-decoration: none;
 }
 @keyframes notif-skel {
   0%,
@@ -682,7 +608,7 @@ watch(
 
 .notif-tile--unread:hover,
 .notif-tile-button:hover {
-  @apply border-emerald-300/30;
+  border-color: rgba(110, 231, 183, 0.3);
   box-shadow: 0 20px 48px -30px rgba(8, 80, 48, 0.2);
 }
 .fr-title {

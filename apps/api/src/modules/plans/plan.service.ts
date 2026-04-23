@@ -1372,3 +1372,158 @@ export async function updatePlanScheduleSlot(params: {
 
   return { ok: true as const, schedule, slot };
 }
+
+export async function swapPlanScheduleSlotContent(params: {
+  planId: string;
+  userId: string;
+  slotKeyA: string;
+  slotKeyB: string;
+  /** 生成草稿多版本：指定 PlanGenerationDraftVersion.version */
+  planVersion?: number;
+}) {
+  if (
+    params.planVersion != null &&
+    (!Number.isInteger(params.planVersion) || params.planVersion < 1)
+  ) {
+    return {
+      ok: false as const,
+      code: 400 as const,
+      message: "version must be a positive integer",
+    };
+  }
+
+  const keyA = params.slotKeyA.trim();
+  const keyB = params.slotKeyB.trim();
+  if (!keyA || !keyB) {
+    return {
+      ok: false as const,
+      code: 400 as const,
+      message: "slot keys are required",
+    };
+  }
+  if (keyA === keyB) {
+    return {
+      ok: false as const,
+      code: 400 as const,
+      message: "slot keys must be different",
+    };
+  }
+
+  const plan = await prisma.plan.findFirst({
+    where: { id: params.planId, userId: params.userId },
+  });
+
+  const draft =
+    plan == null
+      ? await prisma.planGenerationDraft.findFirst({
+          where: { id: params.planId, userId: params.userId },
+        })
+      : null;
+
+  if (!plan && !draft) {
+    return {
+      ok: false as const,
+      code: 404 as const,
+      message: "plan not found",
+    };
+  }
+
+  let version: number;
+  let table: "plan" | "draft";
+  if (draft) {
+    table = "draft";
+    if (
+      params.planVersion != null &&
+      Number.isInteger(params.planVersion) &&
+      params.planVersion >= 1
+    ) {
+      version = params.planVersion;
+    } else {
+      version = draft.currentVersion ?? 1;
+    }
+  } else {
+    table = "plan";
+    version = plan!.confirmedVersion ?? plan!.currentVersion ?? 1;
+  }
+
+  const scheduleRows =
+    table === "plan"
+      ? ((await prisma.$queryRawUnsafe(
+          'SELECT schedule FROM "PlanVersion" WHERE "planId" = $1 AND version = $2 LIMIT 1',
+          params.planId,
+          version,
+        )) as Array<{ schedule: unknown | null }>)
+      : ((await prisma.$queryRawUnsafe(
+          'SELECT schedule FROM "PlanGenerationDraftVersion" WHERE "draftId" = $1 AND version = $2 LIMIT 1',
+          params.planId,
+          version,
+        )) as Array<{ schedule: unknown | null }>);
+
+  const schedule = scheduleRows[0]?.schedule as
+    | CheckinSchedule
+    | null
+    | undefined;
+  if (!schedule || !Array.isArray(schedule.slots)) {
+    return {
+      ok: false as const,
+      code: 404 as const,
+      message: "schedule not found",
+    };
+  }
+
+  const idxA = schedule.slots.findIndex((s) => s.slotKey === keyA);
+  const idxB = schedule.slots.findIndex((s) => s.slotKey === keyB);
+  if (idxA < 0 || idxB < 0) {
+    return {
+      ok: false as const,
+      code: 404 as const,
+      message: "slot not found",
+    };
+  }
+
+  const slotA = schedule.slots[idxA]!;
+  const slotB = schedule.slots[idxB]!;
+  const swappedContentA = slotB.content;
+  const swappedContentB = slotA.content;
+  const nowIso = new Date().toISOString();
+
+  slotA.content = swappedContentA;
+  slotA.contentSource = "edited";
+  slotA.editedAt = nowIso;
+  slotA.editedByUserId = params.userId;
+  slotA.checkinSpec = deriveCheckinSpecFromSlotContent(slotA.content);
+
+  slotB.content = swappedContentB;
+  slotB.contentSource = "edited";
+  slotB.editedAt = nowIso;
+  slotB.editedByUserId = params.userId;
+  slotB.checkinSpec = deriveCheckinSpecFromSlotContent(slotB.content);
+
+  schedule.slots[idxA] = slotA;
+  schedule.slots[idxB] = slotB;
+
+  if (table === "plan") {
+    await prisma.$executeRawUnsafe(
+      'UPDATE "PlanVersion" SET schedule = $1::jsonb WHERE "planId" = $2 AND version = $3',
+      JSON.stringify(schedule),
+      params.planId,
+      version,
+    );
+  } else {
+    await prisma.$executeRawUnsafe(
+      'UPDATE "PlanGenerationDraftVersion" SET schedule = $1::jsonb WHERE "draftId" = $2 AND version = $3',
+      JSON.stringify(schedule),
+      params.planId,
+      version,
+    );
+  }
+
+  return {
+    ok: true as const,
+    schedule,
+    slots: {
+      slotA: schedule.slots[idxA],
+      slotB: schedule.slots[idxB],
+    },
+  };
+}

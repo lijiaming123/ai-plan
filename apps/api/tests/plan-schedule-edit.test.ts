@@ -168,6 +168,82 @@ describe('plan schedule edit', () => {
     expect(restored.slot.content).toContain('生成内容');
   });
 
+  it('应将 schedule 内容中的 br 标签规范化为换行', async () => {
+    const login = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      payload: { email: 'demo@ai-plan.dev', password: 'Pass1234!' },
+    });
+    const { token } = JSON.parse(login.body) as { token: string };
+
+    const rawSlotContent =
+      '第1步：准备环境<br>第2步：安装依赖<br/>第3步：验证输出<br />第4步：复盘';
+    const normalizedSlotContent =
+      '第1步：准备环境\n第2步：安装依赖\n第3步：验证输出\n第4步：复盘';
+    const requirementWithJson = [
+      '正文',
+      '```json',
+      JSON.stringify({
+        schedule: {
+          granularity: 'day',
+          slots: [{ slotKey: '2026-04-10', content: rawSlotContent }],
+        },
+      }),
+      '```',
+    ].join('\n');
+
+    const created = await app.inject({
+      method: 'POST',
+      url: '/plans',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        goal: '测试 br 换行规范化',
+        deadline: '2026-04-10T00:00:00.000Z',
+        requirement: requirementWithJson,
+        type: 'general',
+        profile: {
+          planMode: 'basic',
+          basicInfo: {
+            planName: '测试 br 换行规范化',
+            planContent: '测试',
+            currentLevel: 'none',
+            startDate: '2026-04-10',
+            cycle: 'custom',
+            endDate: '2026-04-10',
+            preference: '',
+            timeInvestment: 'none',
+            outputMode: 'daily',
+            granularityMode: 'deep',
+          },
+        },
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    const plan = JSON.parse(created.body) as {
+      id: string;
+      draft?: {
+        versions?: Array<{ schedule?: { slots?: Array<{ slotKey: string; content: string }> } }>;
+      };
+    };
+
+    const createdSlots = plan.draft?.versions?.[0]?.schedule?.slots ?? [];
+    expect(createdSlots[0]?.content).toBe(normalizedSlotContent);
+    expect(createdSlots[0]?.content.includes('<br')).toBe(false);
+
+    const fetched = await app.inject({
+      method: 'GET',
+      url: `/plans/${plan.id}/draft`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(fetched.statusCode).toBe(200);
+    const fetchedPlan = JSON.parse(fetched.body) as {
+      versions: Array<{ schedule?: { slots?: Array<{ slotKey: string; content: string }> } }>;
+    };
+    const fetchedSlots = fetchedPlan.versions?.[0]?.schedule?.slots ?? [];
+    expect(fetchedSlots[0]?.content).toBe(normalizedSlotContent);
+    expect(fetchedSlots[0]?.content.includes('<br')).toBe(false);
+  });
+
   it('应支持通过 swap-content 交换两个不同 slotKey 的内容并保持 slotKey 不变', async () => {
     const login = await app.inject({
       method: 'POST',

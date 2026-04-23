@@ -105,6 +105,13 @@ type ParsedScheduleWire = {
   };
 };
 
+function normalizeScheduleSlotContent(content: string): string {
+  return content
+    .replace(/\r\n/g, '\n')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .trim();
+}
+
 export function parseScheduleWireOrNull(jsonText: string): {
   granularity: ScheduleGranularity;
   slots: Array<{ slotKey: string; content: string; checkinSpec?: unknown }>;
@@ -129,10 +136,12 @@ export function parseScheduleWireOrNull(jsonText: string): {
     const slotKey = (item as { slotKey?: unknown }).slotKey;
     const content = (item as { content?: unknown }).content;
     if (typeof slotKey !== 'string' || !slotKey.trim()) return null;
-    if (typeof content !== 'string' || !content.trim()) return null;
+    if (typeof content !== 'string') return null;
+    const normalizedContent = normalizeScheduleSlotContent(content);
+    if (!normalizedContent) return null;
     const row: { slotKey: string; content: string; checkinSpec?: unknown } = {
       slotKey: slotKey.trim(),
-      content: content.trim(),
+      content: normalizedContent,
     };
     if ('checkinSpec' in item) row.checkinSpec = (item as { checkinSpec?: unknown }).checkinSpec;
     out.push(row);

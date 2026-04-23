@@ -717,18 +717,19 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
         isRecord(body) && typeof body.slotKeyB === "string"
           ? body.slotKeyB
           : "";
-      const hasVersion = isRecord(body) && "version" in body;
+      const rawVersion =
+        isRecord(body) && "version" in body ? body.version : undefined;
+      const hasVersion = rawVersion !== undefined;
       const versionIsValid =
-        isRecord(body) &&
-        typeof body.version === "number" &&
-        Number.isInteger(body.version) &&
-        body.version >= 1;
+        typeof rawVersion === "number" &&
+        Number.isInteger(rawVersion) &&
+        rawVersion >= 1;
       if (hasVersion && !versionIsValid) {
         return reply
           .code(400)
           .send({ message: "version must be a positive integer" });
       }
-      const planVersion = versionIsValid ? body.version : undefined;
+      const planVersion = versionIsValid ? rawVersion : undefined;
 
       const result = await swapPlanScheduleSlotContent({
         planId: id,

@@ -24,7 +24,19 @@ foreach ($d in $defs) {
     Remove-Item -LiteralPath $dest -Recurse -Force
   }
 
-  Copy-Item -Path $src -Destination $dest -Recurse -Force
+  # 只同步 workspace 包本体（源码/构建产物/配置），不要复制其 node_modules。
+  # 用文件级复制保留相对路径，同时跳过 node_modules（pnpm 链接/断链会导致目录级 Copy-Item 失败）。
+  New-Item -ItemType Directory -Force -Path $dest | Out-Null
+  $files = Get-ChildItem -LiteralPath $src -Recurse -File -Force | Where-Object {
+    $_.FullName -notmatch "\\\\node_modules\\\\"
+  }
+  foreach ($f in $files) {
+    $rel = $f.FullName.Substring($src.Length).TrimStart("\", "/")
+    $target = Join-Path $dest $rel
+    $targetDir = Split-Path -Parent $target
+    New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
+    Copy-Item -LiteralPath $f.FullName -Destination $target -Force
+  }
 }
 
 Write-Host "[sync-workspace-packages] Copied @ai-plan workspace packages into apps."

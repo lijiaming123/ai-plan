@@ -43,6 +43,7 @@ describe("PlanDraftPage", () => {
   const regeneratePlanMock = vi.fn();
   const confirmPlanMock = vi.fn();
   const patchPlanScheduleSlotMock = vi.fn();
+  const postPlanScheduleSwapContentMock = vi.fn();
 
   const draftPayload = {
     versions: [
@@ -89,6 +90,7 @@ describe("PlanDraftPage", () => {
     getPlanDraftMock.mockReset();
     regeneratePlanMock.mockReset();
     confirmPlanMock.mockReset();
+    postPlanScheduleSwapContentMock.mockReset();
 
     getPlanMock.mockResolvedValue({
       id: "plan_1",
@@ -116,6 +118,12 @@ describe("PlanDraftPage", () => {
       confirmedVersion: 2,
     });
     patchPlanScheduleSlotMock.mockReset();
+    postPlanScheduleSwapContentMock.mockResolvedValue({
+      schedule: {
+        granularity: "day",
+        slots: [],
+      },
+    });
 
     clearAuthToken();
     setAuthToken("token_123");
@@ -127,6 +135,7 @@ describe("PlanDraftPage", () => {
       getPlan: getPlanMock,
       getPlanDraft: getPlanDraftMock,
       patchPlanScheduleSlot: patchPlanScheduleSlotMock,
+      postPlanScheduleSwapContent: postPlanScheduleSwapContentMock,
       postPlanScheduleSlotCheckin: vi.fn(),
       regeneratePlan: regeneratePlanMock,
       confirmPlan: confirmPlanMock,
@@ -360,6 +369,348 @@ describe("PlanDraftPage", () => {
     );
     expect(wrapper.text()).toContain("打卡计划");
     expect(wrapper.text()).toContain("2026-04-10");
+    wrapper.unmount();
+  });
+
+  it("编辑打卡内容应调用 patchPlanScheduleSlot 并回写当前版本 schedule", async () => {
+    getPlanDraftMock.mockResolvedValueOnce({
+      goal: "测试目标",
+      deadline: new Date().toISOString(),
+      type: "general",
+      requirement: "",
+      ...draftPayload,
+      versions: [
+        {
+          ...draftPayload.versions[0],
+          schedule: {
+            granularity: "day",
+            slots: [
+              {
+                slotKey: "2026-04-10",
+                generatedContent: "A",
+                content: "A",
+                contentSource: "generated",
+              },
+              {
+                slotKey: "2026-04-11",
+                generatedContent: "B",
+                content: "B",
+                contentSource: "generated",
+              },
+            ],
+          },
+        },
+        {
+          ...draftPayload.versions[1],
+          schedule: {
+            granularity: "day",
+            slots: [
+              {
+                slotKey: "2026-04-20",
+                generatedContent: "C",
+                content: "旧内容-C",
+                contentSource: "generated",
+              },
+              {
+                slotKey: "2026-04-21",
+                generatedContent: "D",
+                content: "旧内容-D",
+                contentSource: "generated",
+              },
+            ],
+          },
+        },
+      ],
+    });
+    patchPlanScheduleSlotMock.mockResolvedValueOnce({
+      schedule: {
+        granularity: "day",
+        slots: [
+          {
+            slotKey: "2026-04-20",
+            generatedContent: "C",
+            content: "编辑后内容-C",
+            contentSource: "edited",
+          },
+          {
+            slotKey: "2026-04-21",
+            generatedContent: "D",
+            content: "旧内容-D",
+            contentSource: "generated",
+          },
+        ],
+      },
+      slot: {
+        slotKey: "2026-04-20",
+        generatedContent: "C",
+        content: "编辑后内容-C",
+        contentSource: "edited",
+      },
+    });
+
+    const router = createAppRouter(createMemoryHistory());
+    await router.push("/plans/plan_1/draft");
+    await router.isReady();
+
+    const wrapper = mount(PlanDraftPage, {
+      global: { plugins: [router] },
+      attachTo: document.body,
+    });
+    await flushPromises();
+
+    await wrapper
+      .get('[data-testid="draft-card-v2"] .draft-card-head')
+      .trigger("click");
+    await flushPromises();
+
+    await wrapper
+      .get('[data-testid="draft-card-v2"]')
+      .findAll("button")
+      .find((b) => b.text() === "编辑")!
+      .trigger("click");
+    await flushPromises();
+
+    const textarea = document.querySelector(
+      '[data-testid="draft-schedule-edit-dialog"] textarea',
+    ) as HTMLTextAreaElement | null;
+    expect(textarea).not.toBeNull();
+    textarea!.value = "编辑后内容-C";
+    textarea!.dispatchEvent(new Event("input", { bubbles: true }));
+
+    (
+      Array.from(
+        document.querySelectorAll('[data-testid="draft-schedule-edit-dialog"] button'),
+      ).find((btn) => (btn as HTMLButtonElement).textContent?.includes("保存")) as
+        | HTMLButtonElement
+        | undefined
+    )?.click();
+    await flushPromises();
+
+    expect(patchPlanScheduleSlotMock).toHaveBeenCalledWith({
+      id: "plan_1",
+      slotKey: "2026-04-20",
+      token: "token_123",
+      content: "编辑后内容-C",
+      version: 2,
+    });
+    expect(wrapper.text()).toContain("编辑后内容-C");
+    wrapper.unmount();
+  });
+
+  it("恢复打卡内容应调用 patchPlanScheduleSlot 并显示恢复后内容", async () => {
+    getPlanDraftMock.mockResolvedValueOnce({
+      goal: "测试目标",
+      deadline: new Date().toISOString(),
+      type: "general",
+      requirement: "",
+      ...draftPayload,
+      versions: [
+        {
+          ...draftPayload.versions[0],
+          schedule: {
+            granularity: "day",
+            slots: [
+              {
+                slotKey: "2026-04-10",
+                generatedContent: "A",
+                content: "A",
+                contentSource: "generated",
+              },
+            ],
+          },
+        },
+        {
+          ...draftPayload.versions[1],
+          schedule: {
+            granularity: "day",
+            slots: [
+              {
+                slotKey: "2026-04-20",
+                generatedContent: "生成内容-C",
+                content: "手动编辑-C",
+                contentSource: "edited",
+              },
+              {
+                slotKey: "2026-04-21",
+                generatedContent: "生成内容-D",
+                content: "生成内容-D",
+                contentSource: "generated",
+              },
+            ],
+          },
+        },
+      ],
+    });
+    patchPlanScheduleSlotMock.mockResolvedValueOnce({
+      schedule: {
+        granularity: "day",
+        slots: [
+          {
+            slotKey: "2026-04-20",
+            generatedContent: "生成内容-C",
+            content: "生成内容-C",
+            contentSource: "generated",
+          },
+          {
+            slotKey: "2026-04-21",
+            generatedContent: "生成内容-D",
+            content: "生成内容-D",
+            contentSource: "generated",
+          },
+        ],
+      },
+      slot: {
+        slotKey: "2026-04-20",
+        generatedContent: "生成内容-C",
+        content: "生成内容-C",
+        contentSource: "generated",
+      },
+    });
+
+    const router = createAppRouter(createMemoryHistory());
+    await router.push("/plans/plan_1/draft");
+    await router.isReady();
+
+    const wrapper = mount(PlanDraftPage, {
+      global: { plugins: [router] },
+      attachTo: document.body,
+    });
+    await flushPromises();
+
+    await wrapper
+      .get('[data-testid="draft-card-v2"] .draft-card-head')
+      .trigger("click");
+    await flushPromises();
+
+    await wrapper
+      .get('[data-testid="draft-card-v2"]')
+      .findAll("button")
+      .find((b) => b.text() === "恢复")!
+      .trigger("click");
+    await flushPromises();
+
+    expect(patchPlanScheduleSlotMock).toHaveBeenCalledWith({
+      id: "plan_1",
+      slotKey: "2026-04-20",
+      token: "token_123",
+      restore: true,
+      version: 2,
+    });
+    expect(wrapper.text()).toContain("生成内容-C");
+    wrapper.unmount();
+  });
+
+  it("应支持草稿时间槽交换内容并携带 version 调用 API", async () => {
+    getPlanDraftMock.mockResolvedValueOnce({
+      goal: "测试目标",
+      deadline: new Date().toISOString(),
+      type: "general",
+      requirement: "",
+      ...draftPayload,
+      versions: [
+        {
+          ...draftPayload.versions[0],
+          schedule: {
+            granularity: "day",
+            slots: [
+              {
+                slotKey: "2026-04-10",
+                generatedContent: "A",
+                content: "A",
+                contentSource: "generated",
+              },
+              {
+                slotKey: "2026-04-11",
+                generatedContent: "B",
+                content: "B",
+                contentSource: "generated",
+              },
+            ],
+          },
+        },
+        {
+          ...draftPayload.versions[1],
+          schedule: {
+            granularity: "day",
+            slots: [
+              {
+                slotKey: "2026-04-20",
+                generatedContent: "C",
+                content: "C",
+                contentSource: "generated",
+              },
+              {
+                slotKey: "2026-04-21",
+                generatedContent: "D",
+                content: "D",
+                contentSource: "generated",
+              },
+            ],
+          },
+        },
+      ],
+    });
+    postPlanScheduleSwapContentMock.mockResolvedValueOnce({
+      schedule: {
+        granularity: "day",
+        slots: [
+          {
+            slotKey: "2026-04-20",
+            generatedContent: "C",
+            content: "D",
+            contentSource: "edited",
+          },
+          {
+            slotKey: "2026-04-21",
+            generatedContent: "D",
+            content: "C",
+            contentSource: "edited",
+          },
+        ],
+      },
+    });
+
+    const router = createAppRouter(createMemoryHistory());
+    await router.push("/plans/plan_1/draft");
+    await router.isReady();
+
+    const wrapper = mount(PlanDraftPage, {
+      global: { plugins: [router] },
+      attachTo: document.body,
+    });
+    await flushPromises();
+
+    await wrapper
+      .get('[data-testid="draft-card-v2"] .draft-card-head')
+      .trigger("click");
+    await flushPromises();
+
+    const swapBtn = wrapper
+      .get('[data-testid="draft-card-v2"]')
+      .get('[data-testid="schedule-slot-swap"]');
+    await swapBtn.trigger("click");
+    await flushPromises();
+
+    expect(
+      document.querySelector('[data-testid="draft-schedule-swap-dialog"]'),
+    ).not.toBeNull();
+
+    (
+      document.querySelector(
+        '[data-testid="draft-schedule-swap-submit"]',
+      ) as HTMLButtonElement | null
+    )?.click();
+    await flushPromises();
+
+    expect(postPlanScheduleSwapContentMock).toHaveBeenCalledWith({
+      id: "plan_1",
+      token: "token_123",
+      slotKeyA: "2026-04-20",
+      slotKeyB: "2026-04-21",
+      version: 2,
+    });
+    expect(wrapper.text()).toContain("2026-04-20");
+    expect(wrapper.text()).toContain("D");
     wrapper.unmount();
   });
 

@@ -301,6 +301,11 @@ const scheduleEditSlotKey = ref("");
 const scheduleEditContent = ref("");
 const scheduleEditVersion = ref<number | null>(null);
 const scheduleSaving = ref(false);
+const scheduleSwapOpen = ref(false);
+const scheduleSwapVersion = ref<number | null>(null);
+const scheduleSwapSlotKeyA = ref("");
+const scheduleSwapSlotKeyB = ref("");
+const scheduleSwapping = ref(false);
 
 function scheduleVisibleForVersion(ver: DraftVersionSnapshot) {
   const sch = ver.schedule;
@@ -341,6 +346,42 @@ function openScheduleEdit(
   scheduleEditContent.value = content;
   scheduleEditVersion.value = planVersion;
   scheduleEditOpen.value = true;
+}
+
+function scheduleSlotsForVersion(version: number | null) {
+  if (version == null) return [];
+  return (
+    draftMeta.value?.versions.find((v) => v.version === version)?.schedule?.slots ??
+    []
+  );
+}
+
+const scheduleSwapPreview = computed(() => {
+  const slots = scheduleSlotsForVersion(scheduleSwapVersion.value);
+  const slotA = slots.find((s) => s.slotKey === scheduleSwapSlotKeyA.value);
+  const slotB = slots.find((s) => s.slotKey === scheduleSwapSlotKeyB.value);
+  return {
+    slotA,
+    slotB,
+  };
+});
+
+function openScheduleSwap(slotKey: string, planVersion: number) {
+  const slots = scheduleSlotsForVersion(planVersion);
+  const firstOther = slots.find((s) => s.slotKey !== slotKey);
+  if (!firstOther) {
+    showError("当前版本可交换的时间槽不足");
+    return;
+  }
+  scheduleSwapVersion.value = planVersion;
+  scheduleSwapSlotKeyA.value = slotKey;
+  scheduleSwapSlotKeyB.value = firstOther.slotKey;
+  scheduleSwapOpen.value = true;
+}
+
+function closeScheduleSwap() {
+  if (scheduleSwapping.value) return;
+  scheduleSwapOpen.value = false;
 }
 
 async function refreshDraftBundleOnly(capturedSeq: number) {
@@ -432,6 +473,38 @@ async function restoreScheduleSlot(slotKey: string, planVersion: number) {
     showError(e instanceof Error ? e.message : "恢复失败");
   } finally {
     scheduleSaving.value = false;
+  }
+}
+
+async function submitScheduleSwap() {
+  if (!authState.token) return;
+  const planVersion = scheduleSwapVersion.value;
+  if (planVersion == null) return;
+  scheduleSwapping.value = true;
+  try {
+    const res = await getApiClient().postPlanScheduleSwapContent({
+      id: planId.value,
+      token: authState.token,
+      slotKeyA: scheduleSwapSlotKeyA.value,
+      slotKeyB: scheduleSwapSlotKeyB.value,
+      version: planVersion,
+    });
+    if (draftMeta.value?.versions?.length) {
+      const idx = draftMeta.value.versions.findIndex(
+        (v) => v.version === planVersion,
+      );
+      if (idx >= 0) {
+        draftMeta.value.versions[idx] = {
+          ...draftMeta.value.versions[idx],
+          schedule: res.schedule,
+        };
+      }
+    }
+    scheduleSwapOpen.value = false;
+  } catch (e) {
+    showError(e instanceof Error ? e.message : "交换失败");
+  } finally {
+    scheduleSwapping.value = false;
   }
 }
 
@@ -768,6 +841,9 @@ function closeConfirmModal() {
 
 useCloseOnEscape(scheduleEditOpen, () => {
   scheduleEditOpen.value = false;
+});
+useCloseOnEscape(scheduleSwapOpen, () => {
+  closeScheduleSwap();
 });
 useCloseOnEscape(confirmOpen, () => {
   closeConfirmModal();
@@ -1325,7 +1401,7 @@ onBeforeUnmount(() => {
                           <button
                             type="button"
                             class="rounded-lg border border-[#dbe6df] bg-white px-3 py-1.5 text-xs font-semibold text-[#111813] hover:bg-[#f6f8f6] disabled:opacity-50"
-                            :disabled="scheduleSaving"
+                            :disabled="scheduleSaving || scheduleSwapping"
                             @click.stop="
                               openScheduleEdit(
                                 slot.slotKey,
@@ -1338,8 +1414,21 @@ onBeforeUnmount(() => {
                           </button>
                           <button
                             type="button"
+                            class="rounded-lg border border-[#dbe6df] bg-white px-3 py-1.5 text-xs font-semibold text-[#111813] hover:bg-[#f6f8f6] disabled:opacity-50"
+                            data-testid="schedule-slot-swap"
+                            :disabled="
+                              scheduleSaving ||
+                              scheduleSwapping ||
+                              (ver.schedule?.slots?.length ?? 0) < 2
+                            "
+                            @click.stop="openScheduleSwap(slot.slotKey, ver.version)"
+                          >
+                            交换内容
+                          </button>
+                          <button
+                            type="button"
                             class="rounded-lg border border-[#f0d8d6] bg-white px-3 py-1.5 text-xs font-semibold text-[#7b2f28] hover:bg-[#fff7f6] disabled:opacity-50"
-                            :disabled="scheduleSaving"
+                            :disabled="scheduleSaving || scheduleSwapping"
                             @click.stop="
                               restoreScheduleSlot(slot.slotKey, ver.version)
                             "
@@ -1540,7 +1629,7 @@ onBeforeUnmount(() => {
                           <button
                             type="button"
                             class="rounded-lg border border-[#dbe6df] bg-white px-3 py-1.5 text-xs font-semibold text-[#111813] hover:bg-[#f6f8f6] disabled:opacity-50"
-                            :disabled="scheduleSaving"
+                            :disabled="scheduleSaving || scheduleSwapping"
                             @click.stop="
                               openScheduleEdit(
                                 slot.slotKey,
@@ -1553,8 +1642,26 @@ onBeforeUnmount(() => {
                           </button>
                           <button
                             type="button"
+                            class="rounded-lg border border-[#dbe6df] bg-white px-3 py-1.5 text-xs font-semibold text-[#111813] hover:bg-[#f6f8f6] disabled:opacity-50"
+                            data-testid="schedule-slot-swap"
+                            :disabled="
+                              scheduleSaving ||
+                              scheduleSwapping ||
+                              (selectedSnapshot.schedule?.slots?.length ?? 0) < 2
+                            "
+                            @click.stop="
+                              openScheduleSwap(
+                                slot.slotKey,
+                                selectedSnapshot.version,
+                              )
+                            "
+                          >
+                            交换内容
+                          </button>
+                          <button
+                            type="button"
                             class="rounded-lg border border-[#f0d8d6] bg-white px-3 py-1.5 text-xs font-semibold text-[#7b2f28] hover:bg-[#fff7f6] disabled:opacity-50"
-                            :disabled="scheduleSaving"
+                            :disabled="scheduleSaving || scheduleSwapping"
                             @click.stop="
                               restoreScheduleSlot(
                                 slot.slotKey,
@@ -1641,6 +1748,109 @@ onBeforeUnmount(() => {
               @click="saveScheduleEdit"
             >
               {{ scheduleSaving ? "保存中…" : "保存" }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <Teleport to="body">
+      <div
+        v-if="scheduleSwapOpen"
+        class="draft-modal-backdrop fixed inset-0 z-50 flex items-center justify-center p-4"
+        data-testid="draft-schedule-swap-dialog"
+        @click.self="closeScheduleSwap"
+      >
+        <div
+          class="draft-modal-panel w-full max-w-xl rounded-2xl border border-[#d5e8df] bg-[linear-gradient(165deg,#ffffff_0%,#f6fcf9_100%)] p-6 shadow-[0_24px_64px_-24px_rgba(18,74,49,0.45)]"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div class="flex items-start justify-between gap-4">
+            <div>
+              <h2 class="text-base font-black tracking-tight text-[#111813]">
+                交换打卡内容
+              </h2>
+              <p class="mt-1 text-xs font-semibold text-[#61896f]">
+                版本 v{{ scheduleSwapVersion ?? "—" }} · 仅交换内容，不改变时间槽
+              </p>
+            </div>
+            <button
+              type="button"
+              class="draft-btn draft-btn--ghost h-9 px-3"
+              :disabled="scheduleSwapping"
+              @click="closeScheduleSwap"
+            >
+              关闭
+            </button>
+          </div>
+          <div class="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <label class="block text-xs font-semibold text-[#4d6a5e]">
+              当前时间槽
+              <select
+                v-model="scheduleSwapSlotKeyA"
+                class="mt-1.5 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
+              >
+                <option
+                  v-for="slot in scheduleSlotsForVersion(scheduleSwapVersion)"
+                  :key="`swap-a-${slot.slotKey}`"
+                  :value="slot.slotKey"
+                >
+                  {{ slot.slotKey }}
+                </option>
+              </select>
+            </label>
+            <label class="block text-xs font-semibold text-[#4d6a5e]">
+              目标时间槽
+              <select
+                v-model="scheduleSwapSlotKeyB"
+                class="mt-1.5 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
+              >
+                <option
+                  v-for="slot in scheduleSlotsForVersion(scheduleSwapVersion)"
+                  :key="`swap-b-${slot.slotKey}`"
+                  :value="slot.slotKey"
+                >
+                  {{ slot.slotKey }}
+                </option>
+              </select>
+            </label>
+          </div>
+          <div class="mt-4 rounded-xl border border-[#e6efe9] bg-white p-3">
+            <p class="text-xs font-black text-[#203029]">交换预览</p>
+            <p class="mt-2 text-xs font-semibold text-[#4d6a5e]">
+              {{ scheduleSwapSlotKeyA }}：{{
+                scheduleSwapPreview.slotB?.content ?? "—"
+              }}
+            </p>
+            <p class="mt-2 text-xs font-semibold text-[#4d6a5e]">
+              {{ scheduleSwapSlotKeyB }}：{{
+                scheduleSwapPreview.slotA?.content ?? "—"
+              }}
+            </p>
+          </div>
+          <div class="mt-6 flex justify-end gap-2">
+            <button
+              type="button"
+              class="draft-btn draft-btn--ghost h-10 px-4"
+              :disabled="scheduleSwapping"
+              @click="closeScheduleSwap"
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              class="draft-btn draft-btn--primary h-10 px-4 disabled:opacity-60"
+              data-testid="draft-schedule-swap-submit"
+              :disabled="
+                scheduleSwapping ||
+                !scheduleSwapSlotKeyA ||
+                !scheduleSwapSlotKeyB ||
+                scheduleSwapSlotKeyA === scheduleSwapSlotKeyB
+              "
+              @click="submitScheduleSwap"
+            >
+              {{ scheduleSwapping ? "交换中…" : "确认交换" }}
             </button>
           </div>
         </div>

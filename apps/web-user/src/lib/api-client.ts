@@ -398,6 +398,26 @@ export type ApiClient = {
       NonNullable<PlanRecord["draft"]>["versions"][number]["schedule"]
     >["slots"][number];
   }>;
+  postPlanScheduleSwapContent(input: {
+    id: string;
+    token: string;
+    slotKeyA: string;
+    slotKeyB: string;
+    /** 草稿多版本时指定 PlanVersion.version，避免误改 currentVersion 对应行 */
+    version?: number;
+  }): Promise<{
+    schedule: NonNullable<
+      NonNullable<PlanRecord["draft"]>["versions"][number]["schedule"]
+    >;
+    slots: {
+      slotA: NonNullable<
+        NonNullable<PlanRecord["draft"]>["versions"][number]["schedule"]
+      >["slots"][number];
+      slotB: NonNullable<
+        NonNullable<PlanRecord["draft"]>["versions"][number]["schedule"]
+      >["slots"][number];
+    };
+  }>;
   postPlanScheduleSlotCheckin(input: {
     id: string;
     slotKey: string;
@@ -807,6 +827,31 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
           }),
         },
       );
+    },
+    postPlanScheduleSwapContent(input) {
+      return request<{
+        schedule: NonNullable<
+          NonNullable<PlanRecord["draft"]>["versions"][number]["schedule"]
+        >;
+        slots: {
+          slotA: NonNullable<
+            NonNullable<PlanRecord["draft"]>["versions"][number]["schedule"]
+          >["slots"][number];
+          slotB: NonNullable<
+            NonNullable<PlanRecord["draft"]>["versions"][number]["schedule"]
+          >["slots"][number];
+        };
+      }>(`/plans/${input.id}/schedule/slots/swap-content`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${input.token}`,
+        },
+        body: JSON.stringify({
+          slotKeyA: input.slotKeyA,
+          slotKeyB: input.slotKeyB,
+          version: input.version,
+        }),
+      });
     },
     postPlanScheduleSlotCheckin(input) {
       return request<{ submission: ScheduleSlotCheckinRecord }>(

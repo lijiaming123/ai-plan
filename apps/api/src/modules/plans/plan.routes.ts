@@ -26,6 +26,7 @@ import {
   regeneratePlanVersion,
   REGENERATE_PLAN_SYSTEM,
   sanitizePlanPatch,
+  swapPlanScheduleSlotContent,
   updatePlanScheduleSlot,
   updatePlanV1Requirement,
 } from "./plan.service";
@@ -698,6 +699,47 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
       if (!result.ok)
         return reply.code(result.code).send({ message: result.message });
       return reply.send({ schedule: result.schedule, slot: result.slot });
+    },
+  );
+
+  fastify.post(
+    "/plans/:id/schedule/slots/swap-content",
+    { preHandler: fastify.requireRole("user") },
+    async (request, reply) => {
+      const payload = await request.jwtVerify<{ sub: string }>();
+      const { id } = request.params as { id: string };
+      const body = normalizeBody(request.body);
+      const slotKeyA =
+        isRecord(body) && typeof body.slotKeyA === "string"
+          ? body.slotKeyA
+          : "";
+      const slotKeyB =
+        isRecord(body) && typeof body.slotKeyB === "string"
+          ? body.slotKeyB
+          : "";
+      const hasVersion = isRecord(body) && "version" in body;
+      const versionIsValid =
+        isRecord(body) &&
+        typeof body.version === "number" &&
+        Number.isInteger(body.version) &&
+        body.version >= 1;
+      if (hasVersion && !versionIsValid) {
+        return reply
+          .code(400)
+          .send({ message: "version must be a positive integer" });
+      }
+      const planVersion = versionIsValid ? body.version : undefined;
+
+      const result = await swapPlanScheduleSlotContent({
+        planId: id,
+        userId: payload.sub,
+        slotKeyA,
+        slotKeyB,
+        planVersion,
+      });
+      if (!result.ok)
+        return reply.code(result.code).send({ message: result.message });
+      return reply.send({ schedule: result.schedule, slots: result.slots });
     },
   );
 

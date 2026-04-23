@@ -1,11 +1,13 @@
 /**
- * 登录领域逻辑（演示实现）。
- *
- * authenticateUser：按邮箱查内存表 DEMO_USERS，明文比对 password；命中则返回 id/email/role，否则 null。
- * 生产替换要点：使用 bcrypt/argon2 存哈希、Prisma User 表、刷新令牌与吊销列表等；勿再提交真实密码常量。
+ * 登录领域逻辑：持久化 AdminUser（bcrypt）优先，内存 DEMO_USERS 兜底（无库/本地演示）。
  */
+import bcrypt from 'bcryptjs';
+import { prisma } from '../../lib/prisma';
+import { ADMIN_PERMISSIONS } from '../admin/admin-permissions';
+
 export type AuthUserRole = 'user' | 'admin';
 
+/** `email` 字段兼容历史 API：实为「账号或邮箱」登录标识 */
 export type LoginCredentials = {
   email: string;
   password: string;
@@ -18,7 +20,27 @@ export type AuthUser = {
   permissions?: string[];
 };
 
-/** 键为邮箱；password 仅用于演示，与 README/前端提示一致 */
+export type AdminRegisterPreset = 'analyst' | 'auditor';
+
+/** 预置权限包（与 JWT permissions 对齐，便于运营台自助注册时选用） */
+export const ADMIN_PERMISSION_PRESET = {
+  /** 增长分析 + 用户列表（日常运营） */
+  analyst: ['analytics:read', 'users:read'] as const,
+  /** 审计日志 + 只读分析（合规/内控） */
+  auditor: ['audit:read', 'analytics:read'] as const,
+} as const;
+
+const BCRYPT_COST = 12;
+
+function normalizeLoginIdentifier(raw: string) {
+  return raw.trim().toLowerCase();
+}
+
+function displayEmailForAdmin(loginId: string, email: string | null) {
+  return email ?? `${loginId}@admin.local`;
+}
+
+/** 键为邮箱（小写）；password 仅用于演示 */
 const DEMO_USERS: Record<string, AuthUser & { password: string }> = {
   'demo@ai-plan.dev': {
     id: 'user_demo',
@@ -31,9 +53,8 @@ const DEMO_USERS: Record<string, AuthUser & { password: string }> = {
     email: 'admin@ai-plan.dev',
     password: 'Admin1234!',
     role: 'admin',
-    permissions: ['analytics:read', 'analytics:export', 'users:read', 'audit:read', 'rbac:manage'],
+    permissions: [...ADMIN_PERMISSIONS],
   },
-  // 用于测试/演示最小授权：role=admin 但不授予任何权限点
   'limited-admin@ai-plan.dev': {
     id: 'admin_limited',
     email: 'limited-admin@ai-plan.dev',
@@ -43,17 +64,99 @@ const DEMO_USERS: Record<string, AuthUser & { password: string }> = {
   },
 };
 
-/** @returns 验证通过的用户摘要；密码错误或未知邮箱返回 null（由路由转 401） */
+function resolveDemoRecord(identifier: string) {
+  const key = normalizeLoginIdentifier(identifier);
+  return DEMO_USERS[key];
+}
+
+async function authenticateAdminUser(identifier: string, password: string): Promise<AuthUser | null> {
+  const norm = normalizeLoginIdentifier(identifier);
+  if (!norm) return null;
+
+  try {
+    const row = await prisma.adminUser.findFirst({
+      where: {
+        OR: [{ loginId: norm }, { email: norm }],
+      },
+    });
+    if (!row) return null;
+    const ok = await bcrypt.compare(password, row.passwordHash);
+    if (!ok) return null;
+    const perms = row.permissions;
+    const permissions = Array.isArray(perms)
+      ? (perms as unknown[]).filter((p): p is string => typeof p === 'string')
+      : undefined;
+    return {
+      id: row.id,
+      email: displayEmailForAdmin(row.loginId, row.email),
+      role: 'admin',
+      permissions,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** @returns 验证通过的用户摘要；密码错误或未知账号返回 null（由路由转 401） */
 export async function authenticateUser(input: LoginCredentials): Promise<AuthUser | null> {
-  const user = DEMO_USERS[input.email];
-  if (!user || user.password !== input.password) {
+  const fromDb = await authenticateAdminUser(input.email, input.password);
+  if (fromDb) return fromDb;
+
+  const demo = resolveDemoRecord(input.email);
+  if (!demo || demo.password !== input.password) {
     return null;
   }
 
   return {
-    id: user.id,
-    email: user.email,
-    role: user.role,
-    permissions: user.permissions,
+    id: demo.id,
+    email: demo.email,
+    role: demo.role,
+    permissions: demo.permissions,
   };
+}
+
+export async function registerAdmin(input: {
+  email: string;
+  password: string;
+  preset?: AdminRegisterPreset;
+}): Promise<{ ok: true; email: string } | { ok: false; message: string }> {
+  if (process.env.ADMIN_OPEN_REGISTER !== 'true') {
+    return { ok: false, message: '未开放自助注册（需设置 ADMIN_OPEN_REGISTER=true）' };
+  }
+  const email = normalizeLoginIdentifier(input.email);
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return { ok: false, message: '邮箱格式无效' };
+  }
+  if (input.password.length < 8) {
+    return { ok: false, message: '密码至少 8 位' };
+  }
+
+  const preset: AdminRegisterPreset = input.preset === 'auditor' ? 'auditor' : 'analyst';
+  const permissions = [...ADMIN_PERMISSION_PRESET[preset]];
+  const passwordHash = await bcrypt.hash(input.password, BCRYPT_COST);
+
+  try {
+    const existing = await prisma.adminUser.findFirst({
+      where: { OR: [{ loginId: email }, { email }] },
+    });
+    if (existing) {
+      return { ok: false, message: '该邮箱已存在' };
+    }
+
+    await prisma.adminUser.create({
+      data: {
+        loginId: email,
+        email,
+        passwordHash,
+        permissions,
+      },
+    });
+    return { ok: true, email };
+  } catch (e) {
+    const code = e && typeof e === 'object' && 'code' in e ? String((e as { code: string }).code) : '';
+    if (code === 'P2002') {
+      return { ok: false, message: '该邮箱已存在' };
+    }
+    return { ok: false, message: '注册失败（请确认数据库可用且已执行迁移）' };
+  }
 }

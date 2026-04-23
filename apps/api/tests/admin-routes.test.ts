@@ -113,4 +113,21 @@ describe('admin routes', () => {
     expect(JSON.parse(okRes.body)).toHaveProperty('items');
     expect(Array.isArray(JSON.parse(okRes.body).items)).toBe(true);
   });
+
+  it('最小授权管理员读取用户列表应被拒绝', async () => {
+    const login = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      payload: { email: 'limited-admin@ai-plan.dev', password: 'Limited1234!' },
+    });
+    const { token } = JSON.parse(login.body) as { token: string };
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/admin/users',
+      headers: { authorization: `Bearer ${token}` },
+    });
+
+    expect(res.statusCode).toBe(403);
+  });
 });

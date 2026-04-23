@@ -1,7 +1,18 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app';
+import { prisma } from '../src/lib/prisma';
 
-describe('telemetry ingest', () => {
+let telemetryDbUp = false;
+try {
+  await prisma.$queryRaw`SELECT 1`;
+  telemetryDbUp = true;
+} catch {
+  telemetryDbUp = false;
+}
+
+const describeTelemetryDb = telemetryDbUp ? describe : describe.skip;
+
+describe('telemetry ingest auth', () => {
   const app = buildApp();
 
   beforeAll(async () => {
@@ -19,6 +30,18 @@ describe('telemetry ingest', () => {
       payload: { events: [] },
     });
     expect(res.statusCode).toBe(401);
+  });
+});
+
+describeTelemetryDb('telemetry ingest', () => {
+  const app = buildApp();
+
+  beforeAll(async () => {
+    await app.ready();
+  });
+
+  afterAll(async () => {
+    await app.close();
   });
 
   it('匿名 key 正确应接收并统计 dropped', async () => {
@@ -65,5 +88,40 @@ describe('telemetry ingest', () => {
     expect(body.accepted).toBe(1);
     expect(body.dropped).toBe(0);
   });
-});
 
+  it('accepted events 应写入 TelemetryRawEvent', async () => {
+    const before = await prisma.telemetryRawEvent.count();
+    const res = await app.inject({
+      method: 'POST',
+      url: '/telemetry/events',
+      headers: {
+        'x-telemetry-key': 'dev-telemetry-key',
+        'x-platform': 'web',
+        'x-client-version': '1.0.0-test',
+        'x-telemetry-source': 'vitest',
+      },
+      payload: {
+        events: [
+          { name: 'auth_login', time: '2026-04-22T12:00:00.000Z', properties: { method: 'password' } },
+          { name: 'dashboard_view', time: '2026-04-22T12:00:01.000Z', page: '/overview' },
+        ],
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body) as { accepted: number };
+    expect(body.accepted).toBe(2);
+    const after = await prisma.telemetryRawEvent.count();
+    expect(after - before).toBe(2);
+
+    const last = await prisma.telemetryRawEvent.findFirst({
+      where: { eventName: 'dashboard_view', page: '/overview' },
+      orderBy: { receivedAt: 'desc' },
+    });
+    expect(last).toBeTruthy();
+    expect(last?.platform).toBe('web');
+    expect(last?.clientVersion).toBe('1.0.0-test');
+    expect(last?.source).toBe('vitest');
+    expect(last?.anonymousKey).toBe('default');
+    expect(last?.userId).toBeNull();
+  });
+});

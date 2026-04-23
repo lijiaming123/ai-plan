@@ -270,6 +270,19 @@ model UserNotificationSettings {
   updatedAt              DateTime  @updatedAt
 }
 
+/// 管理端持久化账号（loginId 可为短账号如 admin，亦可与邮箱一致）
+model AdminUser {
+  id           String   @id @default(cuid())
+  loginId      String   @unique
+  email        String?  @unique
+  passwordHash String
+  permissions  Json
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([loginId])
+}
+
 /// 管理端审计日志（导出/权限变更/用户治理/敏感查询等）
 model AuditLog {
   id         String   @id @default(cuid())
@@ -308,4 +321,21 @@ model TelemetryRawEvent {
   @@index([userId, receivedAt(sort: Desc)])
   @@index([anonymousKey, receivedAt(sort: Desc)])
   @@index([source, platform, clientVersion, receivedAt(sort: Desc)])
+}
+
+/// Telemetry 按日预聚合（维度：source + platform + clientVersion）
+model TelemetryDailyAgg {
+  id           String   @id @default(cuid())
+  /// UTC 日历日 00:00:00（仅日期语义，统一按 UTC 切日）
+  day          DateTime
+  eventName    String
+  dimensionKey String
+  eventCount   Int
+  /// 当日该维度下 distinct userId（仅统计非空 userId；匿名事件不计入）
+  userCount    Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([day, eventName, dimensionKey])
+  @@index([day, eventName])
 }

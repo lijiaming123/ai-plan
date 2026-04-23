@@ -1,7 +1,9 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { prisma } from '../../lib/prisma';
 import {
   validateAndSanitizeTelemetryEvent,
   type TelemetryEvent,
+  type TelemetryPlatform,
 } from './telemetry-event-dictionary';
 
 type IngestAuth =
@@ -54,6 +56,27 @@ function hitRateLimit(ip: string) {
   return cur.count > RATE_MAX_PER_IP;
 }
 
+function parsePlatform(raw: string | undefined): TelemetryPlatform {
+  const p = (raw ?? '').trim().toLowerCase();
+  if (p === 'web' || p === 'ios' || p === 'android') return p;
+  return 'unknown';
+}
+
+function readClientDimensions(request: FastifyRequest) {
+  const source =
+    typeof request.headers['x-telemetry-source'] === 'string'
+      ? request.headers['x-telemetry-source'].trim() || null
+      : null;
+  const clientVersion =
+    typeof request.headers['x-client-version'] === 'string'
+      ? request.headers['x-client-version'].trim() || null
+      : null;
+  const platform = parsePlatform(
+    typeof request.headers['x-platform'] === 'string' ? request.headers['x-platform'] : undefined,
+  );
+  return { source, clientVersion, platform };
+}
+
 export async function registerTelemetryRoutes(fastify: FastifyInstance) {
   fastify.post('/telemetry/events', async (request, reply) => {
     const ip = request.ip || 'unknown';
@@ -90,11 +113,26 @@ export async function registerTelemetryRoutes(fastify: FastifyInstance) {
       sanitizedEvents.push(v.sanitized);
     }
 
-    // v1：不落库（Story 003 接入 raw 表持久化）；先返回统计并保持接口形状稳定
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const _context = auth.kind === 'user' ? { userId: auth.userId } : { keyId: auth.keyId };
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const _events = sanitizedEvents;
+    const dims = readClientDimensions(request);
+    const userId = auth.kind === 'user' ? auth.userId : null;
+    const anonymousKey = auth.kind === 'anonymous' ? auth.keyId : null;
+
+    if (sanitizedEvents.length > 0) {
+      await prisma.telemetryRawEvent.createMany({
+        data: sanitizedEvents.map((e) => ({
+          eventTime: new Date(e.time),
+          eventName: e.name,
+          userId,
+          anonymousKey,
+          sessionId: e.sessionId ?? null,
+          page: e.page ?? null,
+          source: dims.source,
+          platform: dims.platform,
+          clientVersion: dims.clientVersion,
+          properties: (e.properties ?? undefined) as object | undefined,
+        })),
+      });
+    }
 
     return reply.send({
       accepted,

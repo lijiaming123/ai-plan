@@ -6,6 +6,8 @@
  */
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '../../lib/prisma';
+import { aggregateTelemetryForUtcDay } from '../telemetry/telemetry-daily-agg.service';
+import { getAdminUserDetail, listAdminUsers } from './admin-users.service';
 
 export async function registerAdminRoutes(fastify: FastifyInstance) {
   /** 自动评判等功能的规则阈值配置（键值对），供后台页展示或编辑（当前路由只读） */
@@ -56,4 +58,42 @@ export async function registerAdminRoutes(fastify: FastifyInstance) {
       },
     });
   });
+
+  /** 业务用户 ID 列表（来自计划/提交/Telemetry 并集），支持按 userId 片段搜索与分页 */
+  fastify.get('/admin/users', { preHandler: fastify.requirePermission('users:read') }, async (request) => {
+    const q = request.query as { q?: string; page?: string; pageSize?: string };
+    const pageRaw = q.page != null ? parseInt(String(q.page), 10) : 1;
+    const psRaw = q.pageSize != null ? parseInt(String(q.pageSize), 10) : 20;
+    const page = Number.isFinite(pageRaw) ? pageRaw : 1;
+    const pageSize = Number.isFinite(psRaw) ? psRaw : 20;
+    return listAdminUsers({ search: q.q, page, pageSize });
+  });
+
+  fastify.get('/admin/users/:userId', { preHandler: fastify.requirePermission('users:read') }, async (request, reply) => {
+    const { userId } = request.params as { userId: string };
+    const detail = await getAdminUserDetail(userId);
+    if (!detail) {
+      return reply.code(404).send({ message: 'User not found' });
+    }
+    return detail;
+  });
+
+  /** 按 UTC 日重算 Telemetry 日聚合（幂等） */
+  fastify.post(
+    '/admin/telemetry/aggregate-day',
+    { preHandler: fastify.requirePermission('analytics:read') },
+    async (request, reply) => {
+      const q = request.query as { day?: string };
+      const day = q.day?.trim();
+      if (!day || !/^\d{4}-\d{2}-\d{2}$/.test(day)) {
+        return reply.code(400).send({ message: 'day must be YYYY-MM-DD (UTC)' });
+      }
+      try {
+        const result = await aggregateTelemetryForUtcDay(day);
+        return reply.send(result);
+      } catch {
+        return reply.code(400).send({ message: 'invalid day' });
+      }
+    },
+  );
 }

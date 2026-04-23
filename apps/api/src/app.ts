@@ -22,6 +22,7 @@ import { registerNotificationRoutes } from './modules/notifications/notification
 import multipart from '@fastify/multipart';
 import { registerUploadRoutes } from './modules/uploads/upload.routes';
 import { registerTelemetryRoutes } from './modules/telemetry/telemetry.routes';
+import { registerAnalyticsRoutes } from './modules/analytics/analytics.routes';
 
 export function buildApp() {
   // logger: false 减少默认控制台噪音；需要排障时可改为 true 或接 pino 目标
@@ -52,6 +53,7 @@ export function buildApp() {
     await registerTemplateRoutes(fastify);
     await registerNotificationRoutes(fastify);
     await registerTelemetryRoutes(fastify);
+    await registerAnalyticsRoutes(fastify);
   });
 
   return app;

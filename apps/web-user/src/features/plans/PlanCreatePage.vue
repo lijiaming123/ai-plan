@@ -9,6 +9,7 @@ import {
 import { renderMarkdownToHtml } from "../../lib/render-markdown";
 import { consumePlanAssistantStream } from "../../lib/plan-assistant-stream";
 import { storeDraftStreamPayload } from "../../lib/plan-assistant-stream";
+import { trackEvent } from "../../lib/telemetry";
 import { authState } from "../../stores/auth";
 import UiErrorToast from "../../components/UiErrorToast.vue";
 import UiSunriseSelect from "../../components/UiSunriseSelect.vue";
@@ -658,6 +659,13 @@ async function handleSubmit() {
     cycle: form.cycle,
     endDate: effectiveDeadline.value || form.startDate,
     createTier: isProMode.value ? "pro" : "basic",
+  });
+
+  trackEvent("plan_create", {
+    properties: {
+      planId: plan.id,
+      type: "general",
+    },
   });
 
   await router.push({ name: "plan-draft", params: { id: plan.id } });

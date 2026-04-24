@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory, createMemoryHistory, type RouterHistory } from 'vue-router';
 import { authState } from '../stores/auth';
+import { trackPageView } from '../lib/telemetry';
 
 // 路由懒加载：首屏只加载壳层与必要代码，页面按需拉取
 const isTest = import.meta.env.MODE === 'test';
@@ -58,6 +59,16 @@ const SubmissionResultPage = isTest
   : () => import('../features/submissions/SubmissionResultPage.vue');
 
 export function createAppRouter(history: RouterHistory = createWebHistory()) {
+  const pageViewRouteNames = new Set([
+    'dashboard',
+    'plan-overview',
+    'plan-create',
+    'plan-draft',
+    'plan-detail',
+    'templates',
+    'notifications',
+    'task-submit',
+  ]);
   const router = createRouter({
     history,
     routes: [
@@ -160,6 +171,11 @@ export function createAppRouter(history: RouterHistory = createWebHistory()) {
       return '/auth/login';
     }
     return true;
+  });
+
+  router.afterEach((to) => {
+    if (!pageViewRouteNames.has(String(to.name ?? ''))) return;
+    trackPageView(to.fullPath);
   });
 
   return router;

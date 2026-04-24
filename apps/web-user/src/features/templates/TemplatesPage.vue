@@ -4,6 +4,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import type { MarketTemplateBrief, PresetTemplateBrief } from '../../lib/api-client';
 import { getApiClient } from '../../lib/api-client';
+import { trackEvent } from '../../lib/telemetry';
 import { authState } from '../../stores/auth';
 import UiErrorToast from '../../components/UiErrorToast.vue';
 import TemplateMarketList from './TemplateMarketList.vue';
@@ -181,6 +182,13 @@ async function applyPreset(id: string) {
   }
   try {
     const { planId } = await client.applyPresetTemplate({ id, token: authState.token });
+    trackEvent('template_use', {
+      properties: {
+        templateId: id,
+        templateSource: 'preset',
+        planId,
+      },
+    });
     await router.push(`/plans/${planId}`);
   } catch (e) {
     errorToastMessage.value = e instanceof Error ? e.message : '套用失败';
@@ -194,6 +202,13 @@ async function applyMarket(id: string) {
   }
   try {
     const { planId } = await client.applyMarketTemplate({ id, token: authState.token });
+    trackEvent('template_use', {
+      properties: {
+        templateId: id,
+        templateSource: 'market',
+        planId,
+      },
+    });
     await router.push(`/plans/${planId}`);
   } catch (e) {
     errorToastMessage.value = e instanceof Error ? e.message : '套用失败';

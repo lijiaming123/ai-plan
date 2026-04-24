@@ -2,6 +2,7 @@
 import { computed, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { getApiClient } from '../../lib/api-client';
+import { trackEvent } from '../../lib/telemetry';
 import { setAuthTier, setAuthToken, setUserEmail } from '../../stores/auth';
 import AuthBackground from './AuthBackground.vue';
 import UiErrorToast from '../../components/UiErrorToast.vue';
@@ -61,6 +62,11 @@ async function handleSubmit() {
     setAuthToken(result.token);
     setUserEmail(form.email.trim());
     setAuthTier(form.useProTier ? 'pro' : 'basic');
+    trackEvent('auth_login', {
+      properties: {
+        method: 'password',
+      },
+    });
     await router.push('/plans');
   } catch (error) {
     errorToastMessage.value = error instanceof Error ? error.message : '登录失败，请稍后重试。';

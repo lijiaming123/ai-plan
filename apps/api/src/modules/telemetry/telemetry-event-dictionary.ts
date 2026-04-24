@@ -6,7 +6,12 @@ export type TelemetryEventName =
   | 'plan_create'
   | 'plan_publish'
   | 'dashboard_view'
-  | 'checkin_submit';
+  | 'checkin_submit'
+  | 'page_view'
+  | 'notification_open'
+  | 'draft_regenerate'
+  | 'template_publish'
+  | 'template_use';
 
 export type TelemetryEvent = {
   name: TelemetryEventName;
@@ -47,6 +52,11 @@ const EVENT_PROPERTY_ALLOWLIST: Record<TelemetryEventName, Set<string>> = {
   plan_publish: new Set(['planId']),
   dashboard_view: new Set(['route']),
   checkin_submit: new Set(['planId', 'slotKey']),
+  page_view: new Set(['route']),
+  notification_open: new Set(['notificationId', 'type', 'from']),
+  draft_regenerate: new Set(['planId', 'version', 'mode']),
+  template_publish: new Set(['planId', 'templateId', 'category']),
+  template_use: new Set(['templateId', 'templateSource', 'planId']),
 };
 
 function normalizeKey(k: string) {

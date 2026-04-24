@@ -1,6 +1,20 @@
+/** `email` 与接口字段名一致；值为管理员登录标识（短账号或邮箱） */
 export type AdminLoginInput = {
   email: string;
   password: string;
+};
+
+export type AdminRegisterInput = {
+  email: string;
+  password: string;
+  preset?: 'analyst' | 'auditor';
+};
+
+export type AdminMeResponse = {
+  userId: string;
+  email: string;
+  role: string;
+  permissions: string[];
 };
 
 export type AdminRuleRecord = {
@@ -43,11 +57,125 @@ export type AdminDashboardSummary = {
   }>;
 };
 
+export type AdminFunnelStep = {
+  step: string;
+  count: number;
+  conversionFromPrev: number | null;
+};
+
+export type AdminFunnelResponse = {
+  template: string;
+  windowDays: number;
+  start: string;
+  end: string;
+  steps: AdminFunnelStep[];
+};
+
+export type AdminFunnelQuery = {
+  start: string;
+  end: string;
+  windowDays?: number;
+  source?: string;
+  platform?: string;
+  clientVersion?: string;
+};
+
+export type AdminRetentionRetainedCell = {
+  count: number;
+  rate: number;
+};
+
+export type AdminRetentionRow = {
+  cohortDay: string;
+  cohortSize: number;
+  retained: Record<string, AdminRetentionRetainedCell>;
+};
+
+export type AdminRetentionResponse = {
+  cohortStart: string;
+  cohortEnd: string;
+  offsets: number[];
+  rows: AdminRetentionRow[];
+};
+
+export type AdminRetentionQuery = {
+  cohortStart: string;
+  cohortEnd: string;
+  offsets?: string;
+  source?: string;
+  platform?: string;
+  clientVersion?: string;
+};
+
+export type AdminPathEntry = {
+  path: string;
+  count: number;
+  share: number;
+};
+
+export type AdminPathResponse = {
+  start: string;
+  end: string;
+  startEvent: string;
+  pathLength: number;
+  sessionGapMinutes: number;
+  streamCount: number;
+  totalPaths: number;
+  paths: AdminPathEntry[];
+};
+
+export type AdminPathQuery = {
+  start: string;
+  end: string;
+  startEvent?: string;
+  pathLength?: number;
+  top?: number;
+  source?: string;
+  platform?: string;
+  clientVersion?: string;
+};
+
+export type AdminUserListItem = {
+  userId: string;
+};
+
+export type AdminUserListResponse = {
+  items: AdminUserListItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+};
+
+export type AdminUserListQuery = {
+  q?: string;
+  page?: number;
+  pageSize?: number;
+};
+
+export type AdminUserDetail = {
+  userId: string;
+  planCount: number;
+  checkinSubmissionCount: number;
+  taskSubmissionCount: number;
+  telemetryEventCount: number;
+  registeredAtApprox: string | null;
+  firstActivityAt: string | null;
+  lastActivityAt: string | null;
+  telemetryTopEvents: Array<{ eventName: string; count: number }>;
+};
+
 export type AdminApiClient = {
   login(input: AdminLoginInput): Promise<{ token: string }>;
+  registerAdmin(input: AdminRegisterInput): Promise<{ token: string }>;
+  getAdminMe(token: string): Promise<AdminMeResponse>;
   getDashboard(token: string): Promise<AdminDashboardSummary>;
   getRules(token: string): Promise<AdminRuleRecord[]>;
   getSubmissions(token: string): Promise<AdminSubmissionRecord[]>;
+  getFunnel(token: string, query: AdminFunnelQuery): Promise<AdminFunnelResponse>;
+  getRetention(token: string, query: AdminRetentionQuery): Promise<AdminRetentionResponse>;
+  getPath(token: string, query: AdminPathQuery): Promise<AdminPathResponse>;
+  getUsers(token: string, query: AdminUserListQuery): Promise<AdminUserListResponse>;
+  getUser(token: string, userId: string): Promise<AdminUserDetail>;
 };
 
 export type AdminApiClientOptions = {
@@ -61,8 +189,16 @@ function joinUrl(baseURL: string, path: string) {
   return `${normalizedBase}${normalizedPath}`;
 }
 
+/** 开发默认走 Vite 代理（相对路径），避免 shell 里残留的 VITE_API_BASE_URL 指向未监听的端口。关闭：VITE_DEV_API_PROXY=false */
+function getDefaultAdminApiBaseURL(): string {
+  if (import.meta.env.DEV && import.meta.env.VITE_DEV_API_PROXY !== 'false') {
+    return '';
+  }
+  return (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '';
+}
+
 export function createAdminApiClient(options: AdminApiClientOptions = {}): AdminApiClient {
-  const baseURL = options.baseURL ?? (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '';
+  const baseURL = options.baseURL ?? getDefaultAdminApiBaseURL();
   const fetchImpl = options.fetchImpl ?? globalThis.fetch.bind(globalThis);
 
   async function request<T>(path: string, init: RequestInit) {
@@ -88,6 +224,20 @@ export function createAdminApiClient(options: AdminApiClientOptions = {}): Admin
         body: JSON.stringify(input),
       });
     },
+    registerAdmin(input) {
+      return request<{ token: string }>('/auth/admin/register', {
+        method: 'POST',
+        body: JSON.stringify(input),
+      });
+    },
+    getAdminMe(token) {
+      return request<AdminMeResponse>('/auth/admin/me', {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+    },
     getDashboard(token) {
       return request<AdminDashboardSummary>('/admin/dashboard', {
         method: 'GET',
@@ -106,6 +256,74 @@ export function createAdminApiClient(options: AdminApiClientOptions = {}): Admin
     },
     getSubmissions(token) {
       return request<AdminSubmissionRecord[]>('/admin/submissions', {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+    },
+    getFunnel(token, query) {
+      const qs = new URLSearchParams();
+      qs.set('start', query.start);
+      qs.set('end', query.end);
+      if (query.windowDays != null) qs.set('windowDays', String(query.windowDays));
+      if (query.source) qs.set('source', query.source);
+      if (query.platform) qs.set('platform', query.platform);
+      if (query.clientVersion) qs.set('clientVersion', query.clientVersion);
+      return request<AdminFunnelResponse>(`/analytics/funnel?${qs.toString()}`, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+    },
+    getRetention(token, query) {
+      const qs = new URLSearchParams();
+      qs.set('cohortStart', query.cohortStart);
+      qs.set('cohortEnd', query.cohortEnd);
+      if (query.offsets != null && query.offsets !== '') qs.set('offsets', query.offsets);
+      if (query.source) qs.set('source', query.source);
+      if (query.platform) qs.set('platform', query.platform);
+      if (query.clientVersion) qs.set('clientVersion', query.clientVersion);
+      return request<AdminRetentionResponse>(`/analytics/retention?${qs.toString()}`, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+    },
+    getPath(token, query) {
+      const qs = new URLSearchParams();
+      qs.set('start', query.start);
+      qs.set('end', query.end);
+      if (query.startEvent != null && query.startEvent !== '') qs.set('startEvent', query.startEvent);
+      if (query.pathLength != null) qs.set('pathLength', String(query.pathLength));
+      if (query.top != null) qs.set('top', String(query.top));
+      if (query.source) qs.set('source', query.source);
+      if (query.platform) qs.set('platform', query.platform);
+      if (query.clientVersion) qs.set('clientVersion', query.clientVersion);
+      return request<AdminPathResponse>(`/analytics/path?${qs.toString()}`, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+    },
+    getUsers(token, query) {
+      const qs = new URLSearchParams();
+      if (query.q != null && query.q !== '') qs.set('q', query.q);
+      if (query.page != null) qs.set('page', String(query.page));
+      if (query.pageSize != null) qs.set('pageSize', String(query.pageSize));
+      return request<AdminUserListResponse>(`/admin/users?${qs.toString()}`, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+    },
+    getUser(token, userId) {
+      const enc = encodeURIComponent(userId);
+      return request<AdminUserDetail>(`/admin/users/${enc}`, {
         method: 'GET',
         headers: {
           Authorization: `Bearer ${token}`,

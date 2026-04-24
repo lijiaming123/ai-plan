@@ -136,6 +136,8 @@ Write-Host "[dev-up] API port: $apiPort"
 $apiBaseUrl = "http://localhost:$apiPort"
 $env:PORT = "$apiPort"
 $env:VITE_API_BASE_URL = $apiBaseUrl
+# web-admin 开发代理目标（与 PORT 一致；勿依赖 shell 里过期的 localhost:4100）
+$env:VITE_API_PROXY_TARGET = $apiBaseUrl
 
 # migrate dev 会等待 stdin（漂移/重置提示等），在「一键起服务」里极易表现为卡死；本地起库用 deploy 即可
 Write-Host "[dev-up] Applying database migrations (prisma migrate deploy)..."

@@ -15,10 +15,10 @@
 
 | 列 | 项 |
 |----|-----|
-| **待办** | Telemetry ingest / 聚合 / 漏斗 / 留存 / 路径 / drill-down（见 `.ai/epics/epic-web-admin-growth-analytics.md`） |
-| **进行中** | — |
+| **待办** | 漏斗 / 留存 / 路径 / drill-down（见 `.ai/epics/epic-web-admin-growth-analytics.md`） |
+| **进行中** | Story 005+ · Analytics 报表 API 与 web-admin 页面 |
 | **测试中** | — |
-| **已完成** | Story 012 · RBAC 权限点接入 + 审计日志基础设施（含 `/admin/audit-logs`） |
+| **已完成** | Story 012 · RBAC + 审计 · Story 001–002 · Telemetry 字典 + ingest · Story 003–004 · raw 表落库 + 日聚合（`/admin/telemetry/aggregate-day`） |
 
 ## 其他
 

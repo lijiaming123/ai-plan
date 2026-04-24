@@ -879,3 +879,21 @@
 - apps/api/src/app.ts
 - apps/api/tests/telemetry-ingest.test.ts
 - .ai/logs/operation-log.md
+
+## 2026-04-23 21:47:15
+
+- 操作人：AI
+- 操作：Story实施
+- 提示词：响应用户「请你继续」
+- 内容：完成 Story 003：`/telemetry/events` 将校验通过的事件批量写入 `TelemetryRawEvent`；支持请求头 `x-platform` / `x-client-version` / `x-telemetry-source`。完成 Story 004：新增 `TelemetryDailyAgg` 模型与迁移 `20260423153000_telemetry_daily_agg`；实现 `aggregateTelemetryForUtcDay`（按 UTC 日幂等重算）与管理端 `POST /admin/telemetry/aggregate-day?day=YYYY-MM-DD`（需 `analytics:read`）；新增 `tests/telemetry-daily-agg.test.ts`。调整 `tests/telemetry-ingest.test.ts`：模块顶层探测 DB，无 Postgres 时跳过需库用例。本地全量测试依赖数据库可用。
+- 状态：成功
+- 相关文件：
+- apps/api/src/modules/telemetry/telemetry.routes.ts
+- apps/api/src/modules/telemetry/telemetry-daily-agg.service.ts
+- apps/api/src/modules/admin/admin.routes.ts
+- apps/api/prisma/schema.prisma
+- apps/api/prisma/migrations/20260423153000_telemetry_daily_agg/migration.sql
+- apps/api/tests/telemetry-ingest.test.ts
+- apps/api/tests/telemetry-daily-agg.test.ts
+- .ai/progress.md
+- .ai/logs/operation-log.md

@@ -1,6 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
 import { createMemoryHistory } from "vue-router";
+const { trackEventMock, trackPageViewMock } = vi.hoisted(() => ({
+  trackEventMock: vi.fn(),
+  trackPageViewMock: vi.fn(),
+}));
+
+vi.mock("../src/lib/telemetry", () => ({
+  trackEvent: trackEventMock,
+  trackPageView: trackPageViewMock,
+}));
+
 import PlanDraftPage from "../src/features/plans/PlanDraftPage.vue";
 import { createAppRouter } from "../src/router";
 import { clearAuthToken, setAuthToken } from "../src/stores/auth";
@@ -91,6 +101,8 @@ describe("PlanDraftPage", () => {
     regeneratePlanMock.mockReset();
     confirmPlanMock.mockReset();
     postPlanScheduleSwapContentMock.mockReset();
+    trackEventMock.mockReset();
+    trackPageViewMock.mockReset();
 
     getPlanMock.mockResolvedValue({
       id: "plan_1",
@@ -189,6 +201,13 @@ describe("PlanDraftPage", () => {
       }),
       expect.any(Object),
     );
+    expect(trackEventMock).toHaveBeenCalledWith("draft_regenerate", {
+      properties: {
+        planId: "plan_1",
+        version: 3,
+        mode: "smart",
+      },
+    });
     wrapper.unmount();
   });
 
@@ -871,6 +890,11 @@ describe("PlanDraftPage", () => {
     await flushPromises();
 
     expect(confirmPlanMock).toHaveBeenCalled();
+    expect(trackEventMock).toHaveBeenCalledWith("plan_publish", {
+      properties: {
+        planId: "plan_1",
+      },
+    });
     expect(push).toHaveBeenCalledWith({
       name: "plan-detail",
       params: { id: "plan_1" },

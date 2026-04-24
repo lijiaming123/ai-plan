@@ -41,5 +41,25 @@ describe('telemetry event dictionary v1', () => {
       expect(res.sanitized.properties).toEqual({ planId: 'p1' });
     }
   });
+
+  it('should accept newly added high-value frontend events', () => {
+    const res = validateAndSanitizeTelemetryEvent({
+      name: 'notification_open',
+      time: '2026-04-22T00:00:00.000Z',
+      page: '/notifications',
+      properties: {
+        notificationId: 'n1',
+        type: 'checkin_overdue_day',
+        extra: 'drop-me',
+      },
+    });
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.sanitized.properties).toEqual({
+        notificationId: 'n1',
+        type: 'checkin_overdue_day',
+      });
+    }
+  });
 });
 

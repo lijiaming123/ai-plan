@@ -2,6 +2,16 @@ import { nextTick } from 'vue';
 import { describe, expect, it, vi } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
 import { createMemoryHistory } from 'vue-router';
+const { trackEventMock, trackPageViewMock } = vi.hoisted(() => ({
+  trackEventMock: vi.fn(),
+  trackPageViewMock: vi.fn(),
+}));
+
+vi.mock('../src/lib/telemetry', () => ({
+  trackEvent: trackEventMock,
+  trackPageView: trackPageViewMock,
+}));
+
 import { createAppRouter } from '../src/router';
 import TemplatesPage from '../src/features/templates/TemplatesPage.vue';
 import TemplateMarketList from '../src/features/templates/TemplateMarketList.vue';
@@ -15,6 +25,8 @@ function demoJwt() {
 
 describe('TemplatesPage / TemplateMarketList', () => {
   it('应加载预设与市场列表并支持排序切换', async () => {
+    trackEventMock.mockReset();
+    trackPageViewMock.mockReset();
     clearAuthToken();
     const listPresets = vi.fn().mockResolvedValue({
       items: [
@@ -95,6 +107,64 @@ describe('TemplatesPage / TemplateMarketList', () => {
     await nextTick();
     await flushPromises();
     expect(listMy).toHaveBeenCalled();
+    clearAuthToken();
+  });
+
+  it('套用市场模板后应发送 template_use 埋点', async () => {
+    trackEventMock.mockReset();
+    trackPageViewMock.mockReset();
+    clearAuthToken();
+    setAuthToken(demoJwt());
+
+    const listPresets = vi.fn().mockResolvedValue({ items: [] });
+    const listMarket = vi.fn().mockResolvedValue({
+      items: [
+        {
+          id: 'm1',
+          authorId: 'u1',
+          authorName: '作者',
+          title: '市场 A',
+          summary: '描述',
+          category: 'work',
+          tags: [],
+          likeCount: 3,
+          applicationCount: 0,
+          publishedAt: '2026-01-01T00:00:00.000Z',
+        },
+      ],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    });
+    const applyMarketTemplate = vi.fn().mockResolvedValue({ planId: 'plan_from_market' });
+    setApiClient({
+      ...createApiClient(),
+      listPresets,
+      listMarketTemplates: listMarket,
+      listMyMarketTemplates: vi.fn().mockResolvedValue({ items: [], page: 1, pageSize: 20, total: 0 }),
+      applyMarketTemplate,
+    });
+
+    const router = createAppRouter(createMemoryHistory());
+    const push = vi.spyOn(router, 'push');
+    await router.push('/templates');
+    await router.isReady();
+
+    const wrapper = mount(TemplatesPage, { global: { plugins: [router] } });
+    await flushPromises();
+
+    await wrapper.get('[data-testid="btn-apply"]').trigger('click');
+    await flushPromises();
+
+    expect(applyMarketTemplate).toHaveBeenCalledWith({ id: 'm1', token: demoJwt() });
+    expect(trackEventMock).toHaveBeenCalledWith('template_use', {
+      properties: {
+        templateId: 'm1',
+        templateSource: 'market',
+        planId: 'plan_from_market',
+      },
+    });
+    expect(push).toHaveBeenCalledWith('/plans/plan_from_market');
     clearAuthToken();
   });
 

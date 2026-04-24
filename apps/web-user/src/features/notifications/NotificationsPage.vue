@@ -7,6 +7,7 @@ import {
   getApiClient,
   type InAppNotificationItem,
 } from "../../lib/api-client";
+import { trackEvent } from "../../lib/telemetry";
 import { authState } from "../../stores/auth";
 
 const router = useRouter();
@@ -145,6 +146,13 @@ async function onOpen(n: InAppNotificationItem) {
     }
   }
   if (wasUnread) bumpJustRead(n.id);
+  trackEvent("notification_open", {
+    properties: {
+      notificationId: n.id,
+      type: n.type,
+      from: "notifications_page",
+    },
+  });
   void router.push(planLink(n));
   window.dispatchEvent(new Event("notif-refresh"));
 }

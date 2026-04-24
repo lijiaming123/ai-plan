@@ -14,6 +14,7 @@ import {
   peekDraftStreamPayload,
   type PendingDraftStreamPayload,
 } from "../../lib/plan-assistant-stream";
+import { trackEvent } from "../../lib/telemetry";
 import { renderMarkdownToHtml } from "../../lib/render-markdown";
 import { useCloseOnEscape } from "../../composables/useCloseOnEscape";
 import { authState } from "../../stores/auth";
@@ -262,16 +263,28 @@ function stripLastJsonCodeBlock(text: string) {
   return `${text.slice(0, last.start)}\n\n${text.slice(last.end)}`.trim();
 }
 
-function setCardScrollEl(version: number, el: Element | null) {
-  if (!el) {
+function setCardScrollEl(
+  version: number,
+  el: Element | { $el?: Element | null } | null,
+) {
+  const resolved =
+    el instanceof HTMLElement
+      ? el
+      : el &&
+          typeof el === "object" &&
+          "$el" in el &&
+          el.$el instanceof HTMLElement
+        ? el.$el
+        : null;
+
+  if (!resolved) {
     cardScrollEls.delete(version);
     cardStickyBottom.delete(version);
     return;
   }
-  if (el instanceof HTMLElement) {
-    cardScrollEls.set(version, el);
-    if (!cardStickyBottom.has(version)) cardStickyBottom.set(version, true);
-  }
+
+  cardScrollEls.set(version, resolved);
+  if (!cardStickyBottom.has(version)) cardStickyBottom.set(version, true);
 }
 
 function isNearBottom(el: HTMLElement, thresholdPx = 80) {
@@ -684,7 +697,6 @@ function makeRegeneratePlaceholderVersion(
     requirement: "",
     deadline: prev.deadline,
     createdAt: new Date().toISOString(),
-    granularityMode: prev.granularityMode,
     stages: JSON.parse(JSON.stringify(prev.stages)) as DraftVersionSnapshot["stages"],
   };
 }
@@ -804,6 +816,14 @@ async function submitRegenerate() {
       if (synced?.length) {
         selectedVersion.value = synced[synced.length - 1].version;
       }
+      trackEvent("draft_regenerate", {
+        properties: {
+          planId: id,
+          version:
+            synced?.[synced.length - 1]?.version ?? nextV,
+          mode: nextGranularityMode.value,
+        },
+      });
       nextGranularityMode.value = selectedGranularityMode.value;
     }
   } catch (error) {
@@ -861,6 +881,11 @@ async function submitConfirm() {
       id: planId.value,
       token: authState.token,
       version: selectedSnapshot.value.version,
+    });
+    trackEvent("plan_publish", {
+      properties: {
+        planId: planId.value,
+      },
     });
     confirmOpen.value = false;
     await router.push({ name: "plan-detail", params: { id: planId.value } });

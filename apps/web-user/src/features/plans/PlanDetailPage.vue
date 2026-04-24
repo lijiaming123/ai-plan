@@ -5,6 +5,7 @@ import UiErrorToast from '../../components/UiErrorToast.vue';
 import type { CheckinPublicReview, PlanRecord } from '../../lib/api-client';
 import { getApiClient, HttpApiError } from '../../lib/api-client';
 import { renderMarkdownToHtml } from '../../lib/render-markdown';
+import { trackEvent } from '../../lib/telemetry';
 import { useCloseOnEscape } from '../../composables/useCloseOnEscape';
 import { authState } from '../../stores/auth';
 
@@ -96,13 +97,20 @@ async function submitPublishTemplate() {
       .split(/[,，]/)
       .map((s) => s.trim())
       .filter(Boolean);
-    await getApiClient().publishMarketTemplate({
+    const created = await getApiClient().publishMarketTemplate({
       token: authState.token,
       title: publishForm.value.title.trim(),
       summary: publishForm.value.summary.trim(),
       category: publishForm.value.category.trim() || 'general',
       tags,
       planId: plan.value.id,
+    });
+    trackEvent('template_publish', {
+      properties: {
+        planId: plan.value.id,
+        templateId: created.id,
+        category: publishForm.value.category.trim() || 'general',
+      },
     });
     showPublishForm.value = false;
     await router.push({ path: '/templates', query: { published: '1' } });
@@ -409,6 +417,12 @@ async function submitCheckin() {
       attachments: atts.length ? atts : undefined,
     });
     const slot = checkinSlotKey.value;
+    trackEvent('checkin_submit', {
+      properties: {
+        planId: planId.value,
+        slotKey: slot,
+      },
+    });
     clearCheckinDraftForSlot(slot);
     const cur = { ...(plan.value?.scheduleSlotSubmissions ?? {}) };
     cur[slot] = [submission, ...(cur[slot] ?? [])];

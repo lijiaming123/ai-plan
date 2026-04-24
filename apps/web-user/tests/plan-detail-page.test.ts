@@ -1,20 +1,39 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
 import { createMemoryHistory } from 'vue-router';
+const { trackEventMock, trackPageViewMock } = vi.hoisted(() => ({
+  trackEventMock: vi.fn(),
+  trackPageViewMock: vi.fn(),
+}));
+
+vi.mock('../src/lib/telemetry', () => ({
+  trackEvent: trackEventMock,
+  trackPageView: trackPageViewMock,
+}));
+
 import PlanDetailPage from '../src/features/plans/PlanDetailPage.vue';
 import { createAppRouter } from '../src/router';
 import { clearAuthToken, setAuthToken } from '../src/stores/auth';
 import { createApiClient, setApiClient } from '../src/lib/api-client';
 
+function demoJwt() {
+  const payload = Buffer.from(JSON.stringify({ sub: 'user_demo', role: 'user' })).toString('base64');
+  return `h.${payload}.s`;
+}
+
 describe('PlanDetailPage schedule', () => {
   const getPlanMock = vi.fn();
   const patchSlotMock = vi.fn();
   const postCheckinMock = vi.fn();
+  const publishMarketTemplateMock = vi.fn();
 
   beforeEach(() => {
     getPlanMock.mockReset();
     patchSlotMock.mockReset();
     postCheckinMock.mockReset();
+    publishMarketTemplateMock.mockReset();
+    trackEventMock.mockReset();
+    trackPageViewMock.mockReset();
     clearAuthToken();
     setAuthToken('token_123');
 
@@ -82,12 +101,18 @@ describe('PlanDetailPage schedule', () => {
         attachments: [],
       },
     });
+    publishMarketTemplateMock.mockResolvedValue({
+      id: 'tpl_1',
+      title: '模板',
+      summary: '摘要',
+    });
 
     setApiClient({
       ...createApiClient(),
       getPlan: getPlanMock,
       patchPlanScheduleSlot: patchSlotMock,
       postPlanScheduleSlotCheckin: postCheckinMock,
+      publishMarketTemplate: publishMarketTemplateMock,
     });
   });
 
@@ -137,6 +162,108 @@ describe('PlanDetailPage schedule', () => {
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
     await flushPromises();
     expect(wrapper.find('[data-testid="schedule-edit-dialog"]').exists()).toBe(false);
+  });
+
+  it('提交打卡证明后应发送 checkin_submit 埋点', async () => {
+    getPlanMock.mockResolvedValueOnce({
+      id: 'plan_1',
+      goal: '测试计划',
+      deadline: new Date().toISOString(),
+      requirement: '正文',
+      type: 'general',
+      status: 'active',
+      draft: {
+        confirmedVersion: 1,
+        maxVersions: 3,
+        canRegenerate: true,
+        versions: [
+          {
+            version: 1,
+            requirement: '正文',
+            deadline: new Date().toISOString(),
+            createdAt: new Date().toISOString(),
+            schedule: {
+              granularity: 'day',
+              slots: [
+                {
+                  slotKey: '2026-04-10',
+                  generatedContent: 'A',
+                  content: 'A',
+                  contentSource: 'generated',
+                },
+              ],
+            },
+            stages: [],
+          },
+        ],
+      },
+      scheduleSlotSubmissions: {},
+    });
+
+    const router = createAppRouter(createMemoryHistory());
+    await router.push('/plans/plan_1');
+    await router.isReady();
+
+    const wrapper = mount(PlanDetailPage, { global: { plugins: [router] } });
+    await flushPromises();
+
+    await wrapper.get('[data-testid="schedule-slot-checkin"]').trigger('click');
+    await flushPromises();
+    await wrapper.get('#schedule-checkin-note').setValue('今天已完成');
+    await wrapper.get('[data-testid="schedule-checkin-submit"]').trigger('click');
+    await flushPromises();
+
+    expect(postCheckinMock).toHaveBeenCalled();
+    expect(trackEventMock).toHaveBeenCalledWith('checkin_submit', {
+      properties: {
+        planId: 'plan_1',
+        slotKey: '2026-04-10',
+      },
+    });
+  });
+
+  it('发布模板后应发送 template_publish 埋点', async () => {
+    clearAuthToken();
+    setAuthToken(demoJwt());
+    getPlanMock.mockResolvedValueOnce({
+      id: 'plan_1',
+      userId: 'user_demo',
+      goal: '测试计划',
+      deadline: new Date().toISOString(),
+      requirement: '正文',
+      type: 'general',
+      status: 'active',
+      draft: null,
+      scheduleSlotSubmissions: {},
+    });
+
+    const router = createAppRouter(createMemoryHistory());
+    const push = vi.spyOn(router, 'push');
+    await router.push('/plans/plan_1');
+    await router.isReady();
+
+    const wrapper = mount(PlanDetailPage, { global: { plugins: [router] } });
+    await flushPromises();
+
+    await wrapper.get('[data-testid="btn-publish-template"]').trigger('click');
+    await flushPromises();
+    await wrapper.get('[data-testid="confirm-publish-template"]').trigger('click');
+    await flushPromises();
+
+    expect(publishMarketTemplateMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        planId: 'plan_1',
+        category: 'general',
+      }),
+    );
+    expect(trackEventMock).toHaveBeenCalledWith('template_publish', {
+      properties: {
+        planId: 'plan_1',
+        templateId: 'tpl_1',
+        category: 'general',
+      },
+    });
+    expect(push).toHaveBeenCalledWith({ path: '/templates', query: { published: '1' } });
   });
 });
 

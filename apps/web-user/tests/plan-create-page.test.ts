@@ -3,6 +3,16 @@ import { flushPromises, mount } from '@vue/test-utils';
 import { ElSelect } from 'element-plus';
 import type { VueWrapper } from '@vue/test-utils';
 import { createMemoryHistory } from 'vue-router';
+const { trackEventMock, trackPageViewMock } = vi.hoisted(() => ({
+  trackEventMock: vi.fn(),
+  trackPageViewMock: vi.fn(),
+}));
+
+vi.mock('../src/lib/telemetry', () => ({
+  trackEvent: trackEventMock,
+  trackPageView: trackPageViewMock,
+}));
+
 import PlanCreatePage from '../src/features/plans/PlanCreatePage.vue';
 import { createAppRouter } from '../src/router';
 import { clearAuthToken, setAuthTier, setAuthToken } from '../src/stores/auth';
@@ -25,6 +35,8 @@ describe('PlanCreatePage', () => {
     createPlanMock.mockReset();
     planAssistantMock.mockReset();
     parsePlanFileMock.mockReset();
+    trackEventMock.mockReset();
+    trackPageViewMock.mockReset();
     createPlanMock.mockResolvedValue({
       id: 'plan_1',
       goal: '三个月完成作品集',
@@ -97,6 +109,12 @@ describe('PlanCreatePage', () => {
       })
     );
     expect(push).toHaveBeenCalledWith({ name: 'plan-draft', params: { id: 'plan_1' } });
+    expect(trackEventMock).toHaveBeenCalledWith('plan_create', {
+      properties: {
+        planId: 'plan_1',
+        type: 'general',
+      },
+    });
     const draftRaw = sessionStorage.getItem('ai-plan:draft-stream:plan_1');
     expect(draftRaw).toBeTruthy();
     expect(JSON.parse(draftRaw as string).createTier).toBe('basic');

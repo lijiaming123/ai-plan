@@ -2,7 +2,7 @@ import DOMPurify from 'dompurify';
 import MarkdownIt from 'markdown-it';
 
 const md = new MarkdownIt({
-  html: false,
+  html: true,
   linkify: true,
   breaks: true,
 });
@@ -33,7 +33,13 @@ export function renderMarkdownToHtml(src: string): string {
       'pre',
       'a',
       'hr',
+      'table',
+      'thead',
+      'tbody',
+      'tr',
+      'th',
+      'td',
     ],
-    ALLOWED_ATTR: ['href', 'target', 'rel', 'class'],
+    ALLOWED_ATTR: ['href', 'target', 'rel', 'class', 'colspan', 'rowspan'],
   });
 }

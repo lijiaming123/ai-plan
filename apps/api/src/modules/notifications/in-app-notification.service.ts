@@ -90,19 +90,21 @@ export async function markAllReadForUser(userId: string) {
 
 export async function tryCreateCheckinNotification(input: {
   userId: string;
-  type: "checkin_due_day" | "checkin_due_week";
+  type: "checkin_due_day" | "checkin_overdue_day" | "checkin_due_week";
   planId: string;
   slotKey: string;
   goal: string;
   dedupeKey: string;
 }): Promise<{ created: boolean }> {
   const title =
-    input.type === "checkin_due_day"
+    input.type === "checkin_due_day" || input.type === "checkin_overdue_day"
       ? `「${input.goal.slice(0, 40)}${input.goal.length > 40 ? "…" : ""}」· 待打卡`
       : `「${input.goal.slice(0, 40)}${input.goal.length > 40 ? "…" : ""}」· 周打卡待补`;
   const body =
     input.type === "checkin_due_day"
       ? `时间槽 ${input.slotKey} 今日尚未提交证明，逾期仍可补记。点按前往计划。`
+      : input.type === "checkin_overdue_day"
+        ? `时间槽 ${input.slotKey} 昨日尚未提交证明，今日可继续补记。点按前往计划。`
       : `时间槽 ${input.slotKey} 本周尚未提交证明。点按前往计划。`;
 
   const payload: Prisma.InputJsonValue = {

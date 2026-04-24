@@ -33,6 +33,7 @@ export async function runCheckinReminderJob(now: Date = new Date()) {
 
     const isSun = isSundayInTimeZone(now, tz);
     const todayYmd = ymdInTimeZone(now, tz);
+    const yesterdayYmd = ymdInTimeZone(addDays(now, -1), tz);
     const plans = await prisma.plan.findMany({ where: { userId } });
 
     for (const plan of plans) {
@@ -49,17 +50,30 @@ export async function runCheckinReminderJob(now: Date = new Date()) {
 
       if (schedule.granularity === "day") {
         for (const sl of schedule.slots) {
-          if (sl.slotKey !== todayYmd) continue;
           if ((subs[sl.slotKey] ?? []).length > 0) continue;
-          const dedupe = `checkin:day:${userId}:${plan.id}:${sl.slotKey}:${todayYmd}`;
-          await tryCreateCheckinNotification({
-            userId,
-            type: "checkin_due_day",
-            planId: plan.id,
-            slotKey: sl.slotKey,
-            goal: plan.goal,
-            dedupeKey: dedupe,
-          });
+          if (sl.slotKey === todayYmd) {
+            const dedupe = `checkin:day:${userId}:${plan.id}:${sl.slotKey}:${todayYmd}`;
+            await tryCreateCheckinNotification({
+              userId,
+              type: "checkin_due_day",
+              planId: plan.id,
+              slotKey: sl.slotKey,
+              goal: plan.goal,
+              dedupeKey: dedupe,
+            });
+            continue;
+          }
+          if (sl.slotKey === yesterdayYmd) {
+            const dedupe = `checkin:overdue-day:${userId}:${plan.id}:${sl.slotKey}:${todayYmd}`;
+            await tryCreateCheckinNotification({
+              userId,
+              type: "checkin_overdue_day",
+              planId: plan.id,
+              slotKey: sl.slotKey,
+              goal: plan.goal,
+              dedupeKey: dedupe,
+            });
+          }
         }
         continue;
       }

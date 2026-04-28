@@ -29,6 +29,8 @@ type PlanCard = {
 const plans = ref<PlanCard[]>([]);
 const listLoading = ref(true);
 const errorToastMessage = ref("");
+const actionMenuPlanId = ref<string | null>(null);
+const recentlyDeleted = ref<{ id: string; title: string } | null>(null);
 
 /**
  * 标题色：避免与整页浅绿背景「融在一起」——少用青绿系，多用中性灰蓝、天蓝、靛紫与暖色做区分。
@@ -124,6 +126,49 @@ async function loadPlans() {
 onMounted(() => {
   void loadPlans();
 });
+
+function toggleActionMenu(planId: string) {
+  actionMenuPlanId.value = actionMenuPlanId.value === planId ? null : planId;
+}
+
+function closeActionMenu() {
+  actionMenuPlanId.value = null;
+}
+
+async function onDeletePlan(plan: Pick<PlanCard, "id" | "title">) {
+  closeActionMenu();
+  const ok = window.confirm("确定删除该计划？可在最近删除中恢复。");
+  if (!ok) return;
+  if (!authState.token) {
+    errorToastMessage.value = "请先登录后再删除计划。";
+    return;
+  }
+  try {
+    await getApiClient().deletePlan({ id: plan.id, token: authState.token });
+    plans.value = plans.value.filter((p) => p.id !== plan.id);
+    recentlyDeleted.value = { id: plan.id, title: plan.title };
+  } catch (e) {
+    errorToastMessage.value =
+      e instanceof Error ? e.message : "删除计划失败";
+  }
+}
+
+async function onUndoDelete() {
+  const deleted = recentlyDeleted.value;
+  if (!deleted) return;
+  if (!authState.token) {
+    errorToastMessage.value = "请先登录后再撤销删除。";
+    return;
+  }
+  try {
+    await getApiClient().restorePlan({ id: deleted.id, token: authState.token });
+    recentlyDeleted.value = null;
+    await loadPlans();
+  } catch (e) {
+    errorToastMessage.value =
+      e instanceof Error ? e.message : "撤销删除失败";
+  }
+}
 
 const filters: FilterType[] = ["全部", "执行中", "已完成", "未开始"];
 const route = useRoute();
@@ -333,6 +378,7 @@ watch(
   <div
     class="plan-home relative flex h-full min-h-0 w-full flex-col font-plan text-stone-800"
     data-testid="plan-overview-root"
+    @click="closeActionMenu"
   >
     <!-- 柔和氛围底：渐变 + 轻噪点 -->
     <div
@@ -394,12 +440,40 @@ watch(
           </button>
         </div>
       </div>
+
+      <div class="mt-3 flex items-center justify-end">
+        <router-link
+          to="/plans/trash"
+          class="inline-flex items-center gap-1 rounded-2xl bg-white/55 px-3 py-2 text-sm font-semibold text-stone-700 ring-1 ring-white/70 backdrop-blur-sm transition hover:bg-white/75 hover:text-stone-900"
+          data-testid="link-plan-trash"
+        >
+          最近删除
+        </router-link>
+      </div>
     </header>
 
     <UiErrorToast
       :message="errorToastMessage"
       @close="errorToastMessage = ''"
     />
+
+    <div
+      v-if="recentlyDeleted"
+      class="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-emerald-200/70 bg-emerald-50/70 px-4 py-3 text-sm text-emerald-950 shadow-[0_10px_26px_-22px_rgba(16,185,129,0.55)]"
+      data-testid="recently-deleted-banner"
+    >
+      <span class="min-w-0 truncate">
+        已删除：<span class="font-semibold">{{ recentlyDeleted.title }}</span>
+      </span>
+      <button
+        type="button"
+        class="shrink-0 rounded-xl bg-white/70 px-3 py-1.5 text-sm font-semibold text-emerald-900 ring-1 ring-emerald-200/70 transition hover:bg-white"
+        data-testid="undo-delete"
+        @click.stop.prevent="onUndoDelete"
+      >
+        撤销
+      </button>
+    </div>
 
     <div class="ui-scrollbar relative min-h-0 flex-1 overflow-y-auto pr-1 pb-2">
       <div
@@ -431,6 +505,33 @@ watch(
           >
             <div class="plan-cover-grain" aria-hidden="true" />
             <div class="plan-cover-soft" aria-hidden="true" />
+
+            <div class="absolute right-3 top-3 z-[2]">
+              <button
+                type="button"
+                class="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-white/55 text-stone-700 ring-1 ring-white/70 backdrop-blur-sm transition hover:bg-white/75 hover:text-stone-900"
+                :data-testid="`plan-more-${plan.id}`"
+                aria-label="更多操作"
+                @click.stop.prevent="toggleActionMenu(plan.id)"
+              >
+                <span class="text-lg leading-none">⋯</span>
+              </button>
+              <div
+                v-if="actionMenuPlanId === plan.id"
+                class="absolute right-0 mt-2 w-40 overflow-hidden rounded-2xl border border-stone-200/80 bg-white/95 shadow-[0_18px_48px_-30px_rgba(10,60,38,0.35)] ring-1 ring-white/80 backdrop-blur"
+                :data-testid="`plan-menu-${plan.id}`"
+                @click.stop
+              >
+                <button
+                  type="button"
+                  class="flex w-full items-center gap-2 px-4 py-3 text-left text-sm font-semibold text-stone-700 transition hover:bg-stone-50 hover:text-stone-900"
+                  :data-testid="`plan-delete-${plan.id}`"
+                  @click.stop.prevent="onDeletePlan(plan)"
+                >
+                  <span class="text-stone-500">删除</span>
+                </button>
+              </div>
+            </div>
 
             <div class="plan-cover-inner flex items-center gap-4 px-5 py-4">
               <div

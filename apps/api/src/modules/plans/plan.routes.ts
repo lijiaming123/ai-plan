@@ -605,7 +605,9 @@ function formatDraftToText(params: {
 export async function registerPlanRoutes(fastify: FastifyInstance) {
   const requireLogin = async (request: any) => {
     // 仅要求是“已登录用户”（user/admin 均可）；handler 内直接读取 request.user.sub
-    await request.jwtVerify();
+    const payload = await request.jwtVerify<{ sub: string }>();
+    // 兼容不同 fastify-jwt 版本：不一定会自动挂 request.user
+    request.user = payload;
   };
 
   // —— CRUD 与草稿生命周期 ——

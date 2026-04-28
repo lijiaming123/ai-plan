@@ -3,6 +3,7 @@ import { buildApp } from "../src/app";
 import { prisma } from "../src/lib/prisma";
 
 let dbUp = false;
+let schemaUp = false;
 try {
   await prisma.$queryRaw`SELECT 1`;
   dbUp = true;
@@ -10,7 +11,17 @@ try {
   dbUp = false;
 }
 
-const describeDb = dbUp ? describe : describe.skip;
+if (dbUp) {
+  try {
+    // 若本地 DB 未应用最新 migration（缺 deletedAt 列），相关路由会 500；此时跳过用例即可。
+    await prisma.plan.findFirst({ select: { deletedAt: true } });
+    schemaUp = true;
+  } catch {
+    schemaUp = false;
+  }
+}
+
+const describeDb = dbUp && schemaUp ? describe : describe.skip;
 
 describeDb("plan soft delete / restore / trash", () => {
   const app = buildApp();

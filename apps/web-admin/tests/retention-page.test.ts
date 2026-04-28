@@ -12,7 +12,12 @@ describe('RetentionPage', () => {
     setAdminApiClient({
       login: vi.fn(),
       registerAdmin: vi.fn(),
-      getAdminMe: vi.fn(),
+      getAdminMe: vi.fn().mockResolvedValue({
+        userId: 'admin_1',
+        email: 'admin@test.dev',
+        role: 'admin',
+        permissions: ['analytics:read'],
+      }),
       getDashboard: vi.fn(),
       getRules: vi.fn(),
       getSubmissions: vi.fn(),

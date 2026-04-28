@@ -12,7 +12,12 @@ describe('UsersListPage', () => {
     setAdminApiClient({
       login: vi.fn(),
       registerAdmin: vi.fn(),
-      getAdminMe: vi.fn(),
+      getAdminMe: vi.fn().mockResolvedValue({
+        userId: 'admin_1',
+        email: 'admin@test.dev',
+        role: 'admin',
+        permissions: ['users:read'],
+      }),
       getDashboard: vi.fn(),
       getRules: vi.fn(),
       getSubmissions: vi.fn(),
@@ -29,7 +34,7 @@ describe('UsersListPage', () => {
     });
   });
 
-  it('应展示用户 id 与详情链接', async () => {
+  it('renders user ids and detail links', async () => {
     setAdminToken('admin-token');
     const router = createAdminRouter(createMemoryHistory());
     await router.push('/admin/users');
@@ -41,9 +46,9 @@ describe('UsersListPage', () => {
 
     await flushPromises();
 
+    expect(wrapper.text()).toContain('业务用户列表');
     expect(wrapper.text()).toContain('user_alpha');
     expect(wrapper.text()).toContain('user_beta');
-    const html = wrapper.html();
-    expect(html).toContain('/admin/users/user_alpha');
+    expect(wrapper.html()).toContain('/admin/users/user_alpha');
   });
 });

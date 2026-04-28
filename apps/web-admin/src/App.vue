@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { adminNavItems, getAdminRoleLabel } from './lib/admin-access';
 import { adminAuthState, adminProfile, clearAdminToken, hydrateAdminProfile } from './stores/auth';
 
 const route = useRoute();
@@ -10,16 +11,15 @@ const guestPaths = new Set(['/admin/login', '/admin/register']);
 
 const isAuthScreen = computed(() => guestPaths.has(route.path));
 
-const permissionLabel = computed(() => {
-  const p = adminProfile.permissions;
-  if (!p?.length) return '受限管理员';
-  if (p.includes('rbac:manage')) return '超级管理员';
-  if (p.includes('audit:read') && p.includes('analytics:read') && !p.includes('users:read')) {
-    return '审计只读';
-  }
-  if (p.includes('users:read')) return '运营分析';
-  return '管理员';
-});
+const permissionLabel = computed(() => getAdminRoleLabel(adminProfile.permissions));
+
+const visibleNavItems = computed(() =>
+  adminNavItems.filter((item) => !item.permission || adminProfile.permissions.includes(item.permission)),
+);
+
+const currentSection = computed(
+  () => visibleNavItems.value.find((item) => route.path.startsWith(item.to))?.label ?? '控制台',
+);
 
 function logout() {
   clearAdminToken();
@@ -41,91 +41,244 @@ onMounted(async () => {
   <div class="app-shell">
     <template v-if="!isAuthScreen">
       <a class="skip-to-content" href="#main-content">跳到主内容</a>
-      <div class="bg-orb orb-a" />
-      <div class="bg-orb orb-b" />
-      <main id="main-content" class="page-shell" tabindex="-1">
-        <nav class="top-nav top-nav--sticky" aria-label="主导航">
-          <div class="brand">AI PLAN <span class="brand-mark">ADMIN</span></div>
-          <div class="nav-links">
-            <router-link class="nav-link" to="/admin/dashboard">总览</router-link>
-            <router-link class="nav-link" to="/admin/analytics/funnel">漏斗</router-link>
-            <router-link class="nav-link" to="/admin/analytics/retention">留存</router-link>
-            <router-link class="nav-link" to="/admin/analytics/path">路径</router-link>
-            <router-link class="nav-link" to="/admin/users">用户</router-link>
-            <router-link class="nav-link" to="/admin/rules">规则</router-link>
-            <router-link class="nav-link" to="/admin/submissions">提交</router-link>
+      <div class="admin-layout">
+        <aside class="admin-sidebar">
+          <div class="sidebar-brand">
+            <span class="sidebar-brand__eyebrow">AI PLAN</span>
+            <strong class="sidebar-brand__title">管理端</strong>
+            <p class="sidebar-brand__text">简洁看板、用户治理和权限控制都放在这一处。</p>
           </div>
-          <div v-if="adminAuthState.token" class="nav-user" aria-live="polite">
-            <span class="nav-user__meta" :title="adminProfile.permissions.join(', ')">
-              <span class="nav-user__email">{{ adminProfile.email || '…' }}</span>
-              <span class="nav-user__role">{{ permissionLabel }}</span>
-            </span>
-            <button type="button" class="ghost-btn nav-user__out" @click="logout">退出</button>
-          </div>
-        </nav>
-        <router-view />
-      </main>
+
+          <nav class="sidebar-nav" aria-label="主导航">
+            <router-link
+              v-for="item in visibleNavItems"
+              :key="item.to"
+              class="sidebar-link"
+              :to="item.to"
+            >
+              <span class="sidebar-link__label">{{ item.label }}</span>
+            </router-link>
+          </nav>
+
+          <section class="sidebar-profile" aria-live="polite">
+            <p class="sidebar-profile__label">当前账号</p>
+            <strong class="sidebar-profile__email">{{ adminProfile.email || '未识别账号' }}</strong>
+            <span class="sidebar-profile__role">{{ permissionLabel }}</span>
+            <button type="button" class="ghost-btn sidebar-profile__logout" @click="logout">退出登录</button>
+          </section>
+        </aside>
+
+        <main id="main-content" class="admin-content" tabindex="-1">
+          <header class="content-header">
+            <div>
+              <p class="content-header__eyebrow">Admin Console</p>
+              <h1 class="content-header__title">{{ currentSection }}</h1>
+            </div>
+            <div class="content-header__meta">
+              <span class="content-header__pill">{{ permissionLabel }}</span>
+            </div>
+          </header>
+
+          <router-view />
+        </main>
+      </div>
     </template>
     <router-view v-else />
   </div>
 </template>
 
 <style scoped>
-.nav-user {
+.admin-layout {
+  display: grid;
+  grid-template-columns: 272px minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.admin-sidebar {
+  position: sticky;
+  top: 0;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 1.5rem;
+  align-self: start;
+  min-height: 100vh;
+  padding: 1.5rem 1.1rem;
+  border-right: 1px solid rgba(15, 23, 42, 0.08);
+  background: rgba(248, 250, 252, 0.92);
+  backdrop-filter: blur(14px);
+}
+
+.sidebar-brand {
+  padding: 0.35rem 0.3rem;
+}
+
+.sidebar-brand__eyebrow {
+  display: block;
+  margin-bottom: 0.45rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #64748b;
+  text-transform: uppercase;
+}
+
+.sidebar-brand__title {
+  display: block;
+  font-size: 1.2rem;
+  line-height: 1.2;
+  color: #0f172a;
+}
+
+.sidebar-brand__text {
+  margin: 0.55rem 0 0;
+  font-size: 0.88rem;
+  line-height: 1.55;
+  color: #64748b;
+}
+
+.sidebar-nav {
+  display: grid;
+  gap: 0.35rem;
+  align-content: start;
+}
+
+.sidebar-link {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 0.5rem 0.75rem;
-  margin-left: auto;
-}
-
-.nav-user__meta {
-  display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
-  text-align: right;
-  max-width: 14rem;
-}
-
-.nav-user__email {
-  font-size: 0.82rem;
+  min-height: 2.75rem;
+  padding: 0.7rem 0.85rem;
+  border-radius: 10px;
+  text-decoration: none;
+  color: #475569;
+  font-size: 0.94rem;
   font-weight: 600;
-  color: var(--text-primary);
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.sidebar-link:hover {
+  background: rgba(226, 232, 240, 0.8);
+  color: #0f172a;
+}
+
+.sidebar-link.router-link-active {
+  background: #0f172a;
+  color: #f8fafc;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.14);
+}
+
+.sidebar-profile {
+  display: grid;
+  gap: 0.45rem;
+  padding: 1rem;
+  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: #ffffff;
+}
+
+.sidebar-profile__label {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #64748b;
+  text-transform: uppercase;
+}
+
+.sidebar-profile__email {
+  display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 0.94rem;
+  color: #0f172a;
 }
 
-.nav-user__role {
-  font-size: 0.72rem;
+.sidebar-profile__role {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  min-height: 1.9rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 0.78rem;
   font-weight: 700;
-  color: var(--brand-strong);
-  letter-spacing: 0.04em;
 }
 
-.nav-user__out {
-  padding: 0.32rem 0.65rem;
-  font-size: 0.82rem;
+.sidebar-profile__logout {
+  margin-top: 0.2rem;
 }
 
-@media (max-width: 960px) {
-  .top-nav {
+.admin-content {
+  min-width: 0;
+  padding: 1.5rem;
+}
+
+.content-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 0 auto 1rem;
+  width: min(1180px, 100%);
+}
+
+.content-header__eyebrow {
+  margin: 0 0 0.2rem;
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #64748b;
+  text-transform: uppercase;
+}
+
+.content-header__title {
+  margin: 0;
+  font-size: 1.55rem;
+  line-height: 1.2;
+  color: #0f172a;
+}
+
+.content-header__meta {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.content-header__pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2rem;
+  padding: 0.2rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: rgba(255, 255, 255, 0.84);
+  color: #334155;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+@media (max-width: 980px) {
+  .admin-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-sidebar {
+    position: static;
+    min-height: auto;
+    border-right: 0;
+    border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+  }
+
+  .admin-content {
+    padding: 1rem;
+  }
+
+  .content-header {
     flex-direction: column;
-    align-items: stretch;
-  }
-
-  .nav-links {
-    justify-content: flex-start;
-  }
-
-  .nav-user {
-    margin-left: 0;
-    justify-content: space-between;
-    width: 100%;
-  }
-
-  .nav-user__meta {
-    text-align: left;
   }
 }
 </style>

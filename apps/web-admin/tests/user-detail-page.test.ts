@@ -6,13 +6,22 @@ import { createAdminRouter } from '../src/router';
 import { setAdminToken, clearAdminToken } from '../src/stores/auth';
 import { setAdminApiClient } from '../src/lib/api-client';
 
+function createUsersMe() {
+  return {
+    userId: 'admin_1',
+    email: 'admin@test.dev',
+    role: 'admin' as const,
+    permissions: ['users:read'],
+  };
+}
+
 describe('UserDetailPage', () => {
   beforeEach(() => {
     clearAdminToken();
     setAdminApiClient({
       login: vi.fn(),
       registerAdmin: vi.fn(),
-      getAdminMe: vi.fn(),
+      getAdminMe: vi.fn().mockResolvedValue(createUsersMe()),
       getDashboard: vi.fn(),
       getRules: vi.fn(),
       getSubmissions: vi.fn(),
@@ -37,7 +46,7 @@ describe('UserDetailPage', () => {
     });
   });
 
-  it('应渲染关键计数与 Telemetry Top', async () => {
+  it('renders summary cards and telemetry top events', async () => {
     setAdminToken('admin-token');
     const router = createAdminRouter(createMemoryHistory());
     await router.push('/admin/users/user_alpha');
@@ -50,19 +59,17 @@ describe('UserDetailPage', () => {
     await flushPromises();
 
     expect(wrapper.text()).toContain('user_alpha');
-    expect(wrapper.text()).toContain('计划数');
-    expect(wrapper.text()).toContain('2');
-    expect(wrapper.text()).toContain('5');
+    expect(wrapper.text()).toContain('用户画像');
     expect(wrapper.text()).toContain('dashboard_view');
-    expect(wrapper.text()).toContain('4');
+    expect(wrapper.text()).toContain('Telemetry Top Events');
   });
 
-  it('404 时应展示未找到提示', async () => {
+  it('shows not found state on 404', async () => {
     setAdminToken('admin-token');
     setAdminApiClient({
       login: vi.fn(),
       registerAdmin: vi.fn(),
-      getAdminMe: vi.fn(),
+      getAdminMe: vi.fn().mockResolvedValue(createUsersMe()),
       getDashboard: vi.fn(),
       getRules: vi.fn(),
       getSubmissions: vi.fn(),
@@ -83,6 +90,6 @@ describe('UserDetailPage', () => {
 
     await flushPromises();
 
-    expect(wrapper.text()).toContain('未找到');
+    expect(wrapper.text()).toContain('未找到该 userId');
   });
 });

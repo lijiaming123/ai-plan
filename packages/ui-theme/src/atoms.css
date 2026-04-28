@@ -4,29 +4,6 @@
   min-height: 100vh;
 }
 
-.bg-orb {
-  position: fixed;
-  z-index: -1;
-  pointer-events: none;
-  border-radius: 999px;
-}
-
-.orb-a {
-  top: -56px;
-  left: -26px;
-  width: 252px;
-  height: 252px;
-  background: radial-gradient(circle at 34% 34%, rgba(255, 138, 61, 0.48), rgba(255, 138, 61, 0) 74%);
-}
-
-.orb-b {
-  right: -14px;
-  bottom: 8%;
-  width: 236px;
-  height: 236px;
-  background: radial-gradient(circle at 34% 35%, rgba(255, 93, 108, 0.38), rgba(255, 93, 108, 0) 75%);
-}
-
 .hero-title {
   margin: 0;
   font-size: clamp(1.5rem, 2vw, 2rem);
@@ -48,7 +25,7 @@
   font-weight: 700;
   letter-spacing: 0.02em;
   color: var(--brand-strong);
-  background: linear-gradient(90deg, rgba(255, 138, 61, 0.16), rgba(255, 93, 108, 0.11));
+  background: rgba(37, 99, 235, 0.08);
 }
 
 .stats-grid {

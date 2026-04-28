@@ -17,7 +17,7 @@ describe('listPlansForUser sort', () => {
     await listPlansForUser('user_a');
     expect(prisma.plan.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { userId: 'user_a' },
+        where: { userId: 'user_a', deletedAt: null },
         orderBy: { createdAt: 'desc' },
       }),
     );
@@ -27,7 +27,7 @@ describe('listPlansForUser sort', () => {
     await listPlansForUser('user_b', { sort: 'deadline_asc' });
     expect(prisma.plan.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { userId: 'user_b' },
+        where: { userId: 'user_b', deletedAt: null },
         orderBy: { deadline: 'asc' },
       }),
     );

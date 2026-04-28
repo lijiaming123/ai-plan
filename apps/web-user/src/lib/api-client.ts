@@ -172,6 +172,16 @@ export type PlanListRow = {
   createdAt: string;
 };
 
+export type DeletedPlanListRow = {
+  id: string;
+  goal: string;
+  deadline: string;
+  requirement: string;
+  type: string;
+  createdAt: string;
+  deletedAt: string | null;
+};
+
 export type PlanRecord = {
   id: string;
   userId?: string;
@@ -370,6 +380,11 @@ export type ApiClient = {
     /** `deadline`：按截止日期升序（更近的在前）。默认按创建时间倒序。 */
     sort?: "created" | "deadline";
   }): Promise<{ plans: PlanListRow[] }>;
+  deletePlan(input: { id: string; token: string }): Promise<{ ok: true }>;
+  restorePlan(input: { id: string; token: string }): Promise<{ ok: true }>;
+  listDeletedPlans(input: {
+    token: string;
+  }): Promise<{ plans: DeletedPlanListRow[] }>;
   createPlan(input: CreatePlanInput): Promise<PlanRecord>;
   createSubmission(input: CreateSubmissionInput): Promise<SubmissionRecord>;
   planAssistant(input: PlanAssistantInput): Promise<PlanAssistantResult>;
@@ -706,6 +721,30 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
       }
       const qs = params.toString();
       return request<{ plans: PlanListRow[] }>(`/plans${qs ? `?${qs}` : ""}`, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${input.token}`,
+        },
+      });
+    },
+    deletePlan(input) {
+      return request<{ ok: true }>(`/plans/${input.id}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${input.token}`,
+        },
+      });
+    },
+    restorePlan(input) {
+      return request<{ ok: true }>(`/plans/${input.id}/restore`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${input.token}`,
+        },
+      });
+    },
+    listDeletedPlans(input) {
+      return request<{ plans: DeletedPlanListRow[] }>(`/plans/trash`, {
         method: "GET",
         headers: {
           Authorization: `Bearer ${input.token}`,

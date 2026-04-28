@@ -459,17 +459,73 @@ export async function listPlansForUser(
       ? ({ deadline: "asc" } as const)
       : ({ createdAt: "desc" } as const);
   const rows = await prisma.plan.findMany({
-    where: { userId },
+    where: { userId, deletedAt: null },
     orderBy,
     select: planListSelect,
   });
   return rows.map(mapPlanListRow);
 }
 
+export async function listTrashPlans(userId: string) {
+  const rows = await prisma.plan.findMany({
+    where: { userId, deletedAt: { not: null } },
+    orderBy: { deletedAt: "desc" },
+    select: { ...planListSelect, deletedAt: true },
+  });
+  return rows.map((row) => ({
+    ...mapPlanListRow(row),
+    deletedAt: row.deletedAt?.toISOString() ?? null,
+  }));
+}
+
+export async function softDeletePlan(params: {
+  planId: string;
+  userId: string;
+}): Promise<
+  | { ok: true }
+  | { ok: false; code: 404 | 403; message: string }
+> {
+  const row = await prisma.plan.findUnique({
+    where: { id: params.planId },
+    select: { userId: true },
+  });
+  if (!row) return { ok: false, code: 404, message: "plan not found" };
+  if (row.userId !== params.userId)
+    return { ok: false, code: 403, message: "Forbidden" };
+
+  await prisma.plan.update({
+    where: { id: params.planId },
+    data: { deletedAt: new Date() },
+  });
+  return { ok: true };
+}
+
+export async function restorePlan(params: {
+  planId: string;
+  userId: string;
+}): Promise<
+  | { ok: true }
+  | { ok: false; code: 404 | 403; message: string }
+> {
+  const row = await prisma.plan.findUnique({
+    where: { id: params.planId },
+    select: { userId: true },
+  });
+  if (!row) return { ok: false, code: 404, message: "plan not found" };
+  if (row.userId !== params.userId)
+    return { ok: false, code: 403, message: "Forbidden" };
+
+  await prisma.plan.update({
+    where: { id: params.planId },
+    data: { deletedAt: null },
+  });
+  return { ok: true };
+}
+
 /** 用户维度的计划详情 + 草稿元数据（版本列表、是否还可 regenerate） */
 export async function getPlanWithDraft(planId: string, userId: string) {
   const plan = await prisma.plan.findFirst({
-    where: { id: planId, userId },
+    where: { id: planId, userId, deletedAt: null },
   });
   if (!plan) return null;
   const state = await loadPersistedPlanState(plan);

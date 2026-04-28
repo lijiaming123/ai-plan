@@ -31,6 +31,9 @@ const PlanDetailPage = isTest
 const PlanDraftPage = isTest
   ? (await import('../features/plans/PlanDraftPage.vue')).default
   : () => import('../features/plans/PlanDraftPage.vue');
+const PlanTrashPage = isTest
+  ? (await import('../features/plans/PlanTrashPage.vue')).default
+  : () => import('../features/plans/PlanTrashPage.vue');
 
 const TemplatesPage = isTest
   ? (await import('../features/templates/TemplatesPage.vue')).default
@@ -98,6 +101,12 @@ export function createAppRouter(history: RouterHistory = createWebHistory()) {
             name: 'plan-overview',
             component: PlanOverviewPage,
             meta: { nav: 'plans' },
+          },
+          {
+            path: 'plans/trash',
+            name: 'plan-trash',
+            component: PlanTrashPage,
+            meta: { nav: 'plans', requiresAuth: true },
           },
           {
             path: 'plans/:id/draft',

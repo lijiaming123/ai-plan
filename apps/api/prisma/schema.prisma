@@ -22,6 +22,9 @@ model Plan {
   scheduleSlotSubmissions PlanScheduleSlotSubmission[]
   scheduleSlotAppeals     PlanScheduleSlotAppeal[]
   createdAt               DateTime                     @default(now())
+  deletedAt              DateTime?
+
+  @@index([userId, deletedAt])
 }
 
 /// 已定稿计划下，按打卡时间槽提交的执行证明（文字 + 外链附件）

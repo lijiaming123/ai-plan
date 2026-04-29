@@ -43,9 +43,8 @@ describe("PlanOverviewPage delete/undo", () => {
       listPlans,
       deletePlan,
       restorePlan,
+      listDeletedPlans: vi.fn().mockResolvedValue({ plans: [] }),
     });
-
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
 
     const router = createAppRouter(createMemoryHistory());
     await router.push("/plans");
@@ -60,9 +59,12 @@ describe("PlanOverviewPage delete/undo", () => {
 
     await wrapper.get('[data-testid="plan-more-plan_a"]').trigger("click");
     await wrapper.get('[data-testid="plan-delete-plan_a"]').trigger("click");
+    expect(
+      wrapper.find('[data-testid="confirm-delete-dialog"]').exists(),
+    ).toBe(true);
+    await wrapper.get('[data-testid="ui-confirm-ok"]').trigger("click");
     await flushPromises();
 
-    expect(confirmSpy).toHaveBeenCalledWith("确定删除该计划？可在最近删除中恢复。");
     expect(deletePlan).toHaveBeenCalledWith({ id: "plan_a", token: "token_123" });
     expect(wrapper.findAll('[data-testid="plan-card"]').length).toBe(0);
     expect(wrapper.find('[data-testid="recently-deleted-banner"]').exists()).toBe(

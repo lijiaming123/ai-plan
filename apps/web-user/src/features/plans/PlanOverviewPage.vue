@@ -3,8 +3,10 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import PageSectionHeading from "../../components/PageSectionHeading.vue";
 import UiErrorToast from "../../components/UiErrorToast.vue";
+import UiConfirmDialog from "../../components/UiConfirmDialog.vue";
 import { getApiClient, type PlanListRow } from "../../lib/api-client";
 import { buildPlanCardDisplayTexts } from "../../lib/plan-list-card-text";
+import { useCloseOnEscape } from "../../composables/useCloseOnEscape";
 import { authState } from "../../stores/auth";
 import { planListSearchQuery } from "../../stores/plan-search-query";
 
@@ -29,8 +31,32 @@ type PlanCard = {
 const plans = ref<PlanCard[]>([]);
 const listLoading = ref(true);
 const errorToastMessage = ref("");
-const actionMenuPlanId = ref<string | null>(null);
 const recentlyDeleted = ref<{ id: string; title: string } | null>(null);
+const trashCount = ref<number | null>(null);
+
+const desktopMenuPlanId = ref<string | null>(null);
+const actionSheetOpen = ref(false);
+const actionSheetPlan = ref<Pick<PlanCard, "id" | "title"> | null>(null);
+
+const confirmDeleteOpen = ref(false);
+const confirmDeletePlan = ref<Pick<PlanCard, "id" | "title"> | null>(null);
+const confirmDeleteSubmitting = ref(false);
+
+function closeDesktopMenu() {
+  desktopMenuPlanId.value = null;
+}
+
+function closeActionSheet() {
+  actionSheetOpen.value = false;
+  actionSheetPlan.value = null;
+}
+
+useCloseOnEscape(actionSheetOpen, closeActionSheet);
+useCloseOnEscape(confirmDeleteOpen, () => {
+  if (confirmDeleteSubmitting.value) return;
+  confirmDeleteOpen.value = false;
+  confirmDeletePlan.value = null;
+});
 
 /**
  * 标题色：避免与整页浅绿背景「融在一起」——少用青绿系，多用中性灰蓝、天蓝、靛紫与暖色做区分。
@@ -125,31 +151,55 @@ async function loadPlans() {
 
 onMounted(() => {
   void loadPlans();
+  void (async () => {
+    if (!authState.token) {
+      trashCount.value = null;
+      return;
+    }
+    try {
+      const { plans } = await getApiClient().listDeletedPlans({
+        token: authState.token,
+      });
+      trashCount.value = plans.length;
+    } catch {
+      // 回收站入口不应因计数失败而影响主流程
+      trashCount.value = null;
+    }
+  })();
 });
 
-function toggleActionMenu(planId: string) {
-  actionMenuPlanId.value = actionMenuPlanId.value === planId ? null : planId;
+function openActionSheet(plan: Pick<PlanCard, "id" | "title">) {
+  actionSheetPlan.value = plan;
+  actionSheetOpen.value = true;
 }
 
-function closeActionMenu() {
-  actionMenuPlanId.value = null;
+function openConfirmDelete(plan: Pick<PlanCard, "id" | "title">) {
+  closeActionSheet();
+  closeDesktopMenu();
+  confirmDeletePlan.value = plan;
+  confirmDeleteOpen.value = true;
 }
 
-async function onDeletePlan(plan: Pick<PlanCard, "id" | "title">) {
-  closeActionMenu();
-  const ok = window.confirm("确定删除该计划？可在最近删除中恢复。");
-  if (!ok) return;
+async function submitDeletePlan() {
+  const plan = confirmDeletePlan.value;
+  if (!plan) return;
   if (!authState.token) {
     errorToastMessage.value = "请先登录后再删除计划。";
     return;
   }
   try {
+    confirmDeleteSubmitting.value = true;
     await getApiClient().deletePlan({ id: plan.id, token: authState.token });
     plans.value = plans.value.filter((p) => p.id !== plan.id);
     recentlyDeleted.value = { id: plan.id, title: plan.title };
+    trashCount.value = (trashCount.value ?? 0) + 1;
+    confirmDeleteOpen.value = false;
+    confirmDeletePlan.value = null;
   } catch (e) {
     errorToastMessage.value =
       e instanceof Error ? e.message : "删除计划失败";
+  } finally {
+    confirmDeleteSubmitting.value = false;
   }
 }
 
@@ -163,6 +213,8 @@ async function onUndoDelete() {
   try {
     await getApiClient().restorePlan({ id: deleted.id, token: authState.token });
     recentlyDeleted.value = null;
+    trashCount.value =
+      trashCount.value == null ? null : Math.max(0, trashCount.value - 1);
     await loadPlans();
   } catch (e) {
     errorToastMessage.value =
@@ -378,7 +430,7 @@ watch(
   <div
     class="plan-home relative flex h-full min-h-0 w-full flex-col font-plan text-stone-800"
     data-testid="plan-overview-root"
-    @click="closeActionMenu"
+    @click="closeDesktopMenu"
   >
     <!-- 柔和氛围底：渐变 + 轻噪点 -->
     <div
@@ -400,15 +452,16 @@ watch(
         <p>{{ filterSummary }}</p>
       </PageSectionHeading>
 
-      <div
-        class="plan-filter-rail-scroll -mx-1 mt-6 max-w-full overflow-x-auto overflow-y-visible px-1 pb-0.5 sm:mx-0 sm:overflow-visible sm:px-0"
-      >
+      <div class="mt-6 flex flex-wrap items-center justify-between gap-3">
         <div
-          ref="filterRailRef"
-          class="plan-filter-rail relative inline-flex min-w-min flex-nowrap gap-1 rounded-2xl border border-white/60 bg-white/50 p-1.5 shadow-[0_1px_0_rgba(255,255,255,0.85)_inset,0_8px_24px_-12px_rgba(15,60,40,0.12)] backdrop-blur-sm"
-          role="tablist"
-          aria-label="计划筛选"
+          class="plan-filter-rail-scroll -mx-1 max-w-full overflow-x-auto overflow-y-visible px-1 pb-0.5 sm:mx-0 sm:overflow-visible sm:px-0"
         >
+          <div
+            ref="filterRailRef"
+            class="plan-filter-rail relative inline-flex min-w-min flex-nowrap gap-1 rounded-2xl border border-white/60 bg-white/50 p-1.5 shadow-[0_1px_0_rgba(255,255,255,0.85)_inset,0_8px_24px_-12px_rgba(15,60,40,0.12)] backdrop-blur-sm"
+            role="tablist"
+            aria-label="计划筛选"
+          >
           <span
             class="plan-filter-indicator pointer-events-none absolute z-0 overflow-hidden rounded-xl bg-white shadow-[0_3px_14px_-4px_rgba(12,72,48,0.22),0_0_0_1px_rgba(16,185,129,0.2)] ring-1 ring-emerald-200/55"
             aria-hidden="true"
@@ -438,16 +491,25 @@ watch(
           >
             {{ filter }}
           </button>
+          </div>
         </div>
-      </div>
-
-      <div class="mt-3 flex items-center justify-end">
         <router-link
           to="/plans/trash"
-          class="inline-flex items-center gap-1 rounded-2xl bg-white/55 px-3 py-2 text-sm font-semibold text-stone-700 ring-1 ring-white/70 backdrop-blur-sm transition hover:bg-white/75 hover:text-stone-900"
+          class="inline-flex items-center gap-2 rounded-2xl bg-white/40 px-2.5 py-2 text-sm font-semibold text-stone-600 ring-1 ring-white/60 backdrop-blur-sm transition hover:bg-white/65 hover:text-stone-900"
           data-testid="link-plan-trash"
+          @click.stop
         >
-          最近删除
+          <span class="material-symbols-outlined text-[18px]" aria-hidden="true"
+            >restore_from_trash</span
+          >
+          <span>最近删除</span>
+          <span
+            v-if="trashCount != null && trashCount > 0"
+            class="rounded-full bg-stone-900/8 px-2 py-0.5 text-xs font-extrabold tabular-nums text-stone-700 ring-1 ring-white/70"
+            data-testid="trash-count"
+          >
+            {{ trashCount }}
+          </span>
         </router-link>
       </div>
     </header>
@@ -465,14 +527,23 @@ watch(
       <span class="min-w-0 truncate">
         已删除：<span class="font-semibold">{{ recentlyDeleted.title }}</span>
       </span>
-      <button
-        type="button"
-        class="shrink-0 rounded-xl bg-white/70 px-3 py-1.5 text-sm font-semibold text-emerald-900 ring-1 ring-emerald-200/70 transition hover:bg-white"
-        data-testid="undo-delete"
-        @click.stop.prevent="onUndoDelete"
-      >
-        撤销
-      </button>
+      <div class="flex shrink-0 items-center gap-2">
+        <router-link
+          to="/plans/trash"
+          class="rounded-xl bg-white/50 px-3 py-1.5 text-sm font-semibold text-emerald-900 ring-1 ring-emerald-200/60 transition hover:bg-white/70"
+          data-testid="go-trash"
+        >
+          去最近删除
+        </router-link>
+        <button
+          type="button"
+          class="rounded-xl bg-white/70 px-3 py-1.5 text-sm font-semibold text-emerald-900 ring-1 ring-emerald-200/70 transition hover:bg-white"
+          data-testid="undo-delete"
+          @click.stop.prevent="onUndoDelete"
+        >
+          撤销
+        </button>
+      </div>
     </div>
 
     <div class="ui-scrollbar relative min-h-0 flex-1 overflow-y-auto pr-1 pb-2">
@@ -509,26 +580,40 @@ watch(
             <div class="absolute right-3 top-3 z-[2]">
               <button
                 type="button"
-                class="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-white/55 text-stone-700 ring-1 ring-white/70 backdrop-blur-sm transition hover:bg-white/75 hover:text-stone-900"
+                class="hidden h-9 w-9 items-center justify-center rounded-xl bg-white/55 text-stone-700 ring-1 ring-white/70 backdrop-blur-sm transition hover:bg-white/75 hover:text-stone-900 sm:inline-flex"
                 :data-testid="`plan-more-${plan.id}`"
                 aria-label="更多操作"
-                @click.stop.prevent="toggleActionMenu(plan.id)"
+                @click.stop.prevent="desktopMenuPlanId = desktopMenuPlanId === plan.id ? null : plan.id"
               >
                 <span class="text-lg leading-none">⋯</span>
               </button>
+              <button
+                type="button"
+                class="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-white/55 text-stone-700 ring-1 ring-white/70 backdrop-blur-sm transition hover:bg-white/75 hover:text-stone-900 sm:hidden"
+                :data-testid="`plan-more-mobile-${plan.id}`"
+                aria-label="更多操作"
+                @click.stop.prevent="openActionSheet(plan)"
+              >
+                <span class="text-lg leading-none">⋯</span>
+              </button>
+
+              <!-- Desktop popover menu -->
               <div
-                v-if="actionMenuPlanId === plan.id"
-                class="absolute right-0 mt-2 w-40 overflow-hidden rounded-2xl border border-stone-200/80 bg-white/95 shadow-[0_18px_48px_-30px_rgba(10,60,38,0.35)] ring-1 ring-white/80 backdrop-blur"
+                v-if="desktopMenuPlanId === plan.id"
+                class="absolute right-0 mt-2 w-44 overflow-hidden rounded-2xl border border-stone-200/80 bg-white/95 shadow-[0_18px_48px_-30px_rgba(10,60,38,0.35)] ring-1 ring-white/80 backdrop-blur"
                 :data-testid="`plan-menu-${plan.id}`"
                 @click.stop
               >
                 <button
                   type="button"
-                  class="flex w-full items-center gap-2 px-4 py-3 text-left text-sm font-semibold text-stone-700 transition hover:bg-stone-50 hover:text-stone-900"
+                  class="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm font-extrabold text-rose-700 transition hover:bg-rose-50"
                   :data-testid="`plan-delete-${plan.id}`"
-                  @click.stop.prevent="onDeletePlan(plan)"
+                  @click.stop.prevent="openConfirmDelete(plan)"
                 >
-                  <span class="text-stone-500">删除</span>
+                  <span>删除计划</span>
+                  <span class="text-xs font-semibold text-rose-700/60"
+                    >可恢复</span
+                  >
                 </button>
               </div>
             </div>
@@ -695,6 +780,84 @@ watch(
         </router-link>
       </div>
     </div>
+
+    <!-- Action Sheet -->
+    <div
+      v-if="actionSheetOpen"
+      class="fixed inset-0 z-50"
+      data-testid="plan-action-sheet-root"
+      @click="closeActionSheet"
+    >
+      <div
+        class="absolute inset-0 bg-stone-900/30 backdrop-blur-[1px]"
+        aria-hidden="true"
+      />
+      <div
+        class="absolute bottom-0 left-0 right-0 mx-auto w-full max-w-lg rounded-t-3xl border border-white/60 bg-white/95 px-4 pb-5 pt-4 shadow-[0_-20px_55px_-35px_rgba(10,60,38,0.55)]"
+        role="dialog"
+        aria-modal="true"
+        aria-label="计划操作"
+        data-testid="plan-action-sheet"
+        @click.stop
+      >
+        <div class="flex items-start justify-between gap-3">
+          <div class="min-w-0">
+            <p class="text-sm font-semibold text-stone-500">对该计划进行操作</p>
+            <p class="mt-1 truncate text-base font-extrabold text-stone-900">
+              {{ actionSheetPlan?.title ?? "" }}
+            </p>
+          </div>
+          <button
+            type="button"
+            class="inline-flex h-9 w-9 items-center justify-center rounded-2xl bg-stone-100 text-stone-700 ring-1 ring-stone-200/80 transition hover:bg-stone-200/70"
+            aria-label="关闭"
+            data-testid="action-sheet-close"
+            @click="closeActionSheet"
+          >
+            <span class="material-symbols-outlined text-[18px]" aria-hidden="true"
+              >close</span
+            >
+          </button>
+        </div>
+
+        <div class="mt-4 space-y-2">
+          <button
+            type="button"
+            class="flex w-full items-center justify-between rounded-2xl border border-rose-200/60 bg-rose-50/80 px-4 py-3 text-left text-sm font-extrabold text-rose-700 ring-1 ring-white/70 transition hover:bg-rose-50"
+            data-testid="action-delete"
+            @click="actionSheetPlan && openConfirmDelete(actionSheetPlan)"
+          >
+            <span>删除计划</span>
+            <span class="text-xs font-semibold text-rose-700/70"
+              >可在最近删除恢复</span
+            >
+          </button>
+
+          <button
+            type="button"
+            class="w-full rounded-2xl bg-stone-900/6 px-4 py-3 text-sm font-extrabold text-stone-700 ring-1 ring-white/70 transition hover:bg-stone-900/10"
+            data-testid="action-cancel"
+            @click="closeActionSheet"
+          >
+            取消
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <UiConfirmDialog
+      v-model="confirmDeleteOpen"
+      title="确定删除该计划？"
+      :description="confirmDeletePlan ? `「${confirmDeletePlan.title}」可在“最近删除”中恢复。` : '可在“最近删除”中恢复。'"
+      confirm-text="删除"
+      cancel-text="取消"
+      danger
+      :loading="confirmDeleteSubmitting"
+      :close-on-confirm="false"
+      data-testid="confirm-delete-dialog"
+      @confirm="submitDeletePlan"
+      @cancel="confirmDeleteOpen = false"
+    />
   </div>
 </template>
 

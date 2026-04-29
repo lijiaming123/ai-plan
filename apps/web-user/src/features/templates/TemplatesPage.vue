@@ -36,6 +36,69 @@ const marketSort = ref<'likes' | 'new'>('new');
 const marketPage = ref(1);
 const marketTotal = ref(0);
 const myTotal = ref(0);
+const PAGE_SIZE = 20;
+
+const HOT_TAGS = [
+  '学习',
+  '考试',
+  '工作',
+  '项目',
+  '健身',
+  '英语',
+  '编程',
+  '复盘',
+] as const;
+const CATEGORY_OPTIONS = [
+  '',
+  'general',
+  'study',
+  'work',
+  'exam',
+  'fitness',
+  'other',
+] as const;
+
+const categoryLabel: Record<string, string> = {
+  '': '分类',
+  general: '通用',
+  study: '学习',
+  work: '工作',
+  exam: '考试',
+  fitness: '运动',
+  other: '其他',
+};
+
+const hasFilters = computed(() => {
+  return Boolean(searchQ.value.trim() || filterCategory.value.trim() || filterTag.value.trim());
+});
+
+function clearFilters() {
+  searchQ.value = '';
+  filterCategory.value = '';
+  filterTag.value = '';
+  marketSort.value = 'new';
+  marketPage.value = 1;
+  refreshActiveLists();
+}
+
+function setTagQuick(tag: string) {
+  filterTag.value = tag;
+}
+
+const currentTotal = computed(() => (mainTab.value === 'market' ? marketTotal.value : myTotal.value));
+const totalPages = computed(() => Math.max(1, Math.ceil(currentTotal.value / PAGE_SIZE)));
+const pageLabel = computed(() => `第 ${marketPage.value} / ${totalPages.value} 页`);
+const canPrev = computed(() => marketPage.value > 1);
+const canNext = computed(() => marketPage.value < totalPages.value);
+
+function prevPage() {
+  if (!canPrev.value) return;
+  marketPage.value -= 1;
+}
+function nextPage() {
+  if (!canNext.value) return;
+  marketPage.value += 1;
+}
 
 const loggedIn = computed(() => Boolean(authState.token));
 
@@ -62,7 +125,7 @@ async function loadMarket() {
       tag: filterTag.value.trim() || undefined,
       sort: marketSort.value,
       page: marketPage.value,
-      pageSize: 20,
+      pageSize: PAGE_SIZE,
       token: authState.token || undefined,
     });
     marketItems.value = res.items;
@@ -86,7 +149,7 @@ async function loadMy() {
       tag: filterTag.value.trim() || undefined,
       sort: marketSort.value,
       page: marketPage.value,
-      pageSize: 20,
+      pageSize: PAGE_SIZE,
     });
     myItems.value = res.items;
     myTotal.value = res.total;
@@ -219,6 +282,14 @@ function setMarketSort(value: 'likes' | 'new') {
   marketSort.value = value;
 }
 
+function switchToNewSort() {
+  marketSort.value = 'new';
+}
+
+function switchToLikesSort() {
+  marketSort.value = 'likes';
+}
+
 async function onToggleLike(id: string) {
   if (!loggedIn.value) {
     goLogin();
@@ -340,8 +411,10 @@ const myScopeOptions: MyScope[] = ['created', 'favorited', 'liked'];
 
     <div class="ui-scrollbar min-h-0 flex-1 overflow-y-auto pr-1 pb-2">
     <div
-      class="mb-6 flex flex-col gap-2 rounded-2xl border border-[#e6ebe8] bg-white p-2 shadow-sm sm:flex-row sm:flex-wrap sm:items-center"
+      class="sticky top-0 z-20 -mx-1 mb-6 rounded-2xl border border-[#e6ebe8] bg-white/92 p-2 shadow-sm backdrop-blur sm:mx-0"
+      data-testid="template-filter-bar"
     >
+      <div class="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
       <label class="group relative min-w-0 flex-1">
         <span
           class="material-symbols-outlined pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#a8b5ae] group-focus-within:text-[#0a8f4a]"
@@ -356,20 +429,55 @@ const myScopeOptions: MyScope[] = ['created', 'favorited', 'liked'];
           data-testid="template-search"
         />
       </label>
-      <input
+      <select
         v-model="filterCategory"
-        type="text"
-        placeholder="分类"
         class="w-full rounded-xl border border-transparent bg-stone-50/80 px-3 py-2 text-sm outline-none focus:border-emerald-200 focus:bg-white focus:ring-2 focus:ring-emerald-100 sm:w-36"
         data-testid="template-category"
-      />
-      <input
-        v-model="filterTag"
-        type="text"
-        placeholder="标签"
-        class="w-full rounded-xl border border-transparent bg-stone-50/80 px-3 py-2 text-sm outline-none focus:border-emerald-200 focus:bg-white focus:ring-2 focus:ring-emerald-100 sm:w-28"
-        data-testid="template-tag"
-      />
+      >
+        <option v-for="c in CATEGORY_OPTIONS" :key="c" :value="c">
+          {{ categoryLabel[c] ?? c }}
+        </option>
+      </select>
+      <label class="relative w-full sm:w-40">
+        <input
+          v-model="filterTag"
+          list="template-tag-options"
+          type="text"
+          placeholder="标签"
+          class="w-full rounded-xl border border-transparent bg-stone-50/80 px-3 py-2 text-sm outline-none focus:border-emerald-200 focus:bg-white focus:ring-2 focus:ring-emerald-100"
+          data-testid="template-tag"
+        />
+        <datalist id="template-tag-options">
+          <option v-for="t in HOT_TAGS" :key="t" :value="t" />
+        </datalist>
+      </label>
+
+      <button
+        v-if="hasFilters"
+        type="button"
+        class="inline-flex items-center justify-center gap-1.5 rounded-xl bg-stone-900/6 px-3 py-2 text-sm font-semibold text-stone-700 ring-1 ring-white/70 transition hover:bg-stone-900/10 sm:ml-auto"
+        data-testid="template-clear-filters"
+        @click="clearFilters"
+      >
+        <span class="material-symbols-outlined text-[18px]" aria-hidden="true">filter_alt_off</span>
+        清空筛选
+      </button>
+      </div>
+
+      <div class="mt-2 flex flex-wrap items-center gap-2">
+        <span class="text-xs font-semibold text-stone-500">热门标签</span>
+        <button
+          v-for="t in HOT_TAGS"
+          :key="t"
+          type="button"
+          class="rounded-full bg-stone-100 px-2.5 py-1 text-xs font-semibold text-stone-700 ring-1 ring-stone-200/70 transition hover:bg-emerald-50 hover:text-emerald-900"
+          :class="filterTag.trim() === t ? 'bg-emerald-50 text-emerald-900 ring-emerald-200/70' : ''"
+          :data-testid="`hot-tag-${t}`"
+          @click="setTagQuick(t)"
+        >
+          {{ t }}
+        </button>
+      </div>
     </div>
 
     <!-- 我的模板 -->
@@ -380,14 +488,26 @@ const myScopeOptions: MyScope[] = ['created', 'favorited', 'liked'];
       >
         <p class="text-lg font-bold text-stone-900">登录后查看你的模板</p>
         <p class="mt-1 text-sm text-[#7c8a84]">创建、收藏与点赞的社区模板会显示在这里。</p>
-        <button
-          type="button"
-          class="mt-5 inline-flex items-center gap-1.5 rounded-full bg-[#0a8f4a] px-6 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-[#088a42]"
-          @click="goLogin"
-        >
-          <span class="material-symbols-outlined text-[20px]" aria-hidden="true">login</span>
-          去登录
-        </button>
+        <div class="mt-5 flex flex-wrap items-center justify-center gap-2">
+          <button
+            type="button"
+            class="inline-flex items-center gap-1.5 rounded-full bg-[#0a8f4a] px-6 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-[#088a42]"
+            data-testid="go-login"
+            @click="goLogin"
+          >
+            <span class="material-symbols-outlined text-[20px]" aria-hidden="true">login</span>
+            去登录
+          </button>
+          <button
+            type="button"
+            class="inline-flex items-center gap-1.5 rounded-full border border-stone-200 bg-white px-6 py-2.5 text-sm font-bold text-stone-800 shadow-sm transition hover:border-emerald-200 hover:bg-emerald-50/50"
+            data-testid="browse-market"
+            @click="mainTab = 'market'"
+          >
+            <span class="material-symbols-outlined text-[20px]" aria-hidden="true">storefront</span>
+            先逛模板市场
+          </button>
+        </div>
       </div>
 
       <template v-else>
@@ -415,7 +535,7 @@ const myScopeOptions: MyScope[] = ['created', 'favorited', 'liked'];
 
         <div class="flex flex-wrap items-baseline justify-between gap-2">
           <h2 class="text-lg font-bold text-stone-900">我的社区模板</h2>
-          <span class="text-sm text-[#7c8a84]">共 {{ myTotal }} 个</span>
+          <span class="text-sm text-[#7c8a84]">共 {{ myTotal }} 个 · {{ pageLabel }}</span>
         </div>
 
         <TemplateMarketList
@@ -429,7 +549,75 @@ const myScopeOptions: MyScope[] = ['created', 'favorited', 'liked'];
           @apply="applyMarket"
           @toggle-like="onToggleLike"
           @toggle-favorite="onToggleFavorite"
-        />
+        >
+          <template #empty>
+            <p class="font-semibold">{{ hasFilters ? '没有符合当前筛选的模板' : '这里还没有模板' }}</p>
+            <p class="mt-1 text-xs text-[#7c8a84]">
+              {{ hasFilters ? '你可以清空筛选，或切换排序再试一次。' : '去模板市场发现更多社区模板。' }}
+            </p>
+            <div class="mt-4 flex flex-wrap items-center justify-center gap-2">
+              <button
+                v-if="hasFilters"
+                type="button"
+                class="inline-flex items-center gap-1.5 rounded-full bg-stone-900/6 px-5 py-2 text-sm font-bold text-stone-800 ring-1 ring-white/70 transition hover:bg-stone-900/10"
+                data-testid="empty-clear-filters"
+                @click="clearFilters"
+              >
+                <span class="material-symbols-outlined text-[18px]" aria-hidden="true">filter_alt_off</span>
+                清空筛选
+              </button>
+              <button
+                v-if="marketSort !== 'new'"
+                type="button"
+                class="inline-flex items-center gap-1.5 rounded-full border border-stone-200 bg-white px-5 py-2 text-sm font-bold text-stone-800 shadow-sm transition hover:border-emerald-200 hover:bg-emerald-50/50"
+                data-testid="empty-sort-new"
+                @click="switchToNewSort"
+              >
+                切换到最新
+              </button>
+              <button
+                v-if="marketSort !== 'likes'"
+                type="button"
+                class="inline-flex items-center gap-1.5 rounded-full border border-stone-200 bg-white px-5 py-2 text-sm font-bold text-stone-800 shadow-sm transition hover:border-emerald-200 hover:bg-emerald-50/50"
+                data-testid="empty-sort-likes"
+                @click="switchToLikesSort"
+              >
+                切换到最多赞
+              </button>
+              <button
+                v-if="!hasFilters"
+                type="button"
+                class="inline-flex items-center gap-1.5 rounded-full bg-[#0a8f4a] px-5 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-[#088a42]"
+                data-testid="empty-go-market"
+                @click="mainTab = 'market'"
+              >
+                去模板市场
+              </button>
+            </div>
+          </template>
+        </TemplateMarketList>
+
+        <div class="flex items-center justify-end gap-2" aria-label="分页">
+          <button
+            type="button"
+            class="rounded-xl bg-white/70 px-3 py-2 text-sm font-semibold text-stone-700 ring-1 ring-stone-200/70 transition hover:bg-white disabled:opacity-50"
+            data-testid="page-prev"
+            :disabled="!canPrev || loadingMy"
+            @click="prevPage"
+          >
+            上一页
+          </button>
+          <span class="text-sm font-semibold text-stone-500">{{ pageLabel }}</span>
+          <button
+            type="button"
+            class="rounded-xl bg-white/70 px-3 py-2 text-sm font-semibold text-stone-700 ring-1 ring-stone-200/70 transition hover:bg-white disabled:opacity-50"
+            data-testid="page-next"
+            :disabled="!canNext || loadingMy"
+            @click="nextPage"
+          >
+            下一页
+          </button>
+        </div>
       </template>
     </div>
 
@@ -488,7 +676,7 @@ const myScopeOptions: MyScope[] = ['created', 'favorited', 'liked'];
       <section>
         <div class="mb-3 flex flex-wrap items-baseline justify-between gap-2">
           <h2 class="text-lg font-bold text-stone-900">用户模板</h2>
-          <span class="text-sm text-[#7c8a84]">共 {{ marketTotal }} 个</span>
+          <span class="text-sm text-[#7c8a84]">共 {{ marketTotal }} 个 · {{ pageLabel }}</span>
         </div>
         <TemplateMarketList
           :items="marketItems"
@@ -501,7 +689,66 @@ const myScopeOptions: MyScope[] = ['created', 'favorited', 'liked'];
           @apply="applyMarket"
           @toggle-like="onToggleLike"
           @toggle-favorite="onToggleFavorite"
-        />
+        >
+          <template #empty>
+            <p class="font-semibold">{{ hasFilters ? '没有符合当前筛选的模板' : '暂时没有社区模板' }}</p>
+            <p class="mt-1 text-xs text-[#7c8a84]">
+              {{ hasFilters ? '建议清空分类/标签，或切换排序再试一次。' : '你可以先套用系统预设，稍后再来看看社区更新。' }}
+            </p>
+            <div class="mt-4 flex flex-wrap items-center justify-center gap-2">
+              <button
+                v-if="hasFilters"
+                type="button"
+                class="inline-flex items-center gap-1.5 rounded-full bg-stone-900/6 px-5 py-2 text-sm font-bold text-stone-800 ring-1 ring-white/70 transition hover:bg-stone-900/10"
+                data-testid="empty-clear-filters-market"
+                @click="clearFilters"
+              >
+                <span class="material-symbols-outlined text-[18px]" aria-hidden="true">filter_alt_off</span>
+                清空筛选
+              </button>
+              <button
+                v-if="marketSort !== 'new'"
+                type="button"
+                class="inline-flex items-center gap-1.5 rounded-full border border-stone-200 bg-white px-5 py-2 text-sm font-bold text-stone-800 shadow-sm transition hover:border-emerald-200 hover:bg-emerald-50/50"
+                data-testid="empty-sort-new-market"
+                @click="switchToNewSort"
+              >
+                切换到最新
+              </button>
+              <button
+                v-if="marketSort !== 'likes'"
+                type="button"
+                class="inline-flex items-center gap-1.5 rounded-full border border-stone-200 bg-white px-5 py-2 text-sm font-bold text-stone-800 shadow-sm transition hover:border-emerald-200 hover:bg-emerald-50/50"
+                data-testid="empty-sort-likes-market"
+                @click="switchToLikesSort"
+              >
+                切换到最多赞
+              </button>
+            </div>
+          </template>
+        </TemplateMarketList>
+
+        <div class="flex items-center justify-end gap-2" aria-label="分页">
+          <button
+            type="button"
+            class="rounded-xl bg-white/70 px-3 py-2 text-sm font-semibold text-stone-700 ring-1 ring-stone-200/70 transition hover:bg-white disabled:opacity-50"
+            data-testid="page-prev"
+            :disabled="!canPrev || loadingMarket"
+            @click="prevPage"
+          >
+            上一页
+          </button>
+          <span class="text-sm font-semibold text-stone-500">{{ pageLabel }}</span>
+          <button
+            type="button"
+            class="rounded-xl bg-white/70 px-3 py-2 text-sm font-semibold text-stone-700 ring-1 ring-stone-200/70 transition hover:bg-white disabled:opacity-50"
+            data-testid="page-next"
+            :disabled="!canNext || loadingMarket"
+            @click="nextPage"
+          >
+            下一页
+          </button>
+        </div>
       </section>
     </div>
     </div>

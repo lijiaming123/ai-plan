@@ -520,7 +520,7 @@ async function handleSubmit() {
       const response = await client.planAssistant({
         token: authState.token,
         mode: "draft",
-        goal: form.goal,
+    goal: form.goal,
         requirement: generatedPrompt.value,
         startDate: form.startingPoint ? form.startDate : form.startDate,
         cycle: form.cycle,
@@ -627,7 +627,7 @@ async function handleSubmit() {
       deadline,
       requirement: finalRequirementForSubmit,
       type: "general",
-      token: authState.token,
+    token: authState.token,
       profile,
     });
   } catch (error) {
@@ -1330,7 +1330,7 @@ watch(
                   >
                     {{ errors.planScenario }}
                   </p>
-                </label>
+    </label>
 
                 <label class="flex min-w-0 flex-col">
                   <p class="field-label">
@@ -1348,7 +1348,7 @@ watch(
                   >
                     {{ errors.goal }}
                   </p>
-                </label>
+    </label>
 
                 <label class="flex flex-col md:col-span-2">
                   <p class="field-label">
@@ -1366,7 +1366,7 @@ watch(
                   >
                     {{ errors.requirement }}
                   </p>
-                </label>
+    </label>
 
                 <label class="flex flex-col md:min-w-0">
                   <p class="field-label">
@@ -1389,7 +1389,7 @@ watch(
                   >
                     {{ errors.startDate }}
                   </p>
-                </label>
+    </label>
 
                 <label class="flex flex-col md:min-w-0">
                   <p class="field-label">
@@ -2069,7 +2069,7 @@ watch(
                 </div>
               </div>
             </section>
-          </form>
+  </form>
         </div>
       </main>
     </div>

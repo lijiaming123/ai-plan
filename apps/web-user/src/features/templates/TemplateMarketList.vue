@@ -75,7 +75,9 @@ const emit = defineEmits<{
       data-testid="market-grid"
     >
       <span class="material-symbols-outlined mb-2 block text-4xl text-[#b8c9c0]" aria-hidden="true">layers_clear</span>
-      {{ emptyHint }}
+      <slot name="empty">
+        {{ emptyHint }}
+      </slot>
     </div>
 
     <ul v-else class="grid gap-4 sm:grid-cols-2" data-testid="market-grid">

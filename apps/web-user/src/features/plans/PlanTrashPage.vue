@@ -99,6 +99,19 @@ onMounted(() => {
       <PageSectionHeading kicker="计划与执行" title="最近删除">
         <p>可在这里恢复被删除的计划</p>
       </PageSectionHeading>
+
+      <div class="mt-3 flex items-center justify-end">
+        <router-link
+          to="/plans"
+          class="inline-flex items-center gap-2 rounded-2xl bg-white/40 px-2.5 py-2 text-sm font-semibold text-stone-600 ring-1 ring-white/60 backdrop-blur-sm transition hover:bg-white/65 hover:text-stone-900"
+          data-testid="back-to-plans"
+        >
+          <span class="material-symbols-outlined text-[18px]" aria-hidden="true"
+            >arrow_back</span
+          >
+          返回我的计划
+        </router-link>
+      </div>
     </header>
 
     <UiErrorToast
@@ -154,6 +167,13 @@ onMounted(() => {
           <span class="mt-2 text-sm leading-relaxed text-stone-600"
             >你删除的计划会出现在这里，便于恢复。</span
           >
+          <router-link
+            to="/plans"
+            class="mt-5 inline-flex items-center justify-center rounded-2xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white shadow-[0_10px_24px_-16px_rgba(16,185,129,0.65)] transition hover:bg-emerald-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600"
+            data-testid="empty-go-plans"
+          >
+            回到我的计划
+          </router-link>
         </div>
 
         <ul v-else class="space-y-3" data-testid="plan-trash-list">

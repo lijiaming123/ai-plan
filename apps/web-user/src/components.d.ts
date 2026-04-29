@@ -22,6 +22,7 @@ declare module 'vue' {
     PlanHeatmapGrid: typeof import('./components/PlanHeatmapGrid.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
+    UiConfirmDialog: typeof import('./components/UiConfirmDialog.vue')['default']
     UiErrorToast: typeof import('./components/UiErrorToast.vue')['default']
     UiSunriseSelect: typeof import('./components/UiSunriseSelect.vue')['default']
     UserAvatarBadge: typeof import('./components/UserAvatarBadge.vue')['default']

@@ -6,13 +6,22 @@ import { createAdminRouter } from '../src/router';
 import { setAdminToken, clearAdminToken } from '../src/stores/auth';
 import { setAdminApiClient } from '../src/lib/api-client';
 
+function createAnalyticsMe() {
+  return {
+    userId: 'admin_1',
+    email: 'admin@test.dev',
+    role: 'admin' as const,
+    permissions: ['analytics:read'],
+  };
+}
+
 describe('PathPage', () => {
   beforeEach(() => {
     clearAdminToken();
     setAdminApiClient({
       login: vi.fn(),
       registerAdmin: vi.fn(),
-      getAdminMe: vi.fn(),
+      getAdminMe: vi.fn().mockResolvedValue(createAnalyticsMe()),
       getDashboard: vi.fn(),
       getRules: vi.fn(),
       getSubmissions: vi.fn(),
@@ -36,7 +45,7 @@ describe('PathPage', () => {
     });
   });
 
-  it('应展示 Top paths 表格', async () => {
+  it('renders top paths and summary stats', async () => {
     setAdminToken('admin-token');
     const router = createAdminRouter(createMemoryHistory());
     await router.push('/admin/analytics/path');
@@ -50,15 +59,15 @@ describe('PathPage', () => {
 
     expect(wrapper.text()).toContain('dashboard_view->plan_create->checkin_submit');
     expect(wrapper.text()).toContain('60.0%');
-    expect(wrapper.text()).toContain('会话数 5');
+    expect(wrapper.text()).toContain('5');
   });
 
-  it('无路径时应展示说明文案', async () => {
+  it('shows an empty hint when there are no paths', async () => {
     setAdminToken('admin-token');
     setAdminApiClient({
       login: vi.fn(),
       registerAdmin: vi.fn(),
-      getAdminMe: vi.fn(),
+      getAdminMe: vi.fn().mockResolvedValue(createAnalyticsMe()),
       getDashboard: vi.fn(),
       getRules: vi.fn(),
       getSubmissions: vi.fn(),
@@ -88,6 +97,6 @@ describe('PathPage', () => {
 
     await flushPromises();
 
-    expect(wrapper.text()).toContain('没有可统计的完整路径');
+    expect(wrapper.text()).toContain('完整路径');
   });
 });

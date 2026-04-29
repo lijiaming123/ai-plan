@@ -43,7 +43,7 @@ async function load() {
       clientVersion: clientVersion.value.trim() || undefined,
     });
   } catch (err) {
-    error.value = err instanceof Error ? err.message : '加载失败';
+    error.value = err instanceof Error ? err.message : '加载留存数据失败。';
   } finally {
     loading.value = false;
   }
@@ -62,25 +62,25 @@ onMounted(() => {
 <template>
   <section class="page page--wide" :aria-busy="loading">
     <span class="badge">增长分析</span>
-    <header>
+    <header class="section-stack">
       <h1 class="hero-title">留存分析</h1>
       <p class="hero-subtitle">
-        Cohort：用户首次 <code>auth_register</code> 的 UTC 日；活跃：该日在 <code>dashboard_view</code> 或
-        <code>checkin_submit</code> 任一出现即计为留存。
+        Cohort 以用户首次 <code>auth_register</code> 的 UTC 日期为准；活跃行为按
+        <code>dashboard_view</code> 或 <code>checkin_submit</code> 任一出现计入留存。
       </p>
     </header>
 
     <form class="filters" @submit.prevent="load">
       <label class="field">
-        <span>Cohort 起始日 (UTC)</span>
+        <span>Cohort 开始日期 (UTC)</span>
         <input v-model="cohortStart" type="date" required />
       </label>
       <label class="field">
-        <span>Cohort 结束日 (UTC)</span>
+        <span>Cohort 结束日期 (UTC)</span>
         <input v-model="cohortEnd" type="date" required />
       </label>
       <label class="field">
-        <span>留存偏移（天，逗号分隔）</span>
+        <span>留存偏移（天）</span>
         <input v-model="offsetsText" type="text" placeholder="1,7,30" autocomplete="off" />
       </label>
       <label class="field">
@@ -100,7 +100,7 @@ onMounted(() => {
 
     <div v-if="loading" class="loading-row" aria-live="polite">
       <span class="loading-spinner" aria-hidden="true" />
-      <span>正在加载留存数据…</span>
+      <span>正在加载留存数据...</span>
     </div>
 
     <div v-else-if="error" class="error-panel">
@@ -112,7 +112,7 @@ onMounted(() => {
       <table class="report-table">
         <thead>
           <tr>
-            <th>Cohort 日</th>
+            <th>Cohort 日期</th>
             <th>注册人数</th>
             <th v-for="n in sortedOffsets" :key="n">D+{{ n }}</th>
           </tr>
@@ -123,14 +123,14 @@ onMounted(() => {
             <td>{{ row.cohortSize }}</td>
             <td v-for="n in sortedOffsets" :key="n">
               <span class="cell-strong">{{ (retainedAt(row, n).rate * 100).toFixed(1) }}%</span>
-              <span class="cell-muted">（{{ retainedAt(row, n).count }} 人）</span>
+              <span class="cell-muted">({{ retainedAt(row, n).count }} 人)</span>
             </td>
           </tr>
         </tbody>
       </table>
 
       <section v-if="data.rows.length" class="retention-trends">
-        <h2 class="retention-trends__title">按偏移的趋势（各 cohort 留存率）</h2>
+        <h2 class="retention-trends__title">按偏移日查看各 cohort 走势</h2>
         <div v-for="n in sortedOffsets" :key="`t-${n}`" class="retention-trend-row">
           <div class="retention-trend-row__label">D+{{ n }}</div>
           <ul class="retention-trend-chips">
@@ -142,9 +142,7 @@ onMounted(() => {
         </div>
       </section>
 
-      <p class="muted-text small-print">
-        范围 {{ data.cohortStart }} — {{ data.cohortEnd }} · 偏移 {{ sortedOffsets.join(', ') }}
-      </p>
+      <p class="small-print">统计范围 {{ data.cohortStart }} 到 {{ data.cohortEnd }}，偏移日为 {{ sortedOffsets.join(', ') }}。</p>
     </div>
   </section>
 </template>

@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { nextTick, ref, watch } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import AdminAuthLayout from './AdminAuthLayout.vue';
+import { getDefaultAdminPath } from '../../lib/admin-access';
 import { getAdminApiClient } from '../../lib/api-client';
-import { clearAdminToken, hydrateAdminProfile, setAdminToken } from '../../stores/auth';
+import { adminProfile, clearAdminToken, hydrateAdminProfile, setAdminToken } from '../../stores/auth';
 
 const route = useRoute();
 const router = useRouter();
@@ -15,6 +16,8 @@ const submitting = ref(false);
 const error = ref('');
 const errorSummaryRef = ref<HTMLElement | null>(null);
 
+const canSubmit = computed(() => email.value.trim().length > 0 && password.value.length >= 8);
+
 watch(error, async (msg) => {
   if (!msg) return;
   await nextTick();
@@ -23,6 +26,17 @@ watch(error, async (msg) => {
 
 async function submit() {
   error.value = '';
+
+  if (!email.value.trim()) {
+    error.value = '请输入管理员账号或邮箱。';
+    return;
+  }
+
+  if (password.value.length < 8) {
+    error.value = '密码至少需要 8 位。';
+    return;
+  }
+
   submitting.value = true;
   try {
     const { token } = await getAdminApiClient().login({
@@ -30,16 +44,17 @@ async function submit() {
       password: password.value,
     });
     setAdminToken(token);
-    const ok = await hydrateAdminProfile();
+    const ok = await hydrateAdminProfile(true);
     if (!ok) {
       clearAdminToken();
-      error.value = '该账号不是管理员，或会话校验失败。请使用管理员账号或邮箱登录。';
+      error.value = '该账号已登录成功，但未通过管理员身份校验。请确认使用的是后台账号。';
       return;
     }
     const redir = route.query.redirect;
-    await router.replace(typeof redir === 'string' ? redir : '/admin/dashboard');
+    const nextPath = typeof redir === 'string' ? redir : getDefaultAdminPath(adminProfile.permissions);
+    await router.replace(nextPath);
   } catch (e) {
-    error.value = e instanceof Error ? e.message : '登录失败';
+    error.value = e instanceof Error ? e.message : '登录失败，请稍后重试。';
   } finally {
     submitting.value = false;
   }
@@ -49,14 +64,14 @@ async function submit() {
 <template>
   <AdminAuthLayout>
     <a class="auth-skip-form" href="#auth-form-start">跳到表单</a>
-    <h2 id="auth-form-start" class="auth-card__title" tabindex="-1">登录</h2>
+    <h2 id="auth-form-start" class="auth-card__title" tabindex="-1">登录后台</h2>
     <p id="login-subtitle" class="auth-card__subtitle">
-      使用已开通的管理员邮箱与密码进入控制台。
+      使用已开通的管理员账号进入控制台。登录后会按权限自动跳转到你最常用的页面。
     </p>
 
     <details class="auth-demo-hint">
       <summary>本地演示账号提示</summary>
-      <p>例如 <code>admin@ai-plan.dev</code>（密码见仓库 README / 团队文档）。普通用户账号无法进入本控制台。</p>
+      <p>示例账号：<code>admin@ai-plan.dev</code> / <code>Admin1234!</code>。普通用户账号无法进入本控制台。</p>
     </details>
 
     <div
@@ -84,6 +99,7 @@ async function submit() {
           :aria-invalid="error ? 'true' : undefined"
         />
       </div>
+
       <div class="auth-field">
         <label for="login-password">密码</label>
         <div class="auth-password-row">
@@ -93,6 +109,7 @@ async function submit() {
             :type="showPassword ? 'text' : 'password'"
             name="password"
             autocomplete="current-password"
+            minlength="8"
             required
             :aria-invalid="error ? 'true' : undefined"
           />
@@ -107,15 +124,16 @@ async function submit() {
           </button>
         </div>
       </div>
-      <button type="submit" class="auth-submit" :disabled="submitting">
+
+      <button type="submit" class="auth-submit" :disabled="submitting || !canSubmit">
         <span v-if="submitting" class="auth-submit__spinner" aria-hidden="true" />
-        {{ submitting ? '验证中…' : '进入控制台' }}
+        {{ submitting ? '验证中...' : '进入控制台' }}
       </button>
     </form>
 
     <p class="auth-foot">
       需要演示账号？
-      <router-link to="/admin/register">创建管理员（演示）</router-link>
+      <router-link to="/admin/register">创建管理员</router-link>
     </p>
   </AdminAuthLayout>
 </template>

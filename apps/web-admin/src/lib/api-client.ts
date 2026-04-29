@@ -10,6 +10,13 @@ export type AdminRegisterInput = {
   preset?: 'analyst' | 'auditor';
 };
 
+export type AdminPermission =
+  | 'analytics:read'
+  | 'analytics:export'
+  | 'users:read'
+  | 'audit:read'
+  | 'rbac:manage';
+
 export type AdminMeResponse = {
   userId: string;
   email: string;
@@ -210,11 +217,20 @@ export function createAdminApiClient(options: AdminApiClientOptions = {}): Admin
       ...init,
     });
 
+    const payload = await response.json().catch(() => null);
+
     if (!response.ok) {
-      throw new Error(`Request failed: ${response.status}`);
+      const message =
+        payload &&
+        typeof payload === 'object' &&
+        'message' in payload &&
+        typeof payload.message === 'string'
+          ? payload.message
+          : `Request failed: ${response.status}`;
+      throw new Error(message);
     }
 
-    return (await response.json()) as T;
+    return payload as T;
   }
 
   return {

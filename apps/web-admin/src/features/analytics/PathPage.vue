@@ -32,7 +32,7 @@ const loading = ref(false);
 
 const emptyHint = computed(() => {
   if (!data.value || data.value.totalPaths > 0) return '';
-  return '所选范围内没有可统计的完整路径（需从起点事件起连续满足路径长度；无 sessionId 时按 30 分钟间隔切分会话）。';
+  return '所选范围内没有可统计的完整路径，需要从起点事件连续满足路径长度。没有 sessionId 时会按 30 分钟静默间隔切分会话。';
 });
 
 async function load() {
@@ -51,7 +51,7 @@ async function load() {
       clientVersion: clientVersion.value.trim() || undefined,
     });
   } catch (err) {
-    error.value = err instanceof Error ? err.message : '加载失败';
+    error.value = err instanceof Error ? err.message : '加载路径数据失败。';
   } finally {
     loading.value = false;
   }
@@ -70,21 +70,20 @@ onMounted(() => {
 <template>
   <section class="page page--narrow" :aria-busy="loading">
     <span class="badge">增长分析</span>
-    <header>
+    <header class="section-stack">
       <h1 class="hero-title">路径分析</h1>
       <p class="hero-subtitle">
-        以起点事件在每条会话（优先 <code>sessionId</code>；否则按用户/匿名键 + 30 分钟静默切分）内首次出现为锚点，取连续
-        <strong>{{ pathLength }}</strong> 步事件名序列，汇总 Top 路径与占比。
+        以起点事件为锚点抽取连续行为序列，查看最常见的用户行为路径和占比，适合判断真实使用流向。
       </p>
     </header>
 
     <form class="filters" @submit.prevent="load">
       <label class="field">
-        <span>开始日 (UTC)</span>
+        <span>开始日期 (UTC)</span>
         <input v-model="startDate" type="date" required />
       </label>
       <label class="field">
-        <span>结束日 (UTC)</span>
+        <span>结束日期 (UTC)</span>
         <input v-model="endDate" type="date" required />
       </label>
       <label class="field">
@@ -96,7 +95,7 @@ onMounted(() => {
         </select>
       </label>
       <label class="field">
-        <span>路径长度（3–6）</span>
+        <span>路径长度</span>
         <input v-model.number="pathLength" type="number" min="3" max="6" required />
       </label>
       <label class="field">
@@ -120,7 +119,7 @@ onMounted(() => {
 
     <div v-if="loading" class="loading-row" aria-live="polite">
       <span class="loading-spinner" aria-hidden="true" />
-      <span>正在加载路径数据…</span>
+      <span>正在加载路径数据...</span>
     </div>
 
     <div v-else-if="error" class="error-panel">
@@ -148,9 +147,8 @@ onMounted(() => {
         </tbody>
       </table>
 
-      <p class="muted-text small-print">
-        会话数 {{ data.streamCount }} · 有效路径条数 {{ data.totalPaths }} · 切分间隔 {{ data.sessionGapMinutes }} 分钟 · 范围
-        {{ data.start }} — {{ data.end }}
+      <p class="small-print">
+        会话数 {{ data.streamCount }}，有效路径 {{ data.totalPaths }}，切分间隔 {{ data.sessionGapMinutes }} 分钟，统计范围 {{ data.start }} 到 {{ data.end }}。
       </p>
     </div>
   </section>

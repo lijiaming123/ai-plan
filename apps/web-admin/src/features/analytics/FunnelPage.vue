@@ -32,7 +32,7 @@ async function load() {
       clientVersion: clientVersion.value.trim() || undefined,
     });
   } catch (err) {
-    error.value = err instanceof Error ? err.message : '加载失败';
+    error.value = err instanceof Error ? err.message : '加载漏斗数据失败。';
   } finally {
     loading.value = false;
   }
@@ -51,18 +51,18 @@ onMounted(() => {
 <template>
   <section class="page page--narrow" :aria-busy="loading">
     <span class="badge">增长分析</span>
-    <header>
+    <header class="section-stack">
       <h1 class="hero-title">漏斗分析</h1>
-      <p class="hero-subtitle">预置：注册 → 创建计划 → 发布 → 打卡（基于 Telemetry 事件，仅统计已登录 userId）。</p>
+      <p class="hero-subtitle">按时间范围查看从注册、建计划到提交行为的逐步转化，适合快速判断主要流失点。</p>
     </header>
 
     <form class="filters" @submit.prevent="load">
       <label class="field">
-        <span>开始日 (UTC)</span>
+        <span>开始日期 (UTC)</span>
         <input v-model="startDate" type="date" required />
       </label>
       <label class="field">
-        <span>结束日 (UTC)</span>
+        <span>结束日期 (UTC)</span>
         <input v-model="endDate" type="date" required />
       </label>
       <label class="field">
@@ -86,7 +86,7 @@ onMounted(() => {
 
     <div v-if="loading" class="loading-row" aria-live="polite">
       <span class="loading-spinner" aria-hidden="true" />
-      <span>正在加载漏斗数据…</span>
+      <span>正在加载漏斗数据...</span>
     </div>
 
     <div v-else-if="error" class="error-panel">
@@ -100,26 +100,18 @@ onMounted(() => {
           <tr>
             <th>步骤</th>
             <th>人数</th>
-            <th>上一步转化率</th>
+            <th>相对上一阶段</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="(row, idx) in data.steps" :key="idx">
             <td>{{ row.step }}</td>
             <td>{{ row.count }}</td>
-            <td>
-              {{
-                row.conversionFromPrev == null
-                  ? '—'
-                  : `${(row.conversionFromPrev * 100).toFixed(1)}%`
-              }}
-            </td>
+            <td>{{ row.conversionFromPrev == null ? '--' : `${(row.conversionFromPrev * 100).toFixed(1)}%` }}</td>
           </tr>
         </tbody>
       </table>
-      <p class="muted-text small-print">
-        窗口 {{ data.windowDays }} 天 · 范围 {{ data.start }} — {{ data.end }}
-      </p>
+      <p class="small-print">窗口 {{ data.windowDays }} 天，统计范围 {{ data.start }} 到 {{ data.end }}。</p>
     </div>
   </section>
 </template>

@@ -1,14 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { flushPromises, mount } from '@vue/test-utils';
 import { createMemoryHistory } from 'vue-router';
-import RulesPage from '../src/features/rules/RulesPage.vue';
 import { createAdminRouter } from '../src/router';
-import { setAdminToken, clearAdminToken } from '../src/stores/auth';
+import { clearAdminToken, setAdminToken } from '../src/stores/auth';
 import { setAdminApiClient } from '../src/lib/api-client';
 
-describe('RulesPage', () => {
+describe('admin router permission guard', () => {
   beforeEach(() => {
     clearAdminToken();
+  });
+
+  it('redirects to forbidden when the admin lacks page permission', async () => {
+    setAdminToken('admin-token');
     setAdminApiClient({
       login: vi.fn(),
       registerAdmin: vi.fn(),
@@ -19,9 +21,7 @@ describe('RulesPage', () => {
         permissions: ['analytics:read'],
       }),
       getDashboard: vi.fn(),
-      getRules: vi.fn().mockResolvedValue([
-        { id: 'r1', key: 'minEvidenceCount', value: '1', description: '最少证据数' },
-      ]),
+      getRules: vi.fn(),
       getSubmissions: vi.fn(),
       getFunnel: vi.fn(),
       getRetention: vi.fn(),
@@ -29,20 +29,12 @@ describe('RulesPage', () => {
       getUsers: vi.fn(),
       getUser: vi.fn(),
     });
-  });
 
-  it('应展示规则配置列表', async () => {
-    setAdminToken('admin-token');
     const router = createAdminRouter(createMemoryHistory());
-    await router.push('/admin/rules');
+    await router.push('/admin/users');
     await router.isReady();
 
-    const wrapper = mount(RulesPage, {
-      global: { plugins: [router] },
-    });
-
-    await flushPromises();
-
-    expect(wrapper.text()).toContain('minEvidenceCount');
+    expect(router.currentRoute.value.path).toBe('/admin/forbidden');
+    expect(router.currentRoute.value.query.required).toBe('users:read');
   });
 });

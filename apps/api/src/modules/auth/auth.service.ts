@@ -160,3 +160,29 @@ export async function registerAdmin(input: {
     return { ok: false, message: '注册失败（请确认数据库可用且已执行迁移）' };
   }
 }
+
+/**
+ * 校验忘记密码请求中的邮箱字符串（演示环境仅接受常见邮箱形态，不发送真实邮件）。
+ * @returns 规范化小写邮箱，或 null 表示无效
+ */
+export function validateForgotPasswordEmail(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const email = normalizeLoginIdentifier(raw);
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return null;
+  if (email.length > 320) return null;
+  return email;
+}
+
+/** 演示环境：不落库、不发信，统一成功文案（防邮箱枚举） */
+export function requestPasswordResetDemo(_emailNorm: string): {
+  ok: true;
+  mode: 'demo';
+  message: string;
+} {
+  return {
+    ok: true,
+    mode: 'demo',
+    message:
+      '请求已受理。当前为演示环境，不会发送真实重置邮件；请返回登录使用演示账号，或联系管理员处理。',
+  };
+}

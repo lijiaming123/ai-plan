@@ -145,7 +145,7 @@ Push-Location (Join-Path $projectRoot "apps\api")
 try {
   & node $prismaEntry migrate deploy
   Write-Host "[dev-up] Generating Prisma client (prisma generate)..."
-  & node $prismaEntry generate
+  Invoke-RepoPnpm --filter @ai-plan/api prisma:generate
 } finally {
   Pop-Location
 }

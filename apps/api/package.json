@@ -7,10 +7,8 @@
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "prisma": "node ../../node_modules/prisma/build/index.js",
+    "prisma:generate": "node ../../scripts/prisma-generate.mjs",
     "db:seed": "node ../../node_modules/tsx/dist/cli.mjs prisma/seed.ts"
-  },
-  "prisma": {
-    "seed": "node ../../node_modules/tsx/dist/cli.mjs prisma/seed.ts"
   },
   "dependencies": {
     "@ai-plan/ai-engine": "workspace:*",
@@ -33,6 +31,6 @@
     "prisma": "^6.16.2",
     "tsx": "^4.20.3",
     "typescript": "^5.8.3",
-    "vitest": "^3.1.4"
+    "vitest": "^3.2.4"
   }
 }

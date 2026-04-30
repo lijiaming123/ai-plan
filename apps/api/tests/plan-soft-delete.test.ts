@@ -14,7 +14,7 @@ try {
 if (dbUp) {
   try {
     // 若本地 DB 未应用最新 migration（缺 deletedAt 列），相关路由会 500；此时跳过用例即可。
-    await prisma.plan.findFirst({ select: { deletedAt: true } });
+    await prisma.plan.findFirst({ select: { deletedAt: true, archivedAt: true } });
     schemaUp = true;
   } catch {
     schemaUp = false;
@@ -105,10 +105,22 @@ describeDb("plan soft delete / restore / trash", () => {
       url: "/plans/some-id/restore",
     });
     const trash = await app.inject({ method: "GET", url: "/plans/trash" });
+    const archived = await app.inject({ method: "GET", url: "/plans/archive" });
+    const arc = await app.inject({
+      method: "POST",
+      url: "/plans/some-id/archive",
+    });
+    const unarc = await app.inject({
+      method: "POST",
+      url: "/plans/some-id/unarchive",
+    });
 
     expect(del.statusCode).toBe(401);
     expect(restore.statusCode).toBe(401);
     expect(trash.statusCode).toBe(401);
+    expect(archived.statusCode).toBe(401);
+    expect(arc.statusCode).toBe(401);
+    expect(unarc.statusCode).toBe(401);
   });
 
   it("DELETE /plans/:id 软删除后：GET /plans 不应返回；GET /plans/trash 应返回", async () => {

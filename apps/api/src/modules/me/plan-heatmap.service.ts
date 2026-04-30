@@ -191,7 +191,7 @@ export function parseHeatmapYear(raw: string | undefined, fallbackYear: number):
  */
 export async function getPlanHeatmapForUser(userId: string, year: number): Promise<PlanHeatmapResponse> {
   const plans = await prisma.plan.findMany({
-    where: { userId },
+    where: { userId, deletedAt: null },
     select: {
       id: true,
       createdAt: true,

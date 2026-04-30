@@ -20,17 +20,17 @@ const proSection = ref<HTMLElement | null>(null);
 
 const tierLabel = computed(() => (authState.tier === 'pro' ? '专业版' : '基础版'));
 
-const meEmail = ref('');
+const mePhone = ref('');
 const meRole = ref<'user' | 'admin' | null>(null);
 const displayNameModel = ref('');
 const meLoadError = ref(false);
 
-const emailForDisplay = computed(() => meEmail.value || authState.userEmail || '');
+const phoneForDisplay = computed(() => mePhone.value || authState.userPhone || '');
 
 const badgeLabel = computed(() => {
   const n = displayNameModel.value.trim();
   if (n) return n;
-  const e = emailForDisplay.value;
+  const e = phoneForDisplay.value;
   return e ? emailPrefix(e) : '?';
 });
 
@@ -43,8 +43,12 @@ const roleLabel = computed(() => {
 function loadDisplayNameFromStorage() {
   refreshDisplayProfileFromStorage();
   const stored = displayProfileState.localDisplayName;
-  const email = emailForDisplay.value;
-  displayNameModel.value = stored?.trim() ? stored.trim().slice(0, 32) : email ? emailPrefix(email) : '';
+  const phone = phoneForDisplay.value;
+  displayNameModel.value = stored?.trim()
+    ? stored.trim().slice(0, 32)
+    : phone
+      ? emailPrefix(phone)
+      : '';
 }
 
 function onDisplayNameBlur() {
@@ -76,17 +80,17 @@ function upgradeDemo() {
 async function loadMe() {
   meLoadError.value = false;
   if (!authState.token) {
-    meEmail.value = '';
+    mePhone.value = '';
     meRole.value = null;
     return;
   }
   try {
     const me = await getApiClient().getAuthMe({ token: authState.token });
-    meEmail.value = me.email;
+    mePhone.value = me.email;
     meRole.value = me.role;
   } catch {
     meLoadError.value = true;
-    meEmail.value = authState.userEmail;
+    mePhone.value = authState.userPhone;
     meRole.value = null;
   }
 }
@@ -100,10 +104,10 @@ onMounted(async () => {
 });
 
 watch(
-  () => authState.userEmail,
+  () => authState.userPhone,
   () => {
-    if (!meEmail.value && authState.userEmail) {
-      meEmail.value = authState.userEmail;
+    if (!mePhone.value && authState.userPhone) {
+      mePhone.value = authState.userPhone;
     }
     loadDisplayNameFromStorage();
   },
@@ -114,7 +118,7 @@ watch(
   async (token) => {
     if (token) await loadMe();
     else {
-      meEmail.value = '';
+      mePhone.value = '';
       meRole.value = null;
     }
     loadDisplayNameFromStorage();
@@ -213,8 +217,8 @@ watch(
               <div
                 class="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-stone-200/80 bg-stone-50/50 px-3.5 py-3"
               >
-                <span class="text-xs font-semibold text-[#6e7b75]">邮箱</span>
-                <span class="font-medium text-stone-900">{{ emailForDisplay || '—' }}</span>
+                <span class="text-xs font-semibold text-[#6e7b75]">手机号</span>
+                <span class="font-medium text-stone-900">{{ phoneForDisplay || '—' }}</span>
               </div>
               <div
                 class="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-stone-200/80 bg-stone-50/50 px-3.5 py-3"
@@ -228,7 +232,7 @@ watch(
             </div>
             <p v-if="meLoadError" class="flex items-center gap-1.5 text-xs font-medium text-amber-900">
               <span class="material-symbols-outlined text-base" aria-hidden="true">cloud_off</span>
-              无法从服务器同步身份，已使用本地缓存邮箱。
+              无法从服务器同步身份，已使用本地缓存手机号。
             </p>
           </div>
         </div>

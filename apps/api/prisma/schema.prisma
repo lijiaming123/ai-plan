@@ -23,8 +23,10 @@ model Plan {
   scheduleSlotAppeals     PlanScheduleSlotAppeal[]
   createdAt               DateTime                     @default(now())
   deletedAt              DateTime?
+  archivedAt             DateTime?
 
   @@index([userId, deletedAt])
+  @@index([userId, archivedAt])
 }
 
 /// 已定稿计划下，按打卡时间槽提交的执行证明（文字 + 外链附件）
@@ -271,6 +273,31 @@ model UserNotificationSettings {
   switchAt               DateTime?
   createdAt              DateTime  @default(now())
   updatedAt              DateTime  @updatedAt
+}
+
+/// 普通用户账号：以手机号为唯一登录标识（商业化版本不再依赖演示邮箱/密码）
+model User {
+  id        String   @id @default(cuid())
+  phone     String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([phone])
+}
+
+/// 短信验证码请求（哈希存储，支持登录/注册/找回等用途）
+model AuthOtp {
+  id         String   @id @default(cuid())
+  phone      String
+  purpose    String
+  codeHash   String
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime @default(now())
+
+  @@index([phone, createdAt(sort: Desc)])
+  @@index([phone, purpose, createdAt(sort: Desc)])
+  @@index([expiresAt])
 }
 
 /// 管理端持久化账号（loginId 可为短账号如 admin，亦可与邮箱一致）

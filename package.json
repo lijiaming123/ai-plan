@@ -5,6 +5,7 @@
   "scripts": {
     "dev:up": "powershell -ExecutionPolicy Bypass -File ./scripts/dev-up.ps1",
     "lint": "corepack pnpm typecheck",
+    "test:ws": "vitest run",
     "test:e2e": "vitest run tests/e2e",
     "test": "corepack pnpm -r test",
     "typecheck": "corepack pnpm -r typecheck"

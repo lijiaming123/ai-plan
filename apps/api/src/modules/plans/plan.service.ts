@@ -459,11 +459,128 @@ export async function listPlansForUser(
       ? ({ deadline: "asc" } as const)
       : ({ createdAt: "desc" } as const);
   const rows = await prisma.plan.findMany({
-    where: { userId, deletedAt: null },
+    where: { userId, deletedAt: null, archivedAt: null },
     orderBy,
     select: planListSelect,
   });
   return rows.map(mapPlanListRow);
+}
+
+/** 归档列表：已归档且未进回收站；支持分页与按目标模糊搜索 */
+export async function listArchivedPlansForUser(
+  userId: string,
+  options?: {
+    sort?: PlanListSort;
+    limit?: number;
+    offset?: number;
+    search?: string;
+  },
+): Promise<{
+  plans: Array<
+    Omit<ReturnType<typeof mapPlanListRow>, "status"> & {
+      status: "archived";
+      archivedAt: string;
+    }
+  >;
+  hasMore: boolean;
+}> {
+  const sort: PlanListSort = options?.sort ?? "created_desc";
+  const orderBy =
+    sort === "deadline_asc"
+      ? ({ deadline: "asc" } as const)
+      : ({ archivedAt: "desc" } as const);
+
+  const limitRaw = options?.limit ?? 20;
+  const limit = Math.min(50, Math.max(1, limitRaw));
+  const offset = Math.max(0, options?.offset ?? 0);
+
+  const rawSearch = options?.search?.trim();
+  const search =
+    rawSearch && rawSearch.length > 0 ? rawSearch.slice(0, 120) : undefined;
+
+  const rows = await prisma.plan.findMany({
+    where: {
+      userId,
+      deletedAt: null,
+      archivedAt: { not: null },
+      ...(search
+        ? { goal: { contains: search, mode: "insensitive" as const } }
+        : {}),
+    },
+    orderBy,
+    skip: offset,
+    take: limit + 1,
+    select: { ...planListSelect, archivedAt: true },
+  });
+
+  const hasMore = rows.length > limit;
+  const page = hasMore ? rows.slice(0, limit) : rows;
+
+  return {
+    plans: page.map((row) => ({
+      ...mapPlanListRow(row),
+      status: "archived" as const,
+      archivedAt: row.archivedAt!.toISOString(),
+    })),
+    hasMore,
+  };
+}
+
+export async function archivePlan(params: {
+  planId: string;
+  userId: string;
+}): Promise<
+  | { ok: true }
+  | { ok: false; code: 404 | 403 | 400; message: string }
+> {
+  const row = await prisma.plan.findUnique({
+    where: { id: params.planId },
+    select: { userId: true, deletedAt: true, archivedAt: true },
+  });
+  if (!row) return { ok: false, code: 404, message: "plan not found" };
+  if (row.userId !== params.userId)
+    return { ok: false, code: 403, message: "Forbidden" };
+  if (row.deletedAt)
+    return {
+      ok: false,
+      code: 400,
+      message: "无法归档已删除的计划，请先从最近删除中恢复",
+    };
+  if (row.archivedAt) return { ok: true };
+  await prisma.plan.update({
+    where: { id: params.planId },
+    data: { archivedAt: new Date() },
+  });
+  return { ok: true };
+}
+
+export async function unarchivePlan(params: {
+  planId: string;
+  userId: string;
+}): Promise<
+  | { ok: true }
+  | { ok: false; code: 404 | 403 | 400; message: string }
+> {
+  const row = await prisma.plan.findUnique({
+    where: { id: params.planId },
+    select: { userId: true, deletedAt: true, archivedAt: true },
+  });
+  if (!row) return { ok: false, code: 404, message: "plan not found" };
+  if (row.userId !== params.userId)
+    return { ok: false, code: 403, message: "Forbidden" };
+  if (row.deletedAt)
+    return {
+      ok: false,
+      code: 400,
+      message: "无法恢复执行：计划仍在回收站，请先撤销删除",
+    };
+  if (!row.archivedAt)
+    return { ok: false, code: 400, message: "plan is not archived" };
+  await prisma.plan.update({
+    where: { id: params.planId },
+    data: { archivedAt: null },
+  });
+  return { ok: true };
 }
 
 export async function listTrashPlans(userId: string) {
@@ -539,7 +656,7 @@ export async function getPlanWithDraft(planId: string, userId: string) {
   );
   return {
     ...plan,
-    status: "active",
+    status: plan.archivedAt ? "archived" : "active",
     draft: {
       versions: state.versions,
       maxVersions: state.maxVersions,
@@ -1335,6 +1452,14 @@ export async function updatePlanScheduleSlot(params: {
       message: "plan not found",
     };
 
+  if (plan?.archivedAt) {
+    return {
+      ok: false as const,
+      code: 403 as const,
+      message: "已归档的计划不可编辑打卡表",
+    };
+  }
+
   let version: number;
   let table: "plan" | "draft";
   if (draft) {
@@ -1481,6 +1606,14 @@ export async function swapPlanScheduleSlotContent(params: {
       ok: false as const,
       code: 404 as const,
       message: "plan not found",
+    };
+  }
+
+  if (plan?.archivedAt) {
+    return {
+      ok: false as const,
+      code: 403 as const,
+      message: "已归档的计划不可交换槽位内容",
     };
   }
 

@@ -14,13 +14,16 @@
 import { PassThrough } from "node:stream";
 import type { FastifyBaseLogger, FastifyInstance } from "fastify";
 import {
+  archivePlan,
   compareDraftVersions,
   confirmPlanVersion,
   createGeneratedPlan,
   getPlanDraft,
   getPlanWithDraft,
+  listArchivedPlansForUser,
   listTrashPlans,
   listPlansForUser,
+  unarchivePlan,
   parseRegenerateFallbackFromBaseRequirement,
   persistRegenerateVersionFromStreamOutput,
   prepareRegeneratePlanStream,
@@ -605,7 +608,7 @@ function formatDraftToText(params: {
 export async function registerPlanRoutes(fastify: FastifyInstance) {
   const requireLogin = async (request: any) => {
     // 仅要求是“已登录用户”（user/admin 均可）；handler 内直接读取 request.user.sub
-    const payload = await request.jwtVerify<{ sub: string }>();
+    const payload = (await request.jwtVerify()) as { sub: string };
     // 兼容不同 fastify-jwt 版本：不一定会自动挂 request.user
     request.user = payload;
   };
@@ -644,6 +647,65 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
     },
   );
 
+  fastify.get(
+    "/plans/archive",
+    { preHandler: requireLogin },
+    async (request, reply) => {
+      const userId = request.user.sub;
+      const q = request.query as {
+        sort?: string;
+        limit?: string;
+        offset?: string;
+        search?: string;
+      };
+      const raw = q.sort;
+      if (
+        raw != null &&
+        raw !== "" &&
+        raw !== "created" &&
+        raw !== "deadline"
+      ) {
+        return reply
+          .code(400)
+          .send({ message: "Invalid sort; use created or deadline" });
+      }
+      const sort = raw === "deadline" ? "deadline_asc" : "created_desc";
+
+      let limit = 20;
+      if (q.limit != null && q.limit !== "") {
+        const n = Number(q.limit);
+        if (!Number.isInteger(n) || n < 1 || n > 50) {
+          return reply
+            .code(400)
+            .send({ message: "Invalid limit; use integer 1-50" });
+        }
+        limit = n;
+      }
+
+      let offset = 0;
+      if (q.offset != null && q.offset !== "") {
+        const n = Number(q.offset);
+        if (!Number.isInteger(n) || n < 0 || n > 10_000) {
+          return reply.code(400).send({ message: "Invalid offset" });
+        }
+        offset = n;
+      }
+
+      let search: string | undefined;
+      if (q.search != null && String(q.search).trim() !== "") {
+        search = String(q.search).trim().slice(0, 120);
+      }
+
+      const result = await listArchivedPlansForUser(userId, {
+        sort,
+        limit,
+        offset,
+        search,
+      });
+      return reply.send(result);
+    },
+  );
+
   fastify.delete(
     "/plans/:id",
     { preHandler: requireLogin },
@@ -664,6 +726,32 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
       const userId = request.user.sub;
       const { id } = request.params as { id: string };
       const result = await restorePlan({ planId: id, userId });
+      if (!result.ok)
+        return reply.code(result.code).send({ message: result.message });
+      return reply.send({ ok: true });
+    },
+  );
+
+  fastify.post(
+    "/plans/:id/archive",
+    { preHandler: requireLogin },
+    async (request, reply) => {
+      const userId = request.user.sub;
+      const { id } = request.params as { id: string };
+      const result = await archivePlan({ planId: id, userId });
+      if (!result.ok)
+        return reply.code(result.code).send({ message: result.message });
+      return reply.send({ ok: true });
+    },
+  );
+
+  fastify.post(
+    "/plans/:id/unarchive",
+    { preHandler: requireLogin },
+    async (request, reply) => {
+      const userId = request.user.sub;
+      const { id } = request.params as { id: string };
+      const result = await unarchivePlan({ planId: id, userId });
       if (!result.ok)
         return reply.code(result.code).send({ message: result.message });
       return reply.send({ ok: true });

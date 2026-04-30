@@ -3,6 +3,7 @@ import { reactive } from 'vue';
 const storageKey = 'ai-plan-token';
 const tierStorageKey = 'ai-plan-tier';
 const emailStorageKey = 'ai-plan-user-email';
+const phoneStorageKey = 'ai-plan-user-phone';
 const userIdStorageKey = 'ai-plan-user-id';
 
 function decodeJwtSub(token: string): string {
@@ -27,7 +28,11 @@ const initialToken = localStorage.getItem(storageKey) ?? '';
 export const authState = reactive({
   token: initialToken,
   tier: normalizeTier(localStorage.getItem(tierStorageKey)),
-  userEmail: localStorage.getItem(emailStorageKey) ?? '',
+  // 商业化普通版：手机号为主；兼容旧 key（user-email）避免升级后丢展示信息
+  userPhone:
+    localStorage.getItem(phoneStorageKey) ??
+    localStorage.getItem(emailStorageKey) ??
+    '',
   userId: localStorage.getItem(userIdStorageKey) ?? decodeJwtSub(initialToken),
 });
 
@@ -43,13 +48,21 @@ export function setAuthToken(token: string) {
   }
 }
 
-export function setUserEmail(email: string) {
-  authState.userEmail = email;
-  if (email) {
-    localStorage.setItem(emailStorageKey, email);
+export function setUserPhone(phone: string) {
+  authState.userPhone = phone;
+  if (phone) {
+    localStorage.setItem(phoneStorageKey, phone);
+    // 兼容旧读取路径：同步写入 email key（后续清理）
+    localStorage.setItem(emailStorageKey, phone);
   } else {
+    localStorage.removeItem(phoneStorageKey);
     localStorage.removeItem(emailStorageKey);
   }
+}
+
+/** @deprecated 兼容旧调用；商业化版本请改用 setUserPhone */
+export function setUserEmail(email: string) {
+  setUserPhone(email);
 }
 
 export function setAuthTier(tier: UserTier) {
@@ -60,11 +73,12 @@ export function setAuthTier(tier: UserTier) {
 export function clearAuthToken() {
   authState.token = '';
   authState.tier = 'basic';
-  authState.userEmail = '';
+  authState.userPhone = '';
   authState.userId = '';
   localStorage.removeItem(storageKey);
   localStorage.removeItem(tierStorageKey);
   localStorage.removeItem(emailStorageKey);
+  localStorage.removeItem(phoneStorageKey);
   localStorage.removeItem(userIdStorageKey);
   localStorage.removeItem('ai-plan-display-name');
 }

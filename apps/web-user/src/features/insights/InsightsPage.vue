@@ -1,42 +1,110 @@
 <script setup lang="ts">
+import { computed, onMounted, ref } from "vue";
 import PageSectionHeading from "../../components/PageSectionHeading.vue";
+import UiErrorToast from "../../components/UiErrorToast.vue";
+import { getApiClient, type UserInsightsResponse } from "../../lib/api-client";
+import { authState } from "../../stores/auth";
 
-/** P0 占位 KPI：P1 由接口替换 */
-const kpiCards = [
-  {
-    id: "active",
-    label: "进行中计划",
-    value: "—",
-    hint: "已定稿且未归档的计划数",
-    icon: "folder_special",
-    accent: "emerald" as const,
-  },
-  {
-    id: "week",
-    label: "本周完成任务",
-    value: "—",
-    hint: "本周已满足的打卡槽位数（待接入）",
-    icon: "task_alt",
-    accent: "slate" as const,
-  },
-  {
-    id: "progress",
-    label: "平均进度",
-    value: "—",
-    hint: "多计划加权平均完成度（待接入）",
-    icon: "data_usage",
-    accent: "teal" as const,
-  },
-];
+const loading = ref(true);
+const errorToastMessage = ref("");
+const insights = ref<UserInsightsResponse | null>(null);
 
-/** 趋势区占位柱高（纯装饰，非真实数据） */
-const sparkHeights = [38, 52, 44, 68, 55, 72, 48, 61, 58, 49, 64, 56];
+const kpiCards = computed(() => {
+  const i = insights.value;
+  const dash = i == null;
+  return [
+    {
+      id: "active",
+      label: "进行中计划",
+      value: dash ? "—" : String(i.activePlans),
+      hint: "已定稿且未删除、未归档的计划数",
+      icon: "folder_special",
+      accent: "emerald" as const,
+    },
+    {
+      id: "week",
+      label: "本周打卡提交",
+      value: dash ? "—" : String(i.weekCheckinsCompleted),
+      hint: dash
+        ? "本周内创建的打卡提交条数（本地自然周）"
+        : `本周（${i.weekRangeLabel}）内创建的提交次数`,
+      icon: "task_alt",
+      accent: "slate" as const,
+    },
+    {
+      id: "progress",
+      label: "平均进度",
+      value: dash ? "—" : `${i.avgProgressPercent}%`,
+      hint: "仅统计有打卡表的计划：已提交槽位 / 总槽位，多计划算术平均",
+      icon: "data_usage",
+      accent: "teal" as const,
+    },
+  ];
+});
+
+/** 近 12 周趋势柱高（8%–100%）；无数据时用占位骨架 */
+const sparkHeights = computed(() => {
+  const trend = insights.value?.weeklyCheckinTrend;
+  if (!trend?.length || trend.every((n) => n === 0)) {
+    return [38, 52, 44, 68, 55, 72, 48, 61, 58, 49, 64, 56];
+  }
+  const max = Math.max(...trend, 1);
+  return trend.map((v) => Math.round(8 + (v / max) * 84));
+});
+
+const trendCaption = computed(() =>
+  insights.value
+    ? "近 12 周打卡提交次数（旧 → 新，末列为当前周）"
+    : "占位骨架 · 接入后将展示完成率 / 打卡次数等序列",
+);
+
+const trendFootnote = computed(() =>
+  insights.value
+    ? "柱高按各周提交次数相对缩放，可与 KPI 对照查看节奏。"
+    : "柱高仅为视觉占位，不代表当前账户数据",
+);
+
+const trendAria = computed(() =>
+  insights.value
+    ? "近十二周每周打卡提交次数柱状示意"
+    : "趋势占位图，非真实数据",
+);
+
+async function loadInsights() {
+  if (!authState.token) {
+    insights.value = null;
+    loading.value = false;
+    return;
+  }
+  loading.value = true;
+  errorToastMessage.value = "";
+  try {
+    insights.value = await getApiClient().getUserInsights({
+      token: authState.token,
+    });
+  } catch (e) {
+    errorToastMessage.value =
+      e instanceof Error ? e.message : "加载统计数据失败";
+    insights.value = null;
+  } finally {
+    loading.value = false;
+  }
+}
+
+onMounted(() => {
+  void loadInsights();
+});
 </script>
 
 <template>
   <div
     class="insights-root relative flex h-full min-h-0 w-full flex-col overflow-hidden font-plan text-stone-800"
   >
+    <UiErrorToast
+      :message="errorToastMessage"
+      @close="errorToastMessage = ''"
+    />
+
     <!-- 氛围底：与概览同系柔光 + 轻噪点 -->
     <div
       class="pointer-events-none absolute inset-0 -z-10 overflow-hidden rounded-3xl opacity-[0.94]"
@@ -57,9 +125,18 @@ const sparkHeights = [38, 52, 44, 68, 55, 72, 48, 61, 58, 49, 64, 56];
     <header class="relative mb-5 shrink-0 sm:mb-6">
       <PageSectionHeading kicker="数据洞察" title="统计分析">
         <p class="max-w-2xl text-[13px] leading-relaxed text-[#5a6b62]">
-          汇总完成率、逾期任务、阶段耗时等指标。当前为
-          <strong class="font-semibold text-[#0f2918]">可视化骨架</strong>
-          ，接入报表 API 后将自动替换为实时数据。
+          <template v-if="loading && insights == null">
+            正在加载你的执行概览…
+          </template>
+          <template v-else-if="insights == null && !loading && !authState.token">
+            登录后可查看与你计划、打卡相关的汇总指标。
+          </template>
+          <template v-else-if="insights == null && !loading && authState.token">
+            暂时无法加载汇总数据，请稍后重试或检查网络。
+          </template>
+          <template v-else>
+            汇总进行中计划、本周打卡活跃度与多计划平均完成度。趋势区展示近 12 周打卡提交次数。
+          </template>
         </p>
       </PageSectionHeading>
     </header>
@@ -122,7 +199,16 @@ const sparkHeights = [38, 52, 44, 68, 55, 72, 48, 61, 58, 49, 64, 56];
                 class="insight-kpi-track mt-4 h-1.5 overflow-hidden rounded-full bg-stone-200/80"
                 aria-hidden="true"
               >
-                <div class="insight-kpi-fill h-full rounded-full" />
+                <div
+                  class="insight-kpi-fill h-full rounded-full"
+                  :style="
+                    card.id === 'progress' && insights
+                      ? {
+                          width: `${Math.min(100, Math.max(4, insights.avgProgressPercent))}%`,
+                        }
+                      : {}
+                  "
+                />
               </div>
             </div>
           </div>
@@ -148,7 +234,7 @@ const sparkHeights = [38, 52, 44, 68, 55, 72, 48, 61, 58, 49, 64, 56];
                 指标趋势
               </h2>
               <p class="mt-1 text-[12px] text-stone-500">
-                占位骨架 · 接入后将展示完成率 / 打卡次数等序列
+                {{ trendCaption }}
               </p>
             </div>
             <span
@@ -159,13 +245,13 @@ const sparkHeights = [38, 52, 44, 68, 55, 72, 48, 61, 58, 49, 64, 56];
                 aria-hidden="true"
                 >show_chart</span
               >
-              示例周视图
+              {{ insights ? "12 周" : "示例周视图" }}
             </span>
           </div>
           <div
             class="insight-spark-wrap relative flex h-40 items-end gap-1 rounded-2xl border border-stone-100/90 bg-gradient-to-b from-stone-50/90 to-white/60 px-3 pb-3 pt-6 ring-1 ring-white/80 sm:h-44 sm:gap-1.5 sm:px-4"
             role="img"
-            aria-label="趋势占位图，非真实数据"
+            :aria-label="trendAria"
           >
             <div
               class="absolute inset-x-0 top-3 flex justify-between px-1 text-[10px] font-medium uppercase tracking-wider text-stone-400"
@@ -177,13 +263,13 @@ const sparkHeights = [38, 52, 44, 68, 55, 72, 48, 61, 58, 49, 64, 56];
             </div>
             <div
               v-for="(h, idx) in sparkHeights"
-              :key="idx"
+              :key="`w-${idx}`"
               class="insight-spark-bar flex-1 rounded-t-sm bg-gradient-to-t from-emerald-600/85 to-emerald-400/50 opacity-80 shadow-[inset_0_-1px_0_rgba(255,255,255,0.35)]"
               :style="{ height: `${h}%`, '--i': idx }"
             />
           </div>
           <p class="relative mt-3 text-center text-[11px] text-stone-400">
-            柱高仅为视觉占位，不代表当前账户数据
+            {{ trendFootnote }}
           </p>
         </section>
 
@@ -197,7 +283,7 @@ const sparkHeights = [38, 52, 44, 68, 55, 72, 48, 61, 58, 49, 64, 56];
             >
               <span class="material-symbols-outlined text-[22px]">hub</span>
             </span>
-            <h2 class="text-sm font-bold text-[#0f2918]">接下来会接什么？</h2>
+            <h2 class="text-sm font-bold text-[#0f2918]">数据口径</h2>
           </div>
           <ul class="space-y-3 text-[13px] leading-relaxed text-[#4a5c54]">
             <li class="flex gap-2">
@@ -206,8 +292,8 @@ const sparkHeights = [38, 52, 44, 68, 55, 72, 48, 61, 58, 49, 64, 56];
                 aria-hidden="true"
               />
               <span
-                ><strong class="font-semibold text-[#0f2918]">聚合 API</strong>
-               ：按用户维度返回 KPI 与时间序列，统一鉴权与缓存策略。</span
+                ><strong class="font-semibold text-[#0f2918]">进行中</strong>
+                与「我的计划」列表一致，不含回收站与归档。</span
               >
             </li>
             <li class="flex gap-2">
@@ -216,8 +302,8 @@ const sparkHeights = [38, 52, 44, 68, 55, 72, 48, 61, 58, 49, 64, 56];
                 aria-hidden="true"
               />
               <span
-                ><strong class="font-semibold text-[#0f2918]">图表层</strong>
-                ：在骨架位置挂载真实坐标轴、提示框与图例，支持浅色主题与键盘操作。</span
+                ><strong class="font-semibold text-[#0f2918]">本周提交</strong>
+                按本地时区周一至周日窗口内，新建打卡提交的次数。</span
               >
             </li>
             <li class="flex gap-2">
@@ -226,15 +312,15 @@ const sparkHeights = [38, 52, 44, 68, 55, 72, 48, 61, 58, 49, 64, 56];
                 aria-hidden="true"
               />
               <span
-                ><strong class="font-semibold text-[#0f2918]">导出</strong>
-                ：可选 CSV / 截图，便于复盘与分享。</span
+                ><strong class="font-semibold text-[#0f2918]">平均进度</strong>
+                有打卡表的计划：至少一条提交的槽位数 ÷ 槽位总数，再对多计划取平均。</span
               >
             </li>
           </ul>
           <div
             class="mt-auto border-t border-emerald-100/70 pt-4 text-[11px] text-stone-500"
           >
-            若需优先某一指标（如逾期率），可在需求单中标注 P0。
+            归档计划不计入「进行中」与平均进度；历史提交仍计入周趋势与「本周提交」。
           </div>
         </aside>
       </div>

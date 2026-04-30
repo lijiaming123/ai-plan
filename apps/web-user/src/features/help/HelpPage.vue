@@ -57,6 +57,13 @@ const faqs: FaqItem[] = [
     keywords: '会员 升级 设置',
   },
   {
+    id: 'forgot-password-demo',
+    category: 'account',
+    title: '忘记密码页面会发邮件吗？',
+    body: '在登录页进入「忘记密码」并提交邮箱后，当前演示环境不会发送真实重置邮件，仅返回统一说明；请使用演示账号登录或联系管理员。正式环境接入邮件服务后将另行提示。',
+    keywords: '忘记密码 重置 邮箱 演示',
+  },
+  {
     id: 'contact',
     category: 'account',
     title: '需要人工支持？',

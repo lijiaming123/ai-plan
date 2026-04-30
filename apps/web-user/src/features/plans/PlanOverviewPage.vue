@@ -32,6 +32,7 @@ const plans = ref<PlanCard[]>([]);
 const listLoading = ref(true);
 const errorToastMessage = ref("");
 const recentlyDeleted = ref<{ id: string; title: string } | null>(null);
+const recentlyArchived = ref<{ id: string; title: string } | null>(null);
 const trashCount = ref<number | null>(null);
 
 const desktopMenuPlanId = ref<string | null>(null);
@@ -41,6 +42,10 @@ const actionSheetPlan = ref<Pick<PlanCard, "id" | "title"> | null>(null);
 const confirmDeleteOpen = ref(false);
 const confirmDeletePlan = ref<Pick<PlanCard, "id" | "title"> | null>(null);
 const confirmDeleteSubmitting = ref(false);
+
+const confirmArchiveOpen = ref(false);
+const confirmArchivePlan = ref<Pick<PlanCard, "id" | "title"> | null>(null);
+const confirmArchiveSubmitting = ref(false);
 
 function closeDesktopMenu() {
   desktopMenuPlanId.value = null;
@@ -56,6 +61,11 @@ useCloseOnEscape(confirmDeleteOpen, () => {
   if (confirmDeleteSubmitting.value) return;
   confirmDeleteOpen.value = false;
   confirmDeletePlan.value = null;
+});
+useCloseOnEscape(confirmArchiveOpen, () => {
+  if (confirmArchiveSubmitting.value) return;
+  confirmArchiveOpen.value = false;
+  confirmArchivePlan.value = null;
 });
 
 /**
@@ -180,6 +190,13 @@ function openConfirmDelete(plan: Pick<PlanCard, "id" | "title">) {
   confirmDeleteOpen.value = true;
 }
 
+function openConfirmArchive(plan: Pick<PlanCard, "id" | "title">) {
+  closeActionSheet();
+  closeDesktopMenu();
+  confirmArchivePlan.value = plan;
+  confirmArchiveOpen.value = true;
+}
+
 async function submitDeletePlan() {
   const plan = confirmDeletePlan.value;
   if (!plan) return;
@@ -203,6 +220,28 @@ async function submitDeletePlan() {
   }
 }
 
+async function submitArchivePlan() {
+  const plan = confirmArchivePlan.value;
+  if (!plan) return;
+  if (!authState.token) {
+    errorToastMessage.value = "请先登录后再归档计划。";
+    return;
+  }
+  try {
+    confirmArchiveSubmitting.value = true;
+    await getApiClient().archivePlan({ id: plan.id, token: authState.token });
+    plans.value = plans.value.filter((p) => p.id !== plan.id);
+    recentlyArchived.value = { id: plan.id, title: plan.title };
+    confirmArchiveOpen.value = false;
+    confirmArchivePlan.value = null;
+  } catch (e) {
+    errorToastMessage.value =
+      e instanceof Error ? e.message : "归档失败";
+  } finally {
+    confirmArchiveSubmitting.value = false;
+  }
+}
+
 async function onUndoDelete() {
   const deleted = recentlyDeleted.value;
   if (!deleted) return;
@@ -219,6 +258,26 @@ async function onUndoDelete() {
   } catch (e) {
     errorToastMessage.value =
       e instanceof Error ? e.message : "撤销删除失败";
+  }
+}
+
+async function onUndoArchive() {
+  const archived = recentlyArchived.value;
+  if (!archived) return;
+  if (!authState.token) {
+    errorToastMessage.value = "请先登录后再撤销归档。";
+    return;
+  }
+  try {
+    await getApiClient().unarchivePlan({
+      id: archived.id,
+      token: authState.token,
+    });
+    recentlyArchived.value = null;
+    await loadPlans();
+  } catch (e) {
+    errorToastMessage.value =
+      e instanceof Error ? e.message : "撤销归档失败";
   }
 }
 
@@ -546,6 +605,33 @@ watch(
       </div>
     </div>
 
+    <div
+      v-if="recentlyArchived"
+      class="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-slate-200/80 bg-slate-50/85 px-4 py-3 text-sm text-slate-900 shadow-[0_10px_26px_-24px_rgba(15,23,42,0.18)]"
+      data-testid="recently-archived-banner"
+    >
+      <span class="min-w-0 truncate">
+        已归档：<span class="font-semibold">{{ recentlyArchived.title }}</span>
+      </span>
+      <div class="flex shrink-0 items-center gap-2">
+        <router-link
+          to="/archive"
+          class="rounded-xl bg-white/70 px-3 py-1.5 text-sm font-semibold text-slate-800 ring-1 ring-slate-200/70 transition hover:bg-white"
+          data-testid="go-archive"
+        >
+          去归档
+        </router-link>
+        <button
+          type="button"
+          class="rounded-xl bg-white/80 px-3 py-1.5 text-sm font-semibold text-slate-800 ring-1 ring-slate-200/75 transition hover:bg-white"
+          data-testid="undo-archive"
+          @click.stop.prevent="onUndoArchive"
+        >
+          撤销
+        </button>
+      </div>
+    </div>
+
     <div class="ui-scrollbar relative min-h-0 flex-1 overflow-y-auto pr-1 pb-2">
       <div
         v-if="listLoading"
@@ -604,6 +690,17 @@ watch(
                 :data-testid="`plan-menu-${plan.id}`"
                 @click.stop
               >
+                <button
+                  type="button"
+                  class="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm font-extrabold text-slate-700 transition hover:bg-slate-50"
+                  :data-testid="`plan-archive-${plan.id}`"
+                  @click.stop.prevent="openConfirmArchive(plan)"
+                >
+                  <span>归档计划</span>
+                  <span class="text-xs font-semibold text-slate-500/80"
+                    >只读</span
+                  >
+                </button>
                 <button
                   type="button"
                   class="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm font-extrabold text-rose-700 transition hover:bg-rose-50"
@@ -823,6 +920,17 @@ watch(
         <div class="mt-4 space-y-2">
           <button
             type="button"
+            class="flex w-full items-center justify-between rounded-2xl border border-slate-200/70 bg-slate-50/90 px-4 py-3 text-left text-sm font-extrabold text-slate-700 ring-1 ring-white/70 transition hover:bg-slate-50"
+            data-testid="action-archive"
+            @click="actionSheetPlan && openConfirmArchive(actionSheetPlan)"
+          >
+            <span>归档计划</span>
+            <span class="text-xs font-semibold text-slate-600/80"
+              >只读</span
+            >
+          </button>
+          <button
+            type="button"
             class="flex w-full items-center justify-between rounded-2xl border border-rose-200/60 bg-rose-50/80 px-4 py-3 text-left text-sm font-extrabold text-rose-700 ring-1 ring-white/70 transition hover:bg-rose-50"
             data-testid="action-delete"
             @click="actionSheetPlan && openConfirmDelete(actionSheetPlan)"
@@ -857,6 +965,19 @@ watch(
       data-testid="confirm-delete-dialog"
       @confirm="submitDeletePlan"
       @cancel="confirmDeleteOpen = false"
+    />
+
+    <UiConfirmDialog
+      v-model="confirmArchiveOpen"
+      title="将计划移入归档？"
+      :description="confirmArchivePlan ? `「${confirmArchivePlan.title}」归档后将从列表隐藏，且不能继续打卡或编辑排期；可在“归档”中随时恢复执行。` : '归档后将从列表隐藏，且不能继续打卡或编辑排期；可在“归档”中随时恢复执行。'"
+      confirm-text="确认归档"
+      cancel-text="取消"
+      :loading="confirmArchiveSubmitting"
+      :close-on-confirm="false"
+      data-testid="confirm-archive-dialog"
+      @confirm="submitArchivePlan"
+      @cancel="confirmArchiveOpen = false"
     />
   </div>
 </template>

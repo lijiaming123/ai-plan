@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { prisma } from "../../lib/prisma";
+import { dispatchOtpSms } from "./sms.dispatch";
 
 export type OtpPurpose = "login" | "register" | "reset";
 
@@ -44,7 +45,7 @@ export async function sendOtp(params: {
       /** 仅测试环境回传，便于前端/后端测试闭环 */
       codeForTest?: string;
     }
-  | { ok: false; code: 400 | 429; message: string; cooldownSeconds?: number }
+  | { ok: false; code: 400 | 429 | 502; message: string; cooldownSeconds?: number }
 > {
   const phone = normalizePhoneCN(String(params.phoneRaw ?? ""));
   if (!phone) return { ok: false, code: 400, message: "请输入有效手机号" };
@@ -76,18 +77,24 @@ export async function sendOtp(params: {
 
   const code = generateCode();
   const expiresAt = new Date(now.getTime() + OTP_TTL_SECONDS * 1000);
-  await prisma.authOtp.create({
+  const row = await prisma.authOtp.create({
     data: {
       phone,
       purpose,
       codeHash: hashOtp({ phone, code }),
       expiresAt,
     },
+    select: { id: true },
   });
 
-  // TODO: production integrate real SMS provider
-  if (process.env.NODE_ENV !== "test") {
-    console.log(`[otp] ${purpose} ${phone} code=${code} expiresIn=${OTP_TTL_SECONDS}s`);
+  const sent = await dispatchOtpSms({ phone, code, purpose });
+  if (!sent.ok) {
+    await prisma.authOtp.delete({ where: { id: row.id } }).catch(() => undefined);
+    return {
+      ok: false,
+      code: 502,
+      message: sent.message || "短信发送失败，请稍后重试",
+    };
   }
 
   return {

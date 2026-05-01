@@ -97,13 +97,33 @@ async function authenticateAdminUser(identifier: string, password: string): Prom
   }
 }
 
-/** @returns 验证通过的用户摘要；密码错误或未知账号返回 null（由路由转 401） */
+/**
+ * 邮箱/密码登录（遗留路径，主要服务管理端与自动化测试）。
+ * - 库内 AdminUser 与演示 **管理员** 账号：任意环境可用。
+ * - 演示 **普通用户**（demo@ai-plan.dev）：生产默认关闭，请使用 POST /auth/otp/*；
+ *   仅当 NODE_ENV=test 或 AUTH_DEMO_PASSWORD_USER=true 时允许。
+ */
 export async function authenticateUser(input: LoginCredentials): Promise<AuthUser | null> {
   const fromDb = await authenticateAdminUser(input.email, input.password);
   if (fromDb) return fromDb;
 
   const demo = resolveDemoRecord(input.email);
   if (!demo || demo.password !== input.password) {
+    return null;
+  }
+
+  if (demo.role === 'admin') {
+    return {
+      id: demo.id,
+      email: demo.email,
+      role: demo.role,
+      permissions: demo.permissions,
+    };
+  }
+
+  const allowDemoUserPassword =
+    process.env.NODE_ENV === 'test' || process.env.AUTH_DEMO_PASSWORD_USER === 'true';
+  if (!allowDemoUserPassword) {
     return null;
   }
 

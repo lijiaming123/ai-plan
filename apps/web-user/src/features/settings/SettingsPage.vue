@@ -315,7 +315,7 @@ watch(
             </div>
           </div>
           <p class="mt-4 text-sm leading-relaxed text-[#5a6b62]">
-            账号由后端内置列表校验；正式环境将提供修改密码 API。
+            普通版使用手机号验证码登录；收不到验证码时可前往恢复入口重发。
           </p>
           <router-link
             to="/auth/forgot-password"
@@ -323,7 +323,7 @@ watch(
             data-testid="settings-forgot-password"
           >
             <span class="material-symbols-outlined text-[20px] text-[#0a8f4a]" aria-hidden="true">key</span>
-            忘记密码
+            验证码找回登录
           </router-link>
         </section>
       </div>

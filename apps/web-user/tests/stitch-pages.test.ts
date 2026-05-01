@@ -35,7 +35,7 @@ describe('stitch pages routing and rendering', () => {
       global: { plugins: [router] },
     });
     await flushPromises();
-    expect(forgot.text()).toContain('重置您的密码');
+    expect(forgot.text()).toContain('通过手机验证码恢复登录');
     expect(overview.text()).toContain('我的计划');
   });
 });

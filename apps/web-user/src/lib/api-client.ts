@@ -392,6 +392,10 @@ export type ForgotPasswordResponse = {
 };
 
 export type ApiClient = {
+  /**
+   * 管理端或自动化。用户端请用 `sendOtp` + `verifyOtp`。
+   * 生产环境默认不允许演示普通用户走邮箱密码（见服务端 `AUTH_DEMO_PASSWORD_USER`）。
+   */
   login(input: LoginInput): Promise<{ token: string }>;
   forgotPassword(input: { email: string }): Promise<ForgotPasswordResponse>;
   sendOtp(input: { phone: string; purpose?: OtpPurpose }): Promise<OtpSendResponse>;

@@ -1,7 +1,7 @@
 /**
  * 认证与用户态路由（均挂在同一 Fastify 前缀根路径，无前缀）。
  *
- * - POST /auth/login：Body `{ email, password }`，成功返回 `{ token }`（HS256 JWT）。
+ * - POST /auth/login：Body `{ email, password }`，成功返回 `{ token }`。面向管理端与自动化；普通用户生产环境请用 OTP。演示普通用户密码仅在 test 或 AUTH_DEMO_PASSWORD_USER=true 时可用。
  * - POST /auth/forgot-password：Body `{ email }`；演示环境不发送邮件，统一返回成功说明（防枚举）。
  * - POST /auth/admin/register：演示自助注册（需 ADMIN_OPEN_REGISTER=true），返回 `{ token }`。
  * - GET /auth/admin/me：需 admin JWT，返回 email / permissions。

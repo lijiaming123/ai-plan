@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
+import { nextTick } from 'vue';
 import { createMemoryHistory } from 'vue-router';
 const { trackEventMock, trackPageViewMock } = vi.hoisted(() => ({
   trackEventMock: vi.fn(),
@@ -17,23 +18,26 @@ import { clearAuthToken } from '../src/stores/auth';
 import { createApiClient, setApiClient } from '../src/lib/api-client';
 
 describe('LoginPage telemetry', () => {
-  const loginMock = vi.fn();
+  const verifyOtpMock = vi.fn();
 
   beforeEach(() => {
     clearAuthToken();
-    loginMock.mockReset();
+    verifyOtpMock.mockReset();
     trackEventMock.mockReset();
     trackPageViewMock.mockReset();
-    loginMock.mockResolvedValue({ token: 'token_telemetry' });
+    verifyOtpMock.mockResolvedValue({
+      token: 'token_telemetry',
+      phone: '13800138000',
+      userId: 'u1',
+    });
     setApiClient({
       ...createApiClient(),
-      login: loginMock,
+      verifyOtp: verifyOtpMock,
     });
   });
 
-  it('登录成功后应发送 auth_login 埋点', async () => {
+  it('登录成功后应发送 auth_login 埋点（OTP）', async () => {
     const router = createAppRouter(createMemoryHistory());
-    const push = vi.spyOn(router, 'push');
     await router.push('/auth/login');
     await router.isReady();
 
@@ -41,22 +45,25 @@ describe('LoginPage telemetry', () => {
       global: { plugins: [router] },
     });
 
-    await wrapper.get('input[aria-label="邮箱"]').setValue('demo@ai-plan.dev');
-    await wrapper.get('input[aria-label="密码"]').setValue('Pass1234!');
+    await wrapper.get('input[aria-label="手机号"]').setValue('13800138000');
+    await nextTick();
+    await wrapper.get('input[aria-label="验证码"]').setValue('123456');
+    await nextTick();
     await wrapper.get('form').trigger('submit');
     await flushPromises();
+    await router.isReady();
 
-    expect(loginMock).toHaveBeenCalledWith({
-      email: 'demo@ai-plan.dev',
-      password: 'Pass1234!',
-      confirmPassword: '',
-      useProTier: false,
+    expect(verifyOtpMock).toHaveBeenCalledWith({
+      phone: '13800138000',
+      code: '123456',
+      purpose: 'login',
     });
     expect(trackEventMock).toHaveBeenCalledWith('auth_login', {
       properties: {
-        method: 'password',
+        method: 'otp',
+        purpose: 'login',
       },
     });
-    expect(push).toHaveBeenCalledWith('/plans');
+    expect(router.currentRoute.value.path).toBe('/plans');
   });
 });

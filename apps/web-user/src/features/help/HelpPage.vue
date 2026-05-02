@@ -57,6 +57,13 @@ const faqs: FaqItem[] = [
     keywords: '会员 升级 设置',
   },
   {
+    id: 'forgot-password-demo',
+    category: 'account',
+    title: '收不到验证码怎么办？',
+    body: '登录与找回均使用手机号短信验证码。演示环境通常不会发送真实短信，验证码可在服务端日志查看；也可在「收不到验证码」页再次获取。生产环境需接入短信服务商。',
+    keywords: '验证码 短信 登录 找回 演示',
+  },
+  {
     id: 'contact',
     category: 'account',
     title: '需要人工支持？',

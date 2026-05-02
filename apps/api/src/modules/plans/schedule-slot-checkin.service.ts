@@ -43,11 +43,18 @@ function inferAttachmentKind(fileName: string | undefined, url: string): 'image'
 async function loadPlanScheduleForUser(
   planId: string,
   userId: string
-): Promise<{ ok: false; code: 404; message: string } | { ok: true; schedule: CheckinSchedule }> {
+): Promise<
+  | { ok: false; code: 404; message: string }
+  | { ok: false; code: 403; message: string }
+  | { ok: true; schedule: CheckinSchedule }
+> {
   const plan = await prisma.plan.findFirst({
-    where: { id: planId, userId },
+    where: { id: planId, userId, deletedAt: null },
   });
   if (!plan) return { ok: false, code: 404, message: 'plan not found' };
+  if (plan.archivedAt) {
+    return { ok: false, code: 403, message: '已归档的计划不可提交打卡' };
+  }
   const version = plan.confirmedVersion ?? plan.currentVersion ?? 1;
   const scheduleRows = (await prisma.$queryRawUnsafe(
     'SELECT schedule FROM "PlanVersion" WHERE "planId" = $1 AND version = $2 LIMIT 1',
@@ -104,7 +111,7 @@ export async function createScheduleSlotCheckin(params: {
   content?: string;
   attachments?: ScheduleSlotCheckinAttachmentInput[];
 }): Promise<
-  | { ok: false; code: 400 | 404; message: string }
+  | { ok: false; code: 400 | 403 | 404; message: string }
   | { ok: false; code: 422; message: string; review: CheckinPublicReview }
   | { ok: true; submission: SerializedScheduleSlotSubmission }
 > {

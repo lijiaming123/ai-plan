@@ -97,13 +97,33 @@ async function authenticateAdminUser(identifier: string, password: string): Prom
   }
 }
 
-/** @returns 验证通过的用户摘要；密码错误或未知账号返回 null（由路由转 401） */
+/**
+ * 邮箱/密码登录（遗留路径，主要服务管理端与自动化测试）。
+ * - 库内 AdminUser 与演示 **管理员** 账号：任意环境可用。
+ * - 演示 **普通用户**（demo@ai-plan.dev）：生产默认关闭，请使用 POST /auth/otp/*；
+ *   仅当 NODE_ENV=test 或 AUTH_DEMO_PASSWORD_USER=true 时允许。
+ */
 export async function authenticateUser(input: LoginCredentials): Promise<AuthUser | null> {
   const fromDb = await authenticateAdminUser(input.email, input.password);
   if (fromDb) return fromDb;
 
   const demo = resolveDemoRecord(input.email);
   if (!demo || demo.password !== input.password) {
+    return null;
+  }
+
+  if (demo.role === 'admin') {
+    return {
+      id: demo.id,
+      email: demo.email,
+      role: demo.role,
+      permissions: demo.permissions,
+    };
+  }
+
+  const allowDemoUserPassword =
+    process.env.NODE_ENV === 'test' || process.env.AUTH_DEMO_PASSWORD_USER === 'true';
+  if (!allowDemoUserPassword) {
     return null;
   }
 
@@ -159,4 +179,30 @@ export async function registerAdmin(input: {
     }
     return { ok: false, message: '注册失败（请确认数据库可用且已执行迁移）' };
   }
+}
+
+/**
+ * 校验忘记密码请求中的邮箱字符串（演示环境仅接受常见邮箱形态，不发送真实邮件）。
+ * @returns 规范化小写邮箱，或 null 表示无效
+ */
+export function validateForgotPasswordEmail(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const email = normalizeLoginIdentifier(raw);
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return null;
+  if (email.length > 320) return null;
+  return email;
+}
+
+/** 演示环境：不落库、不发信，统一成功文案（防邮箱枚举） */
+export function requestPasswordResetDemo(_emailNorm: string): {
+  ok: true;
+  mode: 'demo';
+  message: string;
+} {
+  return {
+    ok: true,
+    mode: 'demo',
+    message:
+      '请求已受理。当前为演示环境，不会发送真实重置邮件；请返回登录使用演示账号，或联系管理员处理。',
+  };
 }

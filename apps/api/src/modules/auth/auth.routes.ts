@@ -1,7 +1,8 @@
 /**
  * 认证与用户态路由（均挂在同一 Fastify 前缀根路径，无前缀）。
  *
- * - POST /auth/login：Body `{ email, password }`，成功返回 `{ token }`（HS256 JWT）。
+ * - POST /auth/login：Body `{ email, password }`，成功返回 `{ token }`。面向管理端与自动化；普通用户生产环境请用 OTP。演示普通用户密码仅在 test 或 AUTH_DEMO_PASSWORD_USER=true 时可用。
+ * - POST /auth/forgot-password：Body `{ email }`；演示环境不发送邮件，统一返回成功说明（防枚举）。
  * - POST /auth/admin/register：演示自助注册（需 ADMIN_OPEN_REGISTER=true），返回 `{ token }`。
  * - GET /auth/admin/me：需 admin JWT，返回 email / permissions。
  * - GET /auth/me：需 user 角色 JWT，回显 token 中的 sub/email/role（不做库表查询）。
@@ -9,7 +10,13 @@
  */
 import type { FastifyInstance } from 'fastify';
 import { ADMIN_PERMISSIONS } from '../admin/admin-permissions';
-import { authenticateUser, registerAdmin } from './auth.service';
+import {
+  authenticateUser,
+  registerAdmin,
+  requestPasswordResetDemo,
+  validateForgotPasswordEmail,
+} from './auth.service';
+import { sendOtp, verifyOtp } from './otp.service';
 
 export async function registerAuthRoutes(fastify: FastifyInstance) {
   /**
@@ -60,6 +67,54 @@ export async function registerAuthRoutes(fastify: FastifyInstance) {
       email: payload.email,
       role: payload.role,
       permissions,
+    };
+  });
+
+  fastify.post('/auth/forgot-password', async (request, reply) => {
+    const body = request.body as { email?: string } | undefined;
+    const email = validateForgotPasswordEmail(body?.email ?? '');
+    if (!email) {
+      return reply.code(400).send({ message: '请输入有效邮箱地址' });
+    }
+    return requestPasswordResetDemo(email);
+  });
+
+  /**
+   * 手机验证码发送（商业化普通版主路径）。
+   * 说明：生产应接真实短信服务；测试环境会返回 codeForTest 便于闭环测试。
+   */
+  fastify.post('/auth/otp/send', async (request, reply) => {
+    const body = request.body as { phone?: unknown; purpose?: unknown } | undefined;
+    const result = await sendOtp({
+      phoneRaw: body?.phone,
+      purposeRaw: body?.purpose,
+    });
+    if (!result.ok) {
+      return reply.code(result.code).send({ message: result.message, cooldownSeconds: result.cooldownSeconds });
+    }
+    return result;
+  });
+
+  /** 手机验证码校验并签发 user JWT */
+  fastify.post('/auth/otp/verify', async (request, reply) => {
+    const body = request.body as { phone?: unknown; purpose?: unknown; code?: unknown } | undefined;
+    const result = await verifyOtp({
+      phoneRaw: body?.phone,
+      purposeRaw: body?.purpose,
+      codeRaw: body?.code,
+    });
+    if (!result.ok) {
+      return reply.code(result.code).send({ message: result.message });
+    }
+    return {
+      token: fastify.jwt.sign({
+        sub: result.userId,
+        // 兼容旧前端：先把 phone 写入 email 字段，前端切换完成后再清理
+        email: result.phone,
+        role: 'user',
+      }),
+      phone: result.phone,
+      userId: result.userId,
     };
   });
 

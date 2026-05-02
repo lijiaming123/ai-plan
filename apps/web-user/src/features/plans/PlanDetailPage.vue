@@ -2,6 +2,8 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import UiErrorToast from '../../components/UiErrorToast.vue';
+import UiConfirmDialog from '../../components/UiConfirmDialog.vue';
+import PlanPomodoroBar from '../../components/PlanPomodoroBar.vue';
 import type { CheckinPublicReview, PlanRecord } from '../../lib/api-client';
 import { getApiClient, HttpApiError } from '../../lib/api-client';
 import { renderMarkdownToHtml } from '../../lib/render-markdown';
@@ -25,6 +27,7 @@ const publishForm = ref({
 });
 
 const isDraft = computed(() => plan.value?.status === 'draft');
+const isArchived = computed(() => plan.value?.status === 'archived');
 
 const breadcrumbTail = computed(() => {
   if (loading.value && !plan.value) return '加载中…';
@@ -47,6 +50,7 @@ function formatDetailDeadline(iso: string): string {
 }
 
 const statusLabel = computed(() => {
+  if (isArchived.value) return '已归档';
   const s = plan.value?.status;
   if (s === 'active') return '执行中';
   if (s === 'draft') return '草稿';
@@ -74,6 +78,7 @@ const canPublishTemplate = computed(() => {
   const p = plan.value;
   if (!p || !authState.token || !authState.userId) return false;
   if (p.userId && p.userId !== authState.userId) return false;
+  if (isArchived.value) return false;
   return p.status === 'draft' || p.status === 'active';
 });
 
@@ -206,8 +211,15 @@ const isPastPlanDeadline = computed(() => {
 });
 
 const canSubmitCheckin = computed(
-  () => !!authState.token && !isDraft.value && plan.value?.status === 'active'
+  () =>
+    !!authState.token &&
+    !isDraft.value &&
+    !isArchived.value &&
+    plan.value?.status === 'active'
 );
+
+const confirmArchiveOpen = ref(false);
+const archiveSubmitting = ref(false);
 
 function slotSubmissions(slotKey: string) {
   return plan.value?.scheduleSlotSubmissions?.[slotKey] ?? [];
@@ -529,6 +541,47 @@ async function loadPlanDetail() {
   }
 }
 
+async function submitArchivePlan() {
+  if (!authState.token || !plan.value) return;
+  archiveSubmitting.value = true;
+  try {
+    await getApiClient().archivePlan({
+      id: plan.value.id,
+      token: authState.token,
+    });
+    confirmArchiveOpen.value = false;
+    await loadPlanDetail();
+    okBanner.value = '已移入归档。可在侧栏「归档」中查看或恢复。';
+    window.setTimeout(() => {
+      okBanner.value = '';
+    }, 4000);
+  } catch (e) {
+    showError(e instanceof Error ? e.message : '归档失败');
+  } finally {
+    archiveSubmitting.value = false;
+  }
+}
+
+async function submitUnarchivePlan() {
+  if (!authState.token || !plan.value) return;
+  archiveSubmitting.value = true;
+  try {
+    await getApiClient().unarchivePlan({
+      id: plan.value.id,
+      token: authState.token,
+    });
+    await loadPlanDetail();
+    okBanner.value = '已移回「我的计划」，可继续执行与打卡。';
+    window.setTimeout(() => {
+      okBanner.value = '';
+    }, 4000);
+  } catch (e) {
+    showError(e instanceof Error ? e.message : '恢复执行失败');
+  } finally {
+    archiveSubmitting.value = false;
+  }
+}
+
 const lastOpenedCheckinQueryKey = ref('');
 
 onMounted(loadPlanDetail);
@@ -605,9 +658,11 @@ watch(
             <span
               class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold ring-1"
               :class="
-                plan.status === 'active'
-                  ? 'bg-emerald-50 text-emerald-900 ring-emerald-200/80'
-                  : 'bg-amber-50 text-amber-950 ring-amber-200/90'
+                plan.status === 'draft'
+                  ? 'bg-amber-50 text-amber-950 ring-amber-200/90'
+                  : isArchived
+                    ? 'bg-slate-100 text-slate-800 ring-slate-200/90'
+                    : 'bg-emerald-50 text-emerald-900 ring-emerald-200/80'
               "
             >
               {{ statusLabel }}
@@ -625,25 +680,56 @@ watch(
               截止 {{ formatDetailDeadline(plan.deadline) }}
             </span>
             <span
-              v-if="plan.status === 'active' && isPastPlanDeadline"
+              v-if="plan.status === 'active' && !isArchived && isPastPlanDeadline"
               class="inline-flex items-center rounded-full bg-orange-50 px-2.5 py-0.5 text-[11px] font-bold text-orange-900 ring-1 ring-orange-200/90"
               data-testid="plan-detail-deadline-past-hint"
             >
               已超过截止日，仍可补记打卡
             </span>
             <p
-              v-if="plan.status === 'active' && checkinSchedule"
+              v-if="plan.status === 'active' && !isArchived && checkinSchedule"
               class="mt-2 w-full text-[13px] leading-relaxed text-[#5a6f62]"
               data-testid="plan-detail-phase-hint"
             >
               当前在「执行」阶段：在下方打卡表中按各时间槽提交说明与证明；已逾期的计划截止日也仍可补记，状态与表中一致。
             </p>
+            <p
+              v-if="isArchived"
+              class="mt-2 w-full text-[13px] font-medium leading-relaxed text-slate-600"
+              data-testid="plan-detail-archived-hint"
+            >
+              本计划已归档：仅可查看，不能编辑打卡表或提交新证明。需要继续时请点下方「移回我的计划」。
+            </p>
           </div>
           <div
-            v-if="plan && plan.requirement && plan.status === 'active'"
+            v-if="plan && plan.requirement && (plan.status === 'active' || isArchived)"
             class="plan-detail-md mt-5 border-t border-slate-100 pt-5"
             v-html="renderRequirementMd(plan.requirement)"
           />
+          <div
+            v-if="plan && !isDraft && authState.token"
+            class="mt-4 flex flex-wrap gap-2 border-t border-slate-100 pt-4"
+          >
+            <button
+              v-if="plan.status === 'active' && !isArchived"
+              type="button"
+              class="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50"
+              data-testid="btn-archive-plan"
+              @click="confirmArchiveOpen = true"
+            >
+              归档
+            </button>
+            <button
+              v-if="isArchived"
+              type="button"
+              class="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-bold text-emerald-900 hover:bg-emerald-100 disabled:opacity-50"
+              data-testid="btn-unarchive-plan"
+              :disabled="archiveSubmitting"
+              @click="submitUnarchivePlan"
+            >
+              {{ archiveSubmitting ? '处理中…' : '移回我的计划' }}
+            </button>
+          </div>
           <div v-if="canPublishTemplate" class="mt-4 border-t border-slate-100 pt-4">
             <button
               type="button"
@@ -654,6 +740,12 @@ watch(
               发布为模板
             </button>
           </div>
+
+          <PlanPomodoroBar
+            v-if="plan && plan.status === 'active' && !isArchived"
+            :key="plan.id"
+            :title="plan.goal"
+          />
         </section>
 
         <section
@@ -665,8 +757,10 @@ watch(
             <div class="min-w-0">
               <p class="text-sm font-semibold text-[#2a3832]">打卡计划</p>
               <p class="mt-1 text-xs text-[#61896f]">
-                颗粒度：{{ checkinSchedule.granularity === 'day' ? '按天' : '按周' }} · 可编辑计划文案；已定稿后在本表按槽提交完成证明（链接附件）。
-                <template v-if="isPastPlanDeadline && plan?.status === 'active'">
+                颗粒度：{{ checkinSchedule.granularity === 'day' ? '按天' : '按周' }} ·
+                <template v-if="!isArchived">可编辑计划文案；已定稿后在本表按槽提交完成证明（链接附件）。</template>
+                <template v-else>已归档，打卡表为只读。</template>
+                <template v-if="isPastPlanDeadline && plan?.status === 'active' && !isArchived">
                   已超过计划截止日，仍可补记与编辑。
                 </template>
               </p>
@@ -730,6 +824,7 @@ watch(
                         提交证明
                       </button>
                       <button
+                        v-if="!isArchived"
                         type="button"
                         class="rounded-lg border border-[#dbe6df] bg-white px-2.5 py-1 text-xs font-semibold text-[#111813] hover:bg-[#f6f8f6] disabled:opacity-50"
                         :disabled="scheduleSaving"
@@ -739,6 +834,7 @@ watch(
                         编辑
                       </button>
                       <button
+                        v-if="!isArchived"
                         type="button"
                         class="rounded-lg border border-[#f0d8d6] bg-white px-2.5 py-1 text-xs font-semibold text-[#7b2f28] hover:bg-[#fff7f6] disabled:opacity-50"
                         :disabled="scheduleSaving"
@@ -748,7 +844,7 @@ watch(
                         恢复
                       </button>
                       <button
-                        v-if="slotCheckinStateLabel(slot.slotKey) === '申诉中'"
+                        v-if="!isArchived && slotCheckinStateLabel(slot.slotKey) === '申诉中'"
                         type="button"
                         class="rounded-lg border border-amber-200/90 bg-amber-50/90 px-2.5 py-1 text-xs font-bold text-amber-950 hover:bg-amber-100/90 disabled:opacity-50"
                         :disabled="!!appealWithdrawKey"
@@ -807,6 +903,7 @@ watch(
                     提交证明
                   </button>
                   <button
+                    v-if="!isArchived"
                     type="button"
                     class="rounded-lg border border-[#dbe6df] bg-white px-3 py-1.5 text-xs font-semibold text-[#111813] hover:bg-[#f6f8f6] disabled:opacity-50"
                     :disabled="scheduleSaving"
@@ -816,6 +913,7 @@ watch(
                     编辑
                   </button>
                   <button
+                    v-if="!isArchived"
                     type="button"
                     class="rounded-lg border border-[#f0d8d6] bg-white px-3 py-1.5 text-xs font-semibold text-[#7b2f28] hover:bg-[#fff7f6] disabled:opacity-50"
                     :disabled="scheduleSaving"
@@ -825,7 +923,7 @@ watch(
                     恢复
                   </button>
                   <button
-                    v-if="slotCheckinStateLabel(slot.slotKey) === '申诉中'"
+                    v-if="!isArchived && slotCheckinStateLabel(slot.slotKey) === '申诉中'"
                     type="button"
                     class="rounded-lg border border-amber-200/90 bg-amber-50/90 px-3 py-1.5 text-xs font-bold text-amber-950 hover:bg-amber-100/90 disabled:opacity-50"
                     :disabled="!!appealWithdrawKey"
@@ -1219,6 +1317,19 @@ watch(
             前往草稿确认
           </router-link>
   </section>
+
+    <UiConfirmDialog
+      v-model="confirmArchiveOpen"
+      title="将计划移入归档？"
+      description="归档后将从「我的计划」列表中隐藏，且不能继续打卡或编辑排期；可随时在「归档」页或本页恢复执行。"
+      confirm-text="确认归档"
+      cancel-text="取消"
+      :loading="archiveSubmitting"
+      :close-on-confirm="false"
+      data-testid="confirm-archive-dialog"
+      @confirm="submitArchivePlan"
+      @cancel="confirmArchiveOpen = false"
+    />
     </div>
   </div>
 </template>

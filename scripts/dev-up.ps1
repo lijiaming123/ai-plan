@@ -133,7 +133,7 @@ if (-not $apiPort) {
 
 Write-Host "[dev-up] API port: $apiPort"
 
-$apiBaseUrl = "http://localhost:$apiPort"
+$apiBaseUrl = "http://127.0.0.1:$apiPort"
 $env:PORT = "$apiPort"
 $env:VITE_API_BASE_URL = $apiBaseUrl
 # web-admin 开发代理目标（与 PORT 一致；勿依赖 shell 里过期的 localhost:4100）
@@ -144,6 +144,8 @@ Write-Host "[dev-up] Applying database migrations (prisma migrate deploy)..."
 Push-Location (Join-Path $projectRoot "apps\api")
 try {
   & node $prismaEntry migrate deploy
+  Write-Host "[dev-up] Generating Prisma client (prisma generate)..."
+  Invoke-RepoPnpm --filter @ai-plan/api prisma:generate
 } finally {
   Pop-Location
 }

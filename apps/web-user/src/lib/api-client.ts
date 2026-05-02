@@ -13,6 +13,25 @@ export type LoginInput = {
   password: string;
 };
 
+export type OtpPurpose = "login" | "register" | "reset";
+
+export type OtpSendResponse =
+  | {
+      ok: true;
+      phone: string;
+      purpose: OtpPurpose;
+      expiresInSeconds: number;
+      cooldownSeconds: number;
+      codeForTest?: string;
+    }
+  | { message: string; cooldownSeconds?: number };
+
+export type OtpVerifyResponse = {
+  token: string;
+  phone: string;
+  userId: string;
+};
+
 export type AuthMeResponse = {
   userId: string;
   email: string;
@@ -29,6 +48,15 @@ export type PlanHeatmapResponse = {
   year: number;
   timeZone: string;
   days: PlanHeatmapDay[];
+};
+
+/** GET /me/insights */
+export type UserInsightsResponse = {
+  activePlans: number;
+  weekCheckinsCompleted: number;
+  avgProgressPercent: number;
+  weeklyCheckinTrend: number[];
+  weekRangeLabel: string;
 };
 
 export type CreatePlanInput = {
@@ -172,6 +200,21 @@ export type PlanListRow = {
   createdAt: string;
 };
 
+export type DeletedPlanListRow = {
+  id: string;
+  goal: string;
+  deadline: string;
+  requirement: string;
+  type: string;
+  createdAt: string;
+  deletedAt: string | null;
+};
+
+/** GET /plans/archive：已归档且未删除 */
+export type ArchivedPlanListRow = PlanListRow & {
+  archivedAt: string;
+};
+
 export type PlanRecord = {
   id: string;
   userId?: string;
@@ -180,6 +223,8 @@ export type PlanRecord = {
   requirement: string;
   type: string;
   status?: string;
+  /** 已定稿计划归档时间（ISO）；未归档为 null */
+  archivedAt?: string | null;
   draft?: {
     versions: Array<{
       version: number;
@@ -340,13 +385,27 @@ export type NotificationPreferences = {
   switchAt: string | null;
 };
 
+export type ForgotPasswordResponse = {
+  ok: true;
+  mode?: string;
+  message: string;
+};
+
 export type ApiClient = {
+  /**
+   * 管理端或自动化。用户端请用 `sendOtp` + `verifyOtp`。
+   * 生产环境默认不允许演示普通用户走邮箱密码（见服务端 `AUTH_DEMO_PASSWORD_USER`）。
+   */
   login(input: LoginInput): Promise<{ token: string }>;
+  forgotPassword(input: { email: string }): Promise<ForgotPasswordResponse>;
+  sendOtp(input: { phone: string; purpose?: OtpPurpose }): Promise<OtpSendResponse>;
+  verifyOtp(input: { phone: string; code: string; purpose?: OtpPurpose }): Promise<OtpVerifyResponse>;
   getAuthMe(input: { token: string }): Promise<AuthMeResponse>;
   getPlanHeatmap(input: {
     token: string;
     year?: number;
   }): Promise<PlanHeatmapResponse>;
+  getUserInsights(input: { token: string }): Promise<UserInsightsResponse>;
   listNotifications(input: {
     token: string;
     limit?: number;
@@ -370,6 +429,21 @@ export type ApiClient = {
     /** `deadline`：按截止日期升序（更近的在前）。默认按创建时间倒序。 */
     sort?: "created" | "deadline";
   }): Promise<{ plans: PlanListRow[] }>;
+  deletePlan(input: { id: string; token: string }): Promise<{ ok: true }>;
+  restorePlan(input: { id: string; token: string }): Promise<{ ok: true }>;
+  listDeletedPlans(input: {
+    token: string;
+  }): Promise<{ plans: DeletedPlanListRow[] }>;
+  listArchivedPlans(input: {
+    token: string;
+    sort?: "created" | "deadline";
+    limit?: number;
+    offset?: number;
+    /** 按目标（goal）模糊匹配，服务端过滤 */
+    search?: string;
+  }): Promise<{ plans: ArchivedPlanListRow[]; hasMore: boolean }>;
+  archivePlan(input: { id: string; token: string }): Promise<{ ok: true }>;
+  unarchivePlan(input: { id: string; token: string }): Promise<{ ok: true }>;
   createPlan(input: CreatePlanInput): Promise<PlanRecord>;
   createSubmission(input: CreateSubmissionInput): Promise<SubmissionRecord>;
   planAssistant(input: PlanAssistantInput): Promise<PlanAssistantResult>;
@@ -615,6 +689,31 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
         body: JSON.stringify(input),
       });
     },
+    forgotPassword(input) {
+      return request<ForgotPasswordResponse>("/auth/forgot-password", {
+        method: "POST",
+        body: JSON.stringify({ email: input.email }),
+      });
+    },
+    sendOtp(input) {
+      return request<OtpSendResponse>("/auth/otp/send", {
+        method: "POST",
+        body: JSON.stringify({
+          phone: input.phone,
+          purpose: input.purpose ?? "login",
+        }),
+      });
+    },
+    verifyOtp(input) {
+      return request<OtpVerifyResponse>("/auth/otp/verify", {
+        method: "POST",
+        body: JSON.stringify({
+          phone: input.phone,
+          code: input.code,
+          purpose: input.purpose ?? "login",
+        }),
+      });
+    },
     getAuthMe(input) {
       return request<AuthMeResponse>("/auth/me", {
         method: "GET",
@@ -629,6 +728,14 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
           ? `?year=${encodeURIComponent(String(input.year))}`
           : "";
       return request<PlanHeatmapResponse>(`/me/plan-heatmap${q}`, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${input.token}`,
+        },
+      });
+    },
+    getUserInsights(input) {
+      return request<UserInsightsResponse>("/me/insights", {
         method: "GET",
         headers: {
           Authorization: `Bearer ${input.token}`,
@@ -707,6 +814,72 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
       const qs = params.toString();
       return request<{ plans: PlanListRow[] }>(`/plans${qs ? `?${qs}` : ""}`, {
         method: "GET",
+        headers: {
+          Authorization: `Bearer ${input.token}`,
+        },
+      });
+    },
+    deletePlan(input) {
+      return request<{ ok: true }>(`/plans/${input.id}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${input.token}`,
+        },
+      });
+    },
+    restorePlan(input) {
+      return request<{ ok: true }>(`/plans/${input.id}/restore`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${input.token}`,
+        },
+      });
+    },
+    listDeletedPlans(input) {
+      return request<{ plans: DeletedPlanListRow[] }>(`/plans/trash`, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${input.token}`,
+        },
+      });
+    },
+    listArchivedPlans(input) {
+      const params = new URLSearchParams();
+      const limit = input.limit ?? 20;
+      const offset = input.offset ?? 0;
+      params.set("limit", String(limit));
+      params.set("offset", String(offset));
+      if (input.sort === "deadline") {
+        params.set("sort", "deadline");
+      } else if (input.sort === "created") {
+        params.set("sort", "created");
+      }
+      const trimmed = input.search?.trim();
+      if (trimmed) {
+        params.set("search", trimmed);
+      }
+      const qs = params.toString();
+      return request<{ plans: ArchivedPlanListRow[]; hasMore: boolean }>(
+        `/plans/archive?${qs}`,
+        {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${input.token}`,
+          },
+        },
+      );
+    },
+    archivePlan(input) {
+      return request<{ ok: true }>(`/plans/${input.id}/archive`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${input.token}`,
+        },
+      });
+    },
+    unarchivePlan(input) {
+      return request<{ ok: true }>(`/plans/${input.id}/unarchive`, {
+        method: "POST",
         headers: {
           Authorization: `Bearer ${input.token}`,
         },

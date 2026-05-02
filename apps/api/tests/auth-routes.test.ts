@@ -58,6 +58,30 @@ describe('auth routes', () => {
     expect(res.statusCode).toBe(403);
   });
 
+  it('POST /auth/forgot-password 无效邮箱应 400', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auth/forgot-password',
+      payload: { email: 'not-an-email' },
+    });
+    expect(res.statusCode).toBe(400);
+    const body = JSON.parse(res.body) as { message: string };
+    expect(body.message).toContain('邮箱');
+  });
+
+  it('POST /auth/forgot-password 合法邮箱应 200 且演示模式说明', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auth/forgot-password',
+      payload: { email: 'Anyone@Example.COM' },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body) as { ok: boolean; mode: string; message: string };
+    expect(body.ok).toBe(true);
+    expect(body.mode).toBe('demo');
+    expect(body.message).toContain('演示环境');
+  });
+
   it('supports cors preflight for login route', async () => {
     const origin = 'http://localhost:5173';
     const res = await app.inject({

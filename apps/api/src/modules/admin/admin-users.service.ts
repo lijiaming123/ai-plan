@@ -122,8 +122,9 @@ export async function getAdminUserDetail(userId: string) {
     prisma.telemetryRawEvent.groupBy({
       by: ['eventName'],
       where: { userId },
-      _count: { _all: true },
-      orderBy: { _count: { _all: 'desc' } },
+      // Prisma groupBy 的 _count 排序不支持 `_all`，用分组字段本身计数即可
+      _count: { eventName: true },
+      orderBy: { _count: { eventName: 'desc' } },
       take: 10,
     }),
   ]);
@@ -147,7 +148,7 @@ export async function getAdminUserDetail(userId: string) {
     lastActivityAt: lastActivityAt?.toISOString() ?? null,
     telemetryTopEvents: telemetryTop.map((r) => ({
       eventName: r.eventName,
-      count: r._count._all,
+      count: r._count.eventName,
     })),
   };
 }

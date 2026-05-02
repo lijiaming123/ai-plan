@@ -51,13 +51,16 @@ export async function createScheduleSlotAppeal(params: {
   slotKey: string;
   content: string;
 }): Promise<
-  | { ok: false; code: 400 | 404 | 409; message: string }
+  | { ok: false; code: 400 | 403 | 404 | 409; message: string }
   | { ok: true; appeal: { id: string; content: string; createdAt: string } }
 > {
   const plan = await prisma.plan.findFirst({
     where: { id: params.planId, userId: params.userId },
   });
   if (!plan) return { ok: false, code: 404, message: "plan not found" };
+  if (plan.archivedAt) {
+    return { ok: false, code: 403, message: "已归档的计划不可发起申诉" };
+  }
 
   const text = params.content.trim();
   if (text.length < 4) {

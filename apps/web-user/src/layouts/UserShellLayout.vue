@@ -28,7 +28,7 @@ const tierLabel = computed(() =>
   authState.tier === "pro" ? "专业版" : "基础版",
 );
 
-const displayEmail = computed(() => authState.userEmail || "未登录邮箱");
+const displayPhone = computed(() => authState.userPhone || "未登录手机号");
 
 function navLinkClass(nav: string) {
   const on = activeNav.value === nav;
@@ -387,7 +387,7 @@ if (typeof window !== "undefined") {
                   <p
                     class="truncate text-xs font-semibold leading-tight text-[#111813]"
                   >
-                    {{ displayEmail }}
+                    {{ displayPhone }}
                   </p>
                   <p class="text-[10px] leading-tight text-[#7c8a84]">
                     {{ tierLabel }}
@@ -416,8 +416,8 @@ if (typeof window !== "undefined") {
                     </div>
                     <div class="user-menu-dropdown-identity">
                       <p class="user-menu-dropdown-kicker">当前登录</p>
-                      <p class="user-menu-dropdown-email" :title="displayEmail">
-                        {{ displayEmail }}
+                      <p class="user-menu-dropdown-email" :title="displayPhone">
+                        {{ displayPhone }}
                       </p>
                       <p class="user-menu-dropdown-tier-row">
                         <span class="user-menu-dropdown-tier">{{

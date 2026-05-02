@@ -39,7 +39,7 @@ export function setDisplayProfileName(raw: string) {
 export const avatarLabel = computed(() => {
   const n = displayProfileState.localDisplayName.trim();
   if (n) return n;
-  const e = authState.userEmail;
+  const e = authState.userPhone;
   return e ? emailPrefix(e) : '?';
 });
 

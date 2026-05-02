@@ -47,7 +47,7 @@ export function inferKindFromMime(mime: string): 'image' | 'document' | 'other' 
 export async function saveUploadedFile(params: {
   mimetype: string;
   filename?: string;
-  file: NodeJS.Readable;
+  file: NodeJS.ReadableStream;
 }): Promise<{ storageName: string; originalName: string; kind: 'image' | 'document' | 'other' }> {
   const mime = params.mimetype.split(';')[0]?.trim().toLowerCase() ?? '';
   if (!ALLOWED_MIMES.has(mime)) {

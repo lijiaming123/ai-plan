@@ -24,12 +24,69 @@ const data = ref<AdminRetentionResponse | null>(null);
 const error = ref('');
 const loading = ref(false);
 
+function parseOffsets(text: string) {
+  const raw = text
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const nums = raw
+    .map((s) => Number.parseInt(s, 10))
+    .filter((n) => Number.isFinite(n) && n > 0 && n <= 365);
+  return Array.from(new Set(nums)).sort((a, b) => a - b);
+}
+
+const offsetsPreview = computed(() => parseOffsets(offsetsText.value));
+
+const dateError = computed(() => {
+  if (!cohortStart.value || !cohortEnd.value) return '';
+  if (cohortStart.value > cohortEnd.value) return 'Cohort 开始日期不能晚于结束日期。';
+  return '';
+});
+
+const offsetsError = computed(() => {
+  const trimmed = offsetsText.value.trim();
+  if (!trimmed) return '';
+  const parsed = offsetsPreview.value;
+  if (parsed.length === 0) return '留存偏移请输入正整数（例如 1,7,30）。';
+  if (parsed.length > 8) return '偏移日过多会降低可读性，建议控制在 8 个以内。';
+  return '';
+});
+
+const canSubmit = computed(() => !loading.value && !dateError.value && !offsetsError.value);
+
+const filterSummary = computed(() => {
+  const parts: string[] = [];
+  parts.push(`Cohort ${cohortStart.value} ~ ${cohortEnd.value}（UTC）`);
+  parts.push(`偏移 ${offsetsPreview.value.length ? offsetsPreview.value.join(',') : '—'}`);
+  if (source.value.trim()) parts.push(`source=${source.value.trim()}`);
+  if (platform.value.trim()) parts.push(`platform=${platform.value.trim()}`);
+  if (clientVersion.value.trim()) parts.push(`version=${clientVersion.value.trim()}`);
+  return parts.join('，');
+});
+
+function setQuickCohort(days: number) {
+  const end = new Date();
+  const start = new Date(end);
+  start.setUTCDate(start.getUTCDate() - days);
+  cohortEnd.value = toYmd(end);
+  cohortStart.value = toYmd(start);
+}
+
+function resetFilters() {
+  offsetsText.value = '1,7,30';
+  source.value = '';
+  platform.value = '';
+  clientVersion.value = '';
+  setQuickCohort(30);
+}
+
 const sortedOffsets = computed(() => {
   if (!data.value) return [];
   return [...data.value.offsets].sort((a, b) => a - b);
 });
 
 async function load() {
+  if (dateError.value || offsetsError.value) return;
   loading.value = true;
   error.value = '';
   data.value = null;
@@ -50,11 +107,7 @@ async function load() {
 }
 
 onMounted(() => {
-  const end = new Date();
-  const start = new Date(end);
-  start.setUTCDate(start.getUTCDate() - 30);
-  cohortEnd.value = toYmd(end);
-  cohortStart.value = toYmd(start);
+  setQuickCohort(30);
   void load();
 });
 </script>
@@ -74,28 +127,48 @@ onMounted(() => {
       <label class="field">
         <span>Cohort 开始日期 (UTC)</span>
         <input v-model="cohortStart" type="date" required />
+        <p class="field-hint">按 UTC 日历日切分 cohort，避免跨时区误差。</p>
       </label>
       <label class="field">
         <span>Cohort 结束日期 (UTC)</span>
         <input v-model="cohortEnd" type="date" required />
+        <p v-if="dateError" class="field-error">{{ dateError }}</p>
       </label>
       <label class="field">
         <span>留存偏移（天）</span>
         <input v-model="offsetsText" type="text" placeholder="1,7,30" autocomplete="off" />
+        <p v-if="offsetsError" class="field-error">{{ offsetsError }}</p>
+        <p v-else class="field-hint">解析结果：{{ offsetsPreview.length ? offsetsPreview.join(', ') : '—' }}</p>
       </label>
-      <label class="field">
-        <span>渠道 source</span>
-        <input v-model="source" type="text" placeholder="可选" autocomplete="off" />
-      </label>
-      <label class="field">
-        <span>平台</span>
-        <input v-model="platform" type="text" placeholder="如 web" autocomplete="off" />
-      </label>
-      <label class="field">
-        <span>客户端版本</span>
-        <input v-model="clientVersion" type="text" placeholder="可选" autocomplete="off" />
-      </label>
-      <button type="submit" class="primary-btn" :disabled="loading">查询</button>
+      <details class="filters-advanced">
+        <summary>更多筛选（可选）</summary>
+        <div class="filters-advanced__grid">
+          <label class="field">
+            <span>渠道 source</span>
+            <input v-model="source" type="text" placeholder="可选" autocomplete="off" />
+          </label>
+          <label class="field">
+            <span>平台</span>
+            <input v-model="platform" type="text" placeholder="如 web" autocomplete="off" />
+          </label>
+          <label class="field">
+            <span>客户端版本</span>
+            <input v-model="clientVersion" type="text" placeholder="可选" autocomplete="off" />
+          </label>
+        </div>
+      </details>
+      <div class="filters-actions">
+        <div class="quick-range" aria-label="快捷 cohort 范围">
+          <button type="button" class="chip-btn" :disabled="loading" @click="setQuickCohort(7)">近 7 天</button>
+          <button type="button" class="chip-btn" :disabled="loading" @click="setQuickCohort(14)">近 14 天</button>
+          <button type="button" class="chip-btn" :disabled="loading" @click="setQuickCohort(30)">近 30 天</button>
+        </div>
+        <button type="submit" class="primary-btn" :disabled="!canSubmit">查询</button>
+        <button type="button" class="ghost-btn" :disabled="loading" @click="resetFilters">重置</button>
+      </div>
+      <div class="filters-summary">
+        <p class="field-hint">当前口径：{{ filterSummary }}</p>
+      </div>
     </form>
 
     <div v-if="loading" class="loading-row" aria-live="polite">
@@ -128,6 +201,10 @@ onMounted(() => {
           </tr>
         </tbody>
       </table>
+
+      <p v-if="data.rows.length === 0" class="empty-hint">
+        所选 cohort 范围内没有注册事件（auth_register）。可以放宽日期、检查 source/platform 过滤条件，或确认埋点是否正常写入。
+      </p>
 
       <section v-if="data.rows.length" class="retention-trends">
         <h2 class="retention-trends__title">按偏移日查看各 cohort 走势</h2>

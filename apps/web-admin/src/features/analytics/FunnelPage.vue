@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { getAdminApiClient, type AdminFunnelResponse } from '../../lib/api-client';
 import { adminAuthState } from '../../stores/auth';
 
@@ -18,7 +18,42 @@ const data = ref<AdminFunnelResponse | null>(null);
 const error = ref('');
 const loading = ref(false);
 
+const dateError = computed(() => {
+  if (!startDate.value || !endDate.value) return '';
+  if (startDate.value > endDate.value) return '开始日期不能晚于结束日期。';
+  return '';
+});
+
+const canSubmit = computed(() => !loading.value && !dateError.value && !!startDate.value && !!endDate.value);
+
+const filterSummary = computed(() => {
+  const parts: string[] = [];
+  parts.push(`范围 ${startDate.value} ~ ${endDate.value}（UTC）`);
+  parts.push(`窗口 ${windowDays.value} 天`);
+  if (source.value.trim()) parts.push(`source=${source.value.trim()}`);
+  if (platform.value.trim()) parts.push(`platform=${platform.value.trim()}`);
+  if (clientVersion.value.trim()) parts.push(`version=${clientVersion.value.trim()}`);
+  return parts.join('，');
+});
+
+function setQuickRange(days: number) {
+  const end = new Date();
+  const start = new Date(end);
+  start.setUTCDate(start.getUTCDate() - days);
+  endDate.value = toYmd(end);
+  startDate.value = toYmd(start);
+}
+
+function resetFilters() {
+  windowDays.value = 7;
+  source.value = '';
+  platform.value = '';
+  clientVersion.value = '';
+  setQuickRange(7);
+}
+
 async function load() {
+  if (dateError.value) return;
   loading.value = true;
   error.value = '';
   data.value = null;
@@ -39,11 +74,7 @@ async function load() {
 }
 
 onMounted(() => {
-  const end = new Date();
-  const start = new Date(end);
-  start.setUTCDate(start.getUTCDate() - 7);
-  endDate.value = toYmd(end);
-  startDate.value = toYmd(start);
+  setQuickRange(7);
   void load();
 });
 </script>
@@ -60,28 +91,47 @@ onMounted(() => {
       <label class="field">
         <span>开始日期 (UTC)</span>
         <input v-model="startDate" type="date" required />
+        <p class="field-hint">按 UTC 日历日统计，适合与后端聚合口径对齐。</p>
       </label>
       <label class="field">
         <span>结束日期 (UTC)</span>
         <input v-model="endDate" type="date" required />
+        <p v-if="dateError" class="field-error">{{ dateError }}</p>
       </label>
       <label class="field">
         <span>转化窗口（天）</span>
         <input v-model.number="windowDays" type="number" min="1" max="365" />
+        <p class="field-hint">表示从上一步到下一步允许的最大间隔天数。</p>
       </label>
-      <label class="field">
-        <span>渠道 source</span>
-        <input v-model="source" type="text" placeholder="可选" autocomplete="off" />
-      </label>
-      <label class="field">
-        <span>平台</span>
-        <input v-model="platform" type="text" placeholder="如 web" autocomplete="off" />
-      </label>
-      <label class="field">
-        <span>客户端版本</span>
-        <input v-model="clientVersion" type="text" placeholder="可选" autocomplete="off" />
-      </label>
-      <button type="submit" class="primary-btn" :disabled="loading">查询</button>
+      <details class="filters-advanced">
+        <summary>更多筛选（可选）</summary>
+        <div class="filters-advanced__grid">
+          <label class="field">
+            <span>渠道 source</span>
+            <input v-model="source" type="text" placeholder="可选" autocomplete="off" />
+          </label>
+          <label class="field">
+            <span>平台</span>
+            <input v-model="platform" type="text" placeholder="如 web" autocomplete="off" />
+          </label>
+          <label class="field">
+            <span>客户端版本</span>
+            <input v-model="clientVersion" type="text" placeholder="可选" autocomplete="off" />
+          </label>
+        </div>
+      </details>
+      <div class="filters-actions">
+        <div class="quick-range" aria-label="快捷日期范围">
+          <button type="button" class="chip-btn" :disabled="loading" @click="setQuickRange(7)">近 7 天</button>
+          <button type="button" class="chip-btn" :disabled="loading" @click="setQuickRange(14)">近 14 天</button>
+          <button type="button" class="chip-btn" :disabled="loading" @click="setQuickRange(30)">近 30 天</button>
+        </div>
+        <button type="submit" class="primary-btn" :disabled="!canSubmit">查询</button>
+        <button type="button" class="ghost-btn" :disabled="loading" @click="resetFilters">重置</button>
+      </div>
+      <div class="filters-summary">
+        <p class="field-hint">当前口径：{{ filterSummary }}</p>
+      </div>
     </form>
 
     <div v-if="loading" class="loading-row" aria-live="polite">
@@ -111,6 +161,9 @@ onMounted(() => {
           </tr>
         </tbody>
       </table>
+      <p v-if="data.steps.every((s) => s.count === 0)" class="empty-hint">
+        所选范围内没有命中任何漏斗事件。可以先确认是否有 telemetry 上报，或放宽日期范围再试。
+      </p>
       <p class="small-print">窗口 {{ data.windowDays }} 天，统计范围 {{ data.start }} 到 {{ data.end }}。</p>
     </div>
   </section>

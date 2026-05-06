@@ -10,6 +10,16 @@ const OTP_COOLDOWN_SECONDS = 60;
 const USER_PASSWORD_BCRYPT_COST = 12;
 const USER_PASSWORD_MIN_LEN = 8;
 
+/** 自然日（服务器本地时区）内同一手机号发送 OTP 次数上限；0 表示不限制 */
+function getOtpDailyLimitPerPhone(): number {
+  const raw = process.env.SMS_OTP_DAILY_LIMIT_PER_PHONE?.trim() ?? "";
+  if (raw === "0") return 0;
+  if (!raw) return process.env.NODE_ENV === "test" ? 0 : 20;
+  const n = parseInt(raw, 10);
+  if (!Number.isFinite(n) || n <= 0) return process.env.NODE_ENV === "test" ? 0 : 20;
+  return n;
+}
+
 /** 中国大陆 11 位手机号规范化（导出供登录路由复用） */
 export function normalizePhoneCN(raw: string): string | null {
   const s = String(raw ?? "").trim();
@@ -75,6 +85,22 @@ export async function sendOtp(params: {
         code: 429,
         message: `请求过于频繁，请 ${cooldownSeconds} 秒后重试`,
         cooldownSeconds,
+      };
+    }
+  }
+
+  const dailyLimit = getOtpDailyLimitPerPhone();
+  if (dailyLimit > 0) {
+    const startOfDay = new Date(now);
+    startOfDay.setHours(0, 0, 0, 0);
+    const sentToday = await prisma.authOtp.count({
+      where: { phone, createdAt: { gte: startOfDay } },
+    });
+    if (sentToday >= dailyLimit) {
+      return {
+        ok: false,
+        code: 429,
+        message: `该手机号今日获取验证码次数已达上限（${dailyLimit} 次），请明日再试或联系管理员`,
       };
     }
   }

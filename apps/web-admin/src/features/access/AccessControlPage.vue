@@ -10,6 +10,7 @@ import {
 } from '../../lib/admin-access';
 import type { AdminPermission } from '../../lib/api-client';
 import { adminProfile } from '../../stores/auth';
+import CopyButton from '../../components/CopyButton.vue';
 
 const roleLabel = computed(() => getAdminRoleLabel(adminProfile.permissions));
 
@@ -21,6 +22,15 @@ const matchedPreset = computed(() => {
     adminPresetMeta.find((preset) => [...preset.permissions].sort().join('|') === current) ?? null
   );
 });
+
+const matchedPresetLabel = computed(() => (matchedPreset.value ? matchedPreset.value.label : '自定义'));
+const matchedPresetDescription = computed(() =>
+  matchedPreset.value ? matchedPreset.value.description : '当前权限组合与预置角色包不完全一致。',
+);
+
+function isPresetMatched(key: string) {
+  return matchedPreset.value ? matchedPreset.value.key === key : false;
+}
 </script>
 
 <template>
@@ -42,13 +52,16 @@ const matchedPreset = computed(() => {
       </article>
       <article class="stat-card">
         <span class="stat-label">角色包</span>
-        <strong class="stat-value">{{ matchedPreset?.label ?? '自定义' }}</strong>
-        <p class="stat-help">{{ matchedPreset?.description ?? '当前权限组合与预置角色包不完全一致。' }}</p>
+        <strong class="stat-value">{{ matchedPresetLabel }}</strong>
+        <p class="stat-help">{{ matchedPresetDescription }}</p>
       </article>
       <article class="stat-card">
         <span class="stat-label">账号标识</span>
-        <strong class="stat-value stat-value--small">{{ adminProfile.userId || '未返回' }}</strong>
+        <strong class="stat-value stat-value--small">
+          <span class="mono-inline mono-truncate">{{ adminProfile.userId || '未返回' }}</span>
+        </strong>
         <p class="stat-help">标识来自 `/auth/admin/me` 返回结果。</p>
+        <CopyButton v-if="adminProfile.userId" :value="adminProfile.userId" label="复制账号标识" />
       </article>
     </div>
 
@@ -58,7 +71,10 @@ const matchedPreset = computed(() => {
         <article v-for="permission in permissions" :key="permission" class="permission-card">
           <div class="permission-card__top">
             <span class="permission-chip">{{ getAdminPermissionLabel(permission) }}</span>
-            <code>{{ permission }}</code>
+            <div class="perm-code">
+              <code class="mono-truncate">{{ permission }}</code>
+              <CopyButton :value="permission" label="复制权限 code" />
+            </div>
           </div>
           <p class="small-print">{{ adminPermissionMeta[permission].description }}</p>
         </article>
@@ -97,9 +113,9 @@ const matchedPreset = computed(() => {
             <strong>{{ preset.label }}</strong>
             <span
               class="status-pill"
-              :class="matchedPreset?.key === preset.key ? 'status-pill--ok' : 'status-pill--muted'"
+              :class="isPresetMatched(preset.key) ? 'status-pill--ok' : 'status-pill--muted'"
             >
-              {{ matchedPreset?.key === preset.key ? '当前匹配' : '预置方案' }}
+              {{ isPresetMatched(preset.key) ? '当前匹配' : '预置方案' }}
             </span>
           </div>
           <p class="small-print">{{ preset.description }}</p>
@@ -120,3 +136,16 @@ const matchedPreset = computed(() => {
     </section>
   </section>
 </template>
+
+<style scoped>
+.perm-code {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.perm-code code {
+  max-width: 16rem;
+}
+</style>

@@ -1,5 +1,23 @@
 import type { AdminPermission } from './api-client';
 
+export type AdminNavIcon =
+  | 'dashboard'
+  | 'funnel'
+  | 'retention'
+  | 'path'
+  | 'users'
+  | 'rules'
+  | 'submissions'
+  | 'audit'
+  | 'access';
+
+export type AdminNavItem = {
+  label: string;
+  to: string;
+  icon?: AdminNavIcon;
+  permission?: AdminPermission;
+};
+
 export const adminPermissionMeta: Record<
   AdminPermission,
   { label: string; description: string }
@@ -68,24 +86,27 @@ export const adminPageMatrix = [
   },
 ];
 
-export const adminNavItems = [
-  { label: '总览', to: '/admin/dashboard', permission: 'analytics:read' as AdminPermission },
-  { label: '漏斗', to: '/admin/analytics/funnel', permission: 'analytics:read' as AdminPermission },
+export const adminNavItems: readonly AdminNavItem[] = [
+  { label: '总览', to: '/admin/dashboard', icon: 'dashboard', permission: 'analytics:read' as AdminPermission },
+  { label: '漏斗', to: '/admin/analytics/funnel', icon: 'funnel', permission: 'analytics:read' as AdminPermission },
   {
     label: '留存',
     to: '/admin/analytics/retention',
+    icon: 'retention',
     permission: 'analytics:read' as AdminPermission,
   },
-  { label: '路径', to: '/admin/analytics/path', permission: 'analytics:read' as AdminPermission },
-  { label: '用户', to: '/admin/users', permission: 'users:read' as AdminPermission },
-  { label: '规则', to: '/admin/rules', permission: 'analytics:read' as AdminPermission },
+  { label: '路径', to: '/admin/analytics/path', icon: 'path', permission: 'analytics:read' as AdminPermission },
+  { label: '用户', to: '/admin/users', icon: 'users', permission: 'users:read' as AdminPermission },
+  { label: '规则', to: '/admin/rules', icon: 'rules', permission: 'analytics:read' as AdminPermission },
   {
     label: '提交',
     to: '/admin/submissions',
+    icon: 'submissions',
     permission: 'analytics:read' as AdminPermission,
   },
-  { label: '权限', to: '/admin/access', permission: undefined },
-] as const;
+  { label: '审计', to: '/admin/audit-logs', icon: 'audit', permission: 'audit:read' as AdminPermission },
+  { label: '权限', to: '/admin/access', icon: 'access', permission: undefined },
+];
 
 export function hasAdminPermission(
   permissions: readonly string[],

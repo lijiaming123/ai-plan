@@ -7,6 +7,7 @@ import UsersListPage from '../features/users/UsersListPage.vue';
 import UserDetailPage from '../features/users/UserDetailPage.vue';
 import RulesPage from '../features/rules/RulesPage.vue';
 import SubmissionListPage from '../features/submissions/SubmissionListPage.vue';
+import AuditLogsPage from '../features/audit/AuditLogsPage.vue';
 import LoginPage from '../features/auth/LoginPage.vue';
 import RegisterPage from '../features/auth/RegisterPage.vue';
 import ForbiddenPage from '../features/auth/ForbiddenPage.vue';
@@ -76,6 +77,12 @@ export function createAdminRouter(history: RouterHistory = createWebHistory()) {
         name: 'admin-submissions',
         component: SubmissionListPage,
         meta: { permission: 'analytics:read' },
+      },
+      {
+        path: '/admin/audit-logs',
+        name: 'admin-audit-logs',
+        component: AuditLogsPage,
+        meta: { permission: 'audit:read' },
       },
       { path: '/admin', redirect: '/admin/access' },
       { path: '/:pathMatch(.*)*', redirect: '/admin/access' },

@@ -64,6 +64,27 @@ export type AdminDashboardSummary = {
   }>;
 };
 
+export type AdminAuditLogRecord = {
+  id: string;
+  actorId: string;
+  actorEmail: string;
+  action: string;
+  targetType: string | null;
+  targetId: string | null;
+  summary: string | null;
+  ip: string | null;
+  userAgent: string | null;
+  createdAt: string;
+};
+
+export type AdminAuditLogQuery = {
+  limit?: number;
+  actorId?: string;
+  action?: string;
+  from?: string;
+  to?: string;
+};
+
 export type AdminFunnelStep = {
   step: string;
   count: number;
@@ -183,6 +204,7 @@ export type AdminApiClient = {
   getPath(token: string, query: AdminPathQuery): Promise<AdminPathResponse>;
   getUsers(token: string, query: AdminUserListQuery): Promise<AdminUserListResponse>;
   getUser(token: string, userId: string): Promise<AdminUserDetail>;
+  getAuditLogs(token: string, query: AdminAuditLogQuery): Promise<AdminAuditLogRecord[]>;
 };
 
 export type AdminApiClientOptions = {
@@ -272,6 +294,21 @@ export function createAdminApiClient(options: AdminApiClientOptions = {}): Admin
     },
     getSubmissions(token) {
       return request<AdminSubmissionRecord[]>('/admin/submissions', {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+    },
+    getAuditLogs(token, query) {
+      const qs = new URLSearchParams();
+      if (query.limit != null) qs.set('limit', String(query.limit));
+      if (query.actorId) qs.set('actorId', query.actorId);
+      if (query.action) qs.set('action', query.action);
+      if (query.from) qs.set('from', query.from);
+      if (query.to) qs.set('to', query.to);
+      const suffix = qs.size ? `?${qs.toString()}` : '';
+      return request<AdminAuditLogRecord[]>(`/admin/audit-logs${suffix}`, {
         method: 'GET',
         headers: {
           Authorization: `Bearer ${token}`,

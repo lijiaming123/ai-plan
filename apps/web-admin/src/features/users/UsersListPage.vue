@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { getAdminApiClient } from '../../lib/api-client';
 import type { AdminUserListResponse } from '../../lib/api-client';
 import { adminAuthState } from '../../stores/auth';
+import CopyButton from '../../components/CopyButton.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -26,6 +27,10 @@ const rangeText = computed(() => {
   const end = start + data.value.items.length - 1;
   return `当前显示第 ${start} 到 ${end} 条，共 ${data.value.total} 个用户标识。`;
 });
+
+const totalUsers = computed(() => (data.value ? data.value.total : null));
+const currentPageNumber = computed(() => (data.value ? data.value.page : page.value));
+const currentPageSize = computed(() => (data.value ? data.value.pageSize : pageSize.value));
 
 async function load() {
   loading.value = true;
@@ -126,17 +131,17 @@ onMounted(() => {
     <div class="stats-grid">
       <article class="stat-card">
         <span class="stat-label">总用户数</span>
-        <strong class="stat-value">{{ data?.total ?? '--' }}</strong>
+        <strong class="stat-value">{{ totalUsers == null ? '--' : totalUsers }}</strong>
         <p class="stat-help">聚合自计划、任务提交与 telemetry 行为。</p>
       </article>
       <article class="stat-card">
         <span class="stat-label">当前页</span>
-        <strong class="stat-value">{{ data?.page ?? page }}</strong>
+        <strong class="stat-value">{{ currentPageNumber }}</strong>
         <p class="stat-help">共 {{ totalPages }} 页。</p>
       </article>
       <article class="stat-card">
         <span class="stat-label">页容量</span>
-        <strong class="stat-value">{{ data?.pageSize ?? pageSize }}</strong>
+        <strong class="stat-value">{{ currentPageSize }}</strong>
         <p class="stat-help">支持 10 到 100 条一页。</p>
       </article>
       <article class="stat-card">
@@ -174,7 +179,10 @@ onMounted(() => {
         <tbody>
           <tr v-for="(row, index) in data.items" :key="row.userId">
             <td>{{ (data.page - 1) * data.pageSize + index + 1 }}</td>
-            <td class="mono cell-strong">{{ row.userId }}</td>
+            <td class="mono cell-strong">
+              <span class="mono-truncate">{{ row.userId }}</span>
+              <CopyButton :value="row.userId" label="复制 userId" />
+            </td>
             <td>
               <span class="cell-muted">
                 {{ q.trim() ? `命中关键字 “${q.trim()}”` : '来自业务行为聚合' }}

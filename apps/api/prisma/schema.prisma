@@ -275,12 +275,13 @@ model UserNotificationSettings {
   updatedAt              DateTime  @updatedAt
 }
 
-/// 普通用户账号：以手机号为唯一登录标识（商业化版本不再依赖演示邮箱/密码）
+/// 普通用户账号：以手机号为唯一登录标识；passwordHash 为空时仅支持验证码登录
 model User {
-  id        String   @id @default(cuid())
-  phone     String   @unique
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id           String   @id @default(cuid())
+  phone        String   @unique
+  passwordHash String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   @@index([phone])
 }

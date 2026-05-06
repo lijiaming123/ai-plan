@@ -78,6 +78,10 @@ describe("ForgotPasswordPage", () => {
 
     await wrapper.get('[data-testid="forgot-password-phone"]').setValue("13800138000");
     await nextTick();
+    await wrapper.get('[data-testid="forgot-password-password"]').setValue("Secret12!");
+    await nextTick();
+    await wrapper.get('[data-testid="forgot-password-password-confirm"]').setValue("Secret12!");
+    await nextTick();
     await wrapper.get('[data-testid="forgot-password-code"]').setValue("123456");
     await nextTick();
     await wrapper.find("form").trigger("submit");
@@ -87,6 +91,8 @@ describe("ForgotPasswordPage", () => {
       phone: "13800138000",
       code: "123456",
       purpose: "reset",
+      password: "Secret12!",
+      passwordConfirm: "Secret12!",
     });
     expect(pushSpy).toHaveBeenCalledWith("/plans");
     pushSpy.mockRestore();

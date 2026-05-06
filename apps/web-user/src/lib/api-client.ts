@@ -8,10 +8,10 @@ export type ApiClientOptions = {
   fetchImpl?: typeof fetch;
 };
 
-export type LoginInput = {
-  email: string;
-  password: string;
-};
+/** 用户端：`phone` + `password`；管理端/演示：`email` + `password` */
+export type LoginInput =
+  | { phone: string; password: string; email?: undefined }
+  | { email: string; password: string; phone?: undefined };
 
 export type OtpPurpose = "login" | "register" | "reset";
 
@@ -392,14 +392,17 @@ export type ForgotPasswordResponse = {
 };
 
 export type ApiClient = {
-  /**
-   * 管理端或自动化。用户端请用 `sendOtp` + `verifyOtp`。
-   * 生产环境默认不允许演示普通用户走邮箱密码（见服务端 `AUTH_DEMO_PASSWORD_USER`）。
-   */
+  /** 用户端传 `phone`；管理端传 `email`。 */
   login(input: LoginInput): Promise<{ token: string }>;
   forgotPassword(input: { email: string }): Promise<ForgotPasswordResponse>;
   sendOtp(input: { phone: string; purpose?: OtpPurpose }): Promise<OtpSendResponse>;
-  verifyOtp(input: { phone: string; code: string; purpose?: OtpPurpose }): Promise<OtpVerifyResponse>;
+  verifyOtp(input: {
+    phone: string;
+    code: string;
+    purpose?: OtpPurpose;
+    password?: string;
+    passwordConfirm?: string;
+  }): Promise<OtpVerifyResponse>;
   getAuthMe(input: { token: string }): Promise<AuthMeResponse>;
   getPlanHeatmap(input: {
     token: string;
@@ -711,6 +714,10 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
           phone: input.phone,
           code: input.code,
           purpose: input.purpose ?? "login",
+          ...(input.password != null ? { password: input.password } : {}),
+          ...(input.passwordConfirm != null
+            ? { passwordConfirm: input.passwordConfirm }
+            : {}),
         }),
       });
     },

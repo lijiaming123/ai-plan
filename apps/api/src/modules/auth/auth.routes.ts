@@ -1,7 +1,7 @@
 /**
  * 认证与用户态路由（均挂在同一 Fastify 前缀根路径，无前缀）。
  *
- * - POST /auth/login：Body `{ email, password }`，成功返回 `{ token }`。面向管理端与自动化；普通用户生产环境请用 OTP。演示普通用户密码仅在 test 或 AUTH_DEMO_PASSWORD_USER=true 时可用。
+ * - POST /auth/login：Body `{ phone, password }`（普通用户）或 `{ email, password }`（管理端/演示邮箱）。普通用户须已在注册时设置密码。
  * - POST /auth/forgot-password：Body `{ email }`；演示环境不发送邮件，统一返回成功说明（防枚举）。
  * - POST /auth/admin/register：演示自助注册（需 ADMIN_OPEN_REGISTER=true），返回 `{ token }`。
  * - GET /auth/admin/me：需 admin JWT，返回 email / permissions。
@@ -11,12 +11,13 @@
 import type { FastifyInstance } from 'fastify';
 import { ADMIN_PERMISSIONS } from '../admin/admin-permissions';
 import {
+  authenticateAppUserByPhonePassword,
   authenticateUser,
   registerAdmin,
   requestPasswordResetDemo,
   validateForgotPasswordEmail,
 } from './auth.service';
-import { sendOtp, verifyOtp } from './otp.service';
+import { normalizePhoneCN, sendOtp, verifyOtp } from './otp.service';
 
 export async function registerAuthRoutes(fastify: FastifyInstance) {
   /**
@@ -95,13 +96,21 @@ export async function registerAuthRoutes(fastify: FastifyInstance) {
     return result;
   });
 
-  /** 手机验证码校验并签发 user JWT */
+  /** 手机验证码校验并签发 user JWT；register / reset 需同时提交 password、passwordConfirm */
   fastify.post('/auth/otp/verify', async (request, reply) => {
-    const body = request.body as { phone?: unknown; purpose?: unknown; code?: unknown } | undefined;
+    const body = request.body as {
+      phone?: unknown;
+      purpose?: unknown;
+      code?: unknown;
+      password?: unknown;
+      passwordConfirm?: unknown;
+    } | undefined;
     const result = await verifyOtp({
       phoneRaw: body?.phone,
       purposeRaw: body?.purpose,
       codeRaw: body?.code,
+      passwordRaw: body?.password,
+      passwordConfirmRaw: body?.passwordConfirm,
     });
     if (!result.ok) {
       return reply.code(result.code).send({ message: result.message });
@@ -118,12 +127,30 @@ export async function registerAuthRoutes(fastify: FastifyInstance) {
     };
   });
 
-  /** 登录：优先 AdminUser（账号或邮箱），无记录时回退 DEMO_USERS（本地演示） */
+  /**
+   * 登录：若 body 含有效手机号则校验 User 表密码；否则走管理端邮箱/演示账号（authenticateUser）。
+   */
   fastify.post('/auth/login', async (request, reply) => {
-    const body = request.body as { email?: string; password?: string } | undefined;
+    const body = request.body as { email?: string; phone?: string; password?: string } | undefined;
+    const password = String(body?.password ?? '');
+    const phone = normalizePhoneCN(String(body?.phone ?? ''));
+    if (phone) {
+      const appUser = await authenticateAppUserByPhonePassword(phone, password);
+      if (appUser) {
+        return {
+          token: fastify.jwt.sign({
+            sub: appUser.id,
+            email: appUser.email,
+            role: 'user',
+          }),
+        };
+      }
+      return reply.code(401).send({ message: '手机号或密码错误' });
+    }
+
     const user = await authenticateUser({
       email: body?.email ?? '',
-      password: body?.password ?? '',
+      password,
     });
 
     if (!user) {

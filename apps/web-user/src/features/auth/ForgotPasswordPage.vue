@@ -12,7 +12,12 @@ const router = useRouter();
 const form = reactive({
   phone: '',
   code: '',
+  password: '',
+  passwordConfirm: '',
 });
+
+const showPassword = ref(false);
+const showPasswordConfirm = ref(false);
 
 const loadingSend = ref(false);
 const loadingVerify = ref(false);
@@ -37,6 +42,21 @@ function validateCode(): boolean {
   const c = form.code.trim();
   if (!/^\d{6}$/.test(c)) {
     fieldError.value = '请输入 6 位验证码';
+    return false;
+  }
+  fieldError.value = '';
+  return true;
+}
+
+function validatePasswords(): boolean {
+  const p = form.password;
+  const c = form.passwordConfirm;
+  if (p.length < 8) {
+    fieldError.value = '新密码至少 8 位';
+    return false;
+  }
+  if (p !== c) {
+    fieldError.value = '两次输入的密码不一致';
     return false;
   }
   fieldError.value = '';
@@ -89,17 +109,20 @@ async function verifyAndEnter() {
   sendHint.value = '';
   if (!validatePhone()) return;
   if (!validateCode()) return;
+  if (!validatePasswords()) return;
   loadingVerify.value = true;
   try {
     const r = await getApiClient().verifyOtp({
       phone: form.phone.trim(),
       code: form.code.trim(),
       purpose: 'reset',
+      password: form.password,
+      passwordConfirm: form.passwordConfirm,
     });
     setAuthToken(r.token);
     setUserPhone(r.phone);
     setAuthTier('basic');
-    trackEvent('auth_login', { properties: { method: 'otp', purpose: 'reset' } });
+    trackEvent('auth_login', { properties: { method: 'otp_reset_password', purpose: 'reset' } });
     await router.push('/plans');
   } catch (e) {
     errorToastMessage.value = e instanceof Error ? e.message : '验证失败，请稍后重试';
@@ -143,9 +166,9 @@ onUnmounted(() => {
         <div class="w-full max-w-lg px-4 py-16">
           <div class="flex flex-col gap-8">
             <div class="p-4 text-center">
-              <p class="text-4xl font-black leading-tight tracking-[-0.033em]">通过手机验证码恢复登录</p>
+              <p class="text-4xl font-black leading-tight tracking-[-0.033em]">重置登录密码</p>
               <p class="mt-3 text-base font-normal leading-normal text-[#61896f]">
-                向您的手机号发送验证码，验证成功后即可重新进入应用。若未注册，验证后将自动创建账号。
+                验证手机号后设置新密码，完成后将自动登录。仅支持已注册手机号。
               </p>
             </div>
 
@@ -171,6 +194,58 @@ onUnmounted(() => {
                   data-testid="forgot-password-phone"
                   :disabled="loadingSend || loadingVerify"
                 />
+              </label>
+
+              <label class="flex flex-col px-4 py-3">
+                <span class="pb-2 text-base font-medium">新密码</span>
+                <div
+                  class="flex w-full min-w-0 items-stretch rounded-lg border border-[#dbe6df] bg-white outline-none transition-[box-shadow,border-color] focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/50 focus-within:ring-offset-0"
+                >
+                  <input
+                    v-model="form.password"
+                    :type="showPassword ? 'text' : 'password'"
+                    autocomplete="new-password"
+                    class="h-14 min-w-0 flex-1 rounded-l-lg border-0 border-r border-[#dbe6df] bg-transparent p-[15px] pr-2 text-base outline-none ring-0 focus:border-transparent focus:ring-0 focus:outline-none"
+                    placeholder="至少 8 位"
+                    data-testid="forgot-password-password"
+                    :disabled="loadingVerify"
+                  />
+                  <button
+                    type="button"
+                    class="flex shrink-0 items-center justify-center rounded-r-lg border-0 bg-white px-3 text-[#61896f] !outline-none hover:bg-[#f6f8f6]"
+                    :aria-pressed="showPassword"
+                    :aria-label="showPassword ? '隐藏密码' : '显示密码'"
+                    @click="showPassword = !showPassword"
+                  >
+                    <span class="material-symbols-outlined text-xl" aria-hidden="true">{{ showPassword ? 'visibility_off' : 'visibility' }}</span>
+                  </button>
+                </div>
+              </label>
+
+              <label class="flex flex-col px-4 py-3">
+                <span class="pb-2 text-base font-medium">确认新密码</span>
+                <div
+                  class="flex w-full min-w-0 items-stretch rounded-lg border border-[#dbe6df] bg-white outline-none transition-[box-shadow,border-color] focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/50 focus-within:ring-offset-0"
+                >
+                  <input
+                    v-model="form.passwordConfirm"
+                    :type="showPasswordConfirm ? 'text' : 'password'"
+                    autocomplete="new-password"
+                    class="h-14 min-w-0 flex-1 rounded-l-lg border-0 border-r border-[#dbe6df] bg-transparent p-[15px] pr-2 text-base outline-none ring-0 focus:border-transparent focus:ring-0 focus:outline-none"
+                    placeholder="再次输入新密码"
+                    data-testid="forgot-password-password-confirm"
+                    :disabled="loadingVerify"
+                  />
+                  <button
+                    type="button"
+                    class="flex shrink-0 items-center justify-center rounded-r-lg border-0 bg-white px-3 text-[#61896f] !outline-none hover:bg-[#f6f8f6]"
+                    :aria-pressed="showPasswordConfirm"
+                    :aria-label="showPasswordConfirm ? '隐藏确认密码' : '显示确认密码'"
+                    @click="showPasswordConfirm = !showPasswordConfirm"
+                  >
+                    <span class="material-symbols-outlined text-xl" aria-hidden="true">{{ showPasswordConfirm ? 'visibility_off' : 'visibility' }}</span>
+                  </button>
+                </div>
               </label>
 
               <label class="flex flex-col px-4 py-3">
@@ -213,7 +288,7 @@ onUnmounted(() => {
                   data-testid="forgot-password-submit"
                   :disabled="loadingVerify"
                 >
-                  {{ loadingVerify ? '验证中…' : '验证并进入应用' }}
+                  {{ loadingVerify ? '提交中…' : '重置密码并登录' }}
                 </button>
               </div>
             </form>

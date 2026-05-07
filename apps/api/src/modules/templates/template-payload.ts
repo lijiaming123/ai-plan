@@ -26,20 +26,20 @@ export function parseTemplatePayload(
   raw: unknown,
 ): { ok: true; data: TemplatePlanPayload } | { ok: false; message: string } {
   if (!raw || typeof raw !== 'object') {
-    return { ok: false, message: 'payload must be an object' };
+    return { ok: false, message: '模板 payload 必须是对象' };
   }
   const o = raw as Record<string, unknown>;
   if (typeof o.goal !== 'string' || !o.goal.trim()) {
-    return { ok: false, message: 'payload.goal is required' };
+    return { ok: false, message: '模板 payload 缺少 goal（目标）' };
   }
   if (typeof o.requirement !== 'string' || !o.requirement.trim()) {
-    return { ok: false, message: 'payload.requirement is required' };
+    return { ok: false, message: '模板 payload 缺少 requirement（计划内容）' };
   }
   if (typeof o.deadline !== 'string' || Number.isNaN(new Date(o.deadline).getTime())) {
-    return { ok: false, message: 'payload.deadline must be a valid date string' };
+    return { ok: false, message: '模板 payload.deadline 必须是有效日期' };
   }
   if (typeof o.type !== 'string' || !planTypes.includes(o.type as (typeof planTypes)[number])) {
-    return { ok: false, message: 'payload.type must be general, study, or work' };
+    return { ok: false, message: '模板 payload.type 必须是 general / study / work' };
   }
   const granularityMode = isGranularityMode(o.granularityMode) ? o.granularityMode : undefined;
   const startDateIso =

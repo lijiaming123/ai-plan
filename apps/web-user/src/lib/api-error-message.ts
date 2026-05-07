@@ -21,7 +21,8 @@ function isLikelyBackendUserMessage(detail: string): boolean {
   const t = detail.trim();
   if (!t || t.length > 240) return false;
   if (/Invalid\s+['']?[\w.]+['']?\s+invocation|\.ts:\d+|\\\\|\bprisma\./i.test(t)) return false;
-  return /[\u4e00-\u9fff]/.test(t);
+  // 允许英文短句（如 zod 校验失败信息），但仍避免堆栈/路径等开发细节泄漏
+  return true;
 }
 
 export function formatHttpApiUserMessage(status: number, detail: string): string {

@@ -260,9 +260,22 @@ function planToPayload(plan: {
 }
 
 export async function publishMarketTemplate(rawBody: unknown, userId: string) {
-  const parsed = publishMarketTemplateSchema.safeParse(rawBody);
+  // 兼容：某些代理/客户端可能把 JSON body 作为 string 传入
+  //（例如缺失/被覆盖 Content-Type 时 Fastify 可能不做 JSON 解析）
+  let normalizedBody: unknown = rawBody;
+  if (typeof rawBody === 'string') {
+    try {
+      normalizedBody = JSON.parse(rawBody);
+    } catch {
+      normalizedBody = rawBody;
+    }
+  }
+
+  const parsed = publishMarketTemplateSchema.safeParse(normalizedBody);
   if (!parsed.success) {
-    return { ok: false as const, code: 400 as const, message: parsed.error.message };
+    const first = parsed.error.issues?.[0];
+    const msg = first?.message ? `请求参数有误：${first.message}` : '请求参数有误';
+    return { ok: false as const, code: 400 as const, message: msg };
   }
   const body = parsed.data;
 

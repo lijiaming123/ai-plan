@@ -121,6 +121,7 @@ export type PlanAssistantResult = {
   suggestedContent: string;
   schedule?: {
     granularity: "day" | "week";
+    meta?: { startDate: string; endDate: string };
     slots: Array<{
       slotKey: string;
       generatedContent: string;
@@ -157,6 +158,7 @@ export type PlanAssistantApplyOptionInput = {
   baseSuggestedContent: string;
   baseSchedule: {
     granularity: "day" | "week";
+    meta?: { startDate: string; endDate: string };
     slots: Array<{ slotKey: string; content: string }>;
   };
   optionId?: "more_granular" | "save_time" | "more_steady" | "more_aggressive";
@@ -174,6 +176,7 @@ export type PlanAssistantApplyOptionResult = {
   suggestedContent: string;
   schedule: {
     granularity: "day" | "week";
+    meta?: { startDate: string; endDate: string };
     slots: Array<{ slotKey: string; content: string }>;
   };
   meta?: { diffSummary?: string[] };
@@ -233,6 +236,7 @@ export type PlanRecord = {
       createdAt: string;
       schedule?: {
         granularity: "day" | "week";
+        meta?: { startDate: string; endDate: string };
         slots: Array<{
           slotKey: string;
           generatedContent: string;
@@ -366,6 +370,14 @@ export type CheckinPublicReview = {
   summary: string;
 };
 
+/** POST .../appeals：先 AI 预审，通过则自动建档 */
+export type SlotAppealResponse = {
+  appeal: { id: string; content: string; createdAt: string };
+  outcome: "ai_approved" | "human_review";
+  aiRationale: string;
+  submission?: ScheduleSlotCheckinRecord;
+};
+
 export type InAppNotificationItem = {
   id: string;
   userId: string;
@@ -391,11 +403,22 @@ export type ForgotPasswordResponse = {
   message: string;
 };
 
+export type CaptchaSessionResponse = {
+  captchaId: string;
+  imageSvg: string;
+};
+
 export type ApiClient = {
   /** 用户端传 `phone`；管理端传 `email`。 */
   login(input: LoginInput): Promise<{ token: string }>;
   forgotPassword(input: { email: string }): Promise<ForgotPasswordResponse>;
-  sendOtp(input: { phone: string; purpose?: OtpPurpose }): Promise<OtpSendResponse>;
+  getCaptcha(): Promise<CaptchaSessionResponse>;
+  sendOtp(input: {
+    phone: string;
+    purpose?: OtpPurpose;
+    captchaId: string;
+    captchaText: string;
+  }): Promise<OtpSendResponse>;
   verifyOtp(input: {
     phone: string;
     code: string;
@@ -507,7 +530,10 @@ export type ApiClient = {
     slotKey: string;
     token: string;
     content: string;
-  }): Promise<{ appeal: { id: string; content: string; createdAt: string } }>;
+    proofContent?: string;
+    proofAttachments?: Array<{ url: string; fileName?: string; kind?: string }>;
+    lastReview?: CheckinPublicReview;
+  }): Promise<SlotAppealResponse>;
   deletePlanScheduleSlotAppeal(input: {
     id: string;
     slotKey: string;
@@ -698,12 +724,19 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
         body: JSON.stringify({ email: input.email }),
       });
     },
+    getCaptcha() {
+      return request<CaptchaSessionResponse>("/auth/captcha", {
+        method: "GET",
+      });
+    },
     sendOtp(input) {
       return request<OtpSendResponse>("/auth/otp/send", {
         method: "POST",
         body: JSON.stringify({
           phone: input.phone,
           purpose: input.purpose ?? "login",
+          captchaId: input.captchaId,
+          captchaText: input.captchaText,
         }),
       });
     },
@@ -1049,14 +1082,21 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
       );
     },
     postPlanScheduleSlotAppeal(input) {
-      return request<{ appeal: { id: string; content: string; createdAt: string } }>(
+      return request<SlotAppealResponse>(
         `/plans/${input.id}/schedule/slots/${encodeURIComponent(input.slotKey)}/appeals`,
         {
           method: "POST",
           headers: {
             Authorization: `Bearer ${input.token}`,
           },
-          body: JSON.stringify({ content: input.content }),
+          body: JSON.stringify({
+            content: input.content,
+            ...(input.proofContent != null ? { proofContent: input.proofContent } : {}),
+            ...(input.proofAttachments != null && input.proofAttachments.length
+              ? { proofAttachments: input.proofAttachments }
+              : {}),
+            ...(input.lastReview != null ? { lastReview: input.lastReview } : {}),
+          }),
         },
       );
     },

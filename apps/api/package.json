@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "node ../../node_modules/tsx/dist/cli.mjs watch src/server.ts",
-    "test": "vitest run",
+    "test": "vitest run -c vitest.config.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "prisma": "node ../../node_modules/prisma/build/index.js",
     "prisma:generate": "node ../../scripts/prisma-generate.mjs",
@@ -13,6 +13,7 @@
   "dependencies": {
     "@ai-plan/ai-engine": "workspace:*",
     "@ai-plan/pro-plan-agent": "workspace:*",
+    "@alicloud/dypnsapi20170525": "2.0.0",
     "@fastify/cors": "^11.1.0",
     "@fastify/jwt": "^9.1.0",
     "@fastify/multipart": "^10.0.0",

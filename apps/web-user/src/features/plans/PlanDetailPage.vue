@@ -4,6 +4,9 @@ import { useRoute, useRouter } from 'vue-router';
 import UiErrorToast from '../../components/UiErrorToast.vue';
 import UiConfirmDialog from '../../components/UiConfirmDialog.vue';
 import PlanPomodoroBar from '../../components/PlanPomodoroBar.vue';
+import UiEllipsisTooltip from '../../components/UiEllipsisTooltip.vue';
+import UiMoreDropdown from '../../components/UiMoreDropdown.vue';
+import UiCheckinSubmissionDrawer from '../../components/UiCheckinSubmissionDrawer.vue';
 import type { CheckinPublicReview, PlanRecord } from '../../lib/api-client';
 import { getApiClient, HttpApiError } from '../../lib/api-client';
 import { renderMarkdownToHtml } from '../../lib/render-markdown';
@@ -218,6 +221,54 @@ const canSubmitCheckin = computed(
     plan.value?.status === 'active'
 );
 
+function todayKeyLocal(): string {
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function toLocalDateOnly(s: string): Date | null {
+  // 支持 ISO 或 YYYY-MM-DD；统一按“本地 00:00”解析，避免时区导致的日期偏移
+  const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : s.slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateOnly)) return null;
+  const d = new Date(`${dateOnly}T00:00:00`);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function currentWeekSlotKeyOrNull(): string | null {
+  const schedule = checkinSchedule.value;
+  if (!schedule || schedule.granularity !== 'week') return null;
+  const meta = schedule.meta;
+  if (!meta?.startDate) return null;
+  const start = toLocalDateOnly(meta.startDate);
+  if (!start) return null;
+  const today = toLocalDateOnly(todayKeyLocal());
+  if (!today) return null;
+  const diffDays = Math.floor((today.getTime() - start.getTime()) / (24 * 60 * 60 * 1000));
+  const weekNo = diffDays >= 0 ? Math.floor(diffDays / 7) + 1 : 1;
+  return `W${weekNo}`;
+}
+
+function isCurrentSlot(slotKey: string): boolean {
+  // day granularity: YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(slotKey)) return slotKey === todayKeyLocal();
+  // week granularity: W1..Wn（依赖后端提供 schedule.meta.startDate）
+  if (/^W\d+$/.test(slotKey)) return slotKey === currentWeekSlotKeyOrNull();
+  return false;
+}
+
+function scheduleRowClass(slotKey: string): string {
+  if (!isCurrentSlot(slotKey)) return '';
+  return 'bg-emerald-50/50';
+}
+
+function scheduleRowLeftMarkClass(slotKey: string): string {
+  if (!isCurrentSlot(slotKey)) return '';
+  return 'border-l-4 border-l-emerald-400';
+}
+
 const confirmArchiveOpen = ref(false);
 const archiveSubmitting = ref(false);
 
@@ -225,10 +276,38 @@ function slotSubmissions(slotKey: string) {
   return plan.value?.scheduleSlotSubmissions?.[slotKey] ?? [];
 }
 
+function latestSubmission(slotKey: string) {
+  const list = slotSubmissions(slotKey);
+  return list.length > 0 ? list[0] : null;
+}
+
+function latestSubmissionLabel(slotKey: string): string {
+  const s = latestSubmission(slotKey);
+  if (!s) return "—";
+  const text = (s.content ?? "").trim().replace(/\s+/g, " ");
+  const snippet = text
+    ? text.length > 22
+      ? `${text.slice(0, 22)}…`
+      : text
+    : "（无文字说明）";
+  return snippet;
+}
+
 function slotSubmissionSummary(slotKey: string): string {
   const list = slotSubmissions(slotKey);
   if (list.length === 0) return '—';
-  return `${list.length} 条记录`;
+  return `最新：${latestSubmissionLabel(slotKey)} · 共 ${list.length} 条`;
+}
+
+const submissionDrawerOpen = ref(false);
+const submissionDrawerSlotKey = ref("");
+const submissionDrawerPlanText = ref("");
+
+function openSubmissionHistory(slotKey: string, planText: string) {
+  if (slotSubmissions(slotKey).length === 0) return;
+  submissionDrawerSlotKey.value = slotKey;
+  submissionDrawerPlanText.value = planText;
+  submissionDrawerOpen.value = true;
 }
 
 const checkinOpen = ref(false);
@@ -466,17 +545,34 @@ async function submitCheckinAppeal() {
   }
   appealSubmitting.value = true;
   try {
-    await getApiClient().postPlanScheduleSlotAppeal({
+    const merged = mergedCheckinAttachments();
+    const r = await getApiClient().postPlanScheduleSlotAppeal({
       id: planId.value,
       slotKey: checkinSlotKey.value,
       token: authState.token,
       content: t,
+      proofContent: checkinContent.value.trim() || undefined,
+      proofAttachments: merged.length
+        ? merged.map((a) => ({
+            url: a.url,
+            ...(a.fileName ? { fileName: a.fileName } : {}),
+          }))
+        : undefined,
+      lastReview: checkinReview.value ?? undefined,
     });
     checkinOpen.value = false;
     checkinReview.value = null;
     checkinAppealText.value = '';
+    if (r.outcome === "ai_approved" && r.submission && plan.value) {
+      const slot = checkinSlotKey.value;
+      const cur = { ...(plan.value.scheduleSlotSubmissions ?? {}) };
+      cur[slot] = [r.submission, ...(cur[slot] ?? [])];
+      plan.value = { ...plan.value, scheduleSlotSubmissions: cur };
+    }
     okBanner.value =
-      '申诉已提交。该时间槽在工作人员处理前会显示「申诉中」；你也可在列表中撤销申诉，再补充材料后重试。';
+      r.outcome === "ai_approved"
+        ? `AI 预审已通过申诉，本时间槽打卡已自动完成。${r.aiRationale ? `（${r.aiRationale}）` : ""}`
+        : `申诉已提交。${r.aiRationale ? `${r.aiRationale} ` : ""}未通过 AI 预审或需复核的将进入人工队列；该槽在人工处理前显示「申诉中」，也可先撤销申诉再补充材料。`;
     window.setTimeout(() => {
       okBanner.value = '';
     }, 5000);
@@ -525,6 +621,9 @@ useCloseOnEscape(checkinOpen, () => {
 });
 useCloseOnEscape(showPublishForm, () => {
   showPublishForm.value = false;
+});
+useCloseOnEscape(submissionDrawerOpen, () => {
+  submissionDrawerOpen.value = false;
 });
 
 async function loadPlanDetail() {
@@ -702,51 +801,18 @@ watch(
             </p>
           </div>
           <div
-            v-if="plan && plan.requirement && (plan.status === 'active' || isArchived)"
-            class="plan-detail-md mt-5 border-t border-slate-100 pt-5"
-            v-html="renderRequirementMd(plan.requirement)"
-          />
-          <div
             v-if="plan && !isDraft && authState.token"
-            class="mt-4 flex flex-wrap gap-2 border-t border-slate-100 pt-4"
+            class="mt-3 flex flex-wrap items-center gap-2"
           >
-            <button
-              v-if="plan.status === 'active' && !isArchived"
-              type="button"
-              class="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50"
-              data-testid="btn-archive-plan"
-              @click="confirmArchiveOpen = true"
-            >
-              归档
-            </button>
-            <button
-              v-if="isArchived"
-              type="button"
-              class="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-bold text-emerald-900 hover:bg-emerald-100 disabled:opacity-50"
-              data-testid="btn-unarchive-plan"
-              :disabled="archiveSubmitting"
-              @click="submitUnarchivePlan"
-            >
-              {{ archiveSubmitting ? '处理中…' : '移回我的计划' }}
-            </button>
+            <!-- 归档/移回/发布入口挪到底部（长文案下方），此处保留空位避免布局突变 -->
           </div>
-          <div v-if="canPublishTemplate" class="mt-4 border-t border-slate-100 pt-4">
-            <button
-              type="button"
-              class="rounded-lg border border-[#dbe6df] bg-[#f6f8f6] px-4 py-2 text-sm font-semibold text-[#111813] hover:bg-[#eef3ef]"
-              data-testid="btn-publish-template"
-              @click="openPublishForm"
-            >
-              发布为模板
-            </button>
-          </div>
-
-          <PlanPomodoroBar
-            v-if="plan && plan.status === 'active' && !isArchived"
-            :key="plan.id"
-            :title="plan.goal"
-          />
         </section>
+
+        <PlanPomodoroBar
+          v-if="plan && plan.status === 'active' && !isArchived"
+          :key="plan.id"
+          :title="plan.goal"
+        />
 
         <section
           v-if="checkinSchedule"
@@ -783,7 +849,8 @@ watch(
                 <tr
                   v-for="slot in checkinSchedule.slots"
                   :key="`tbl-${slot.slotKey}`"
-                  class="border-b border-slate-100 align-top"
+                  class="border-b border-slate-100 align-middle"
+                  :class="[scheduleRowClass(slot.slotKey), scheduleRowLeftMarkClass(slot.slotKey)]"
                 >
                   <td class="whitespace-nowrap px-3 py-3">
                     <span class="font-mono text-xs font-semibold text-[#2a3832]">{{ slot.slotKey }}</span>
@@ -795,9 +862,7 @@ watch(
                     </span>
                   </td>
                   <td class="max-w-[min(28rem,40vw)] px-3 py-3">
-                    <p class="line-clamp-4 whitespace-pre-wrap text-[13px] leading-relaxed text-[#111813]">
-                      {{ slot.content }}
-                    </p>
+                    <UiEllipsisTooltip :content="slot.content" :lines="2" />
                   </td>
                   <td class="whitespace-nowrap px-3 py-3">
                     <span
@@ -809,52 +874,61 @@ watch(
                     </span>
                   </td>
                   <td class="whitespace-nowrap px-3 py-3 text-xs text-[#2a3832]">
-                    {{ slotSubmissionSummary(slot.slotKey) }}
+                    <button
+                      type="button"
+                      class="max-w-[22rem] truncate text-left font-semibold underline decoration-[#dbe6df] underline-offset-2 transition hover:text-[#0a8f4a] hover:decoration-[#0a8f4a]/40"
+                      :class="slotSubmissions(slot.slotKey).length ? 'text-[#2a3832]' : 'pointer-events-none no-underline text-[#2a3832]/70'"
+                      data-testid="schedule-slot-submission-history"
+                      @click="openSubmissionHistory(slot.slotKey, slot.content)"
+                    >
+                      {{ slotSubmissionSummary(slot.slotKey) }}
+                    </button>
                   </td>
                   <td class="px-3 py-3 text-right">
-                    <div class="flex flex-wrap justify-end gap-1.5">
+                    <div class="flex flex-nowrap justify-end gap-1.5 overflow-x-auto">
                       <button
                         v-if="canSubmitCheckin"
                         type="button"
-                        class="rounded-lg border border-[#0a8f4a]/35 bg-emerald-50/90 px-2.5 py-1 text-xs font-bold text-[#0b5c34] hover:bg-emerald-100 disabled:opacity-50"
+                        class="shrink-0 whitespace-nowrap rounded-lg border border-[#0a8f4a]/35 bg-emerald-50/90 px-2.5 py-1 text-xs font-bold text-[#0b5c34] hover:bg-emerald-100 disabled:opacity-50"
                         :disabled="scheduleSaving || checkinSaving"
                         data-testid="schedule-slot-checkin"
                         @click="openCheckinSubmit(slot.slotKey, slot.content)"
                       >
                         提交证明
                       </button>
+                      <!-- 测试与无样式降级兜底：保留可点击的编辑入口（视觉上隐藏，主入口在「更多」中） -->
                       <button
                         v-if="!isArchived"
                         type="button"
-                        class="rounded-lg border border-[#dbe6df] bg-white px-2.5 py-1 text-xs font-semibold text-[#111813] hover:bg-[#f6f8f6] disabled:opacity-50"
+                        class="sr-only"
                         :disabled="scheduleSaving"
                         data-testid="schedule-slot-edit"
                         @click="openScheduleEdit(slot.slotKey, slot.content)"
                       >
                         编辑
                       </button>
-                      <button
+                      <UiMoreDropdown
                         v-if="!isArchived"
-                        type="button"
-                        class="rounded-lg border border-[#f0d8d6] bg-white px-2.5 py-1 text-xs font-semibold text-[#7b2f28] hover:bg-[#fff7f6] disabled:opacity-50"
-                        :disabled="scheduleSaving"
-                        data-testid="schedule-slot-restore"
-                        @click="restoreScheduleSlot(slot.slotKey)"
-                      >
-                        恢复
-                      </button>
-                      <button
-                        v-if="!isArchived && slotCheckinStateLabel(slot.slotKey) === '申诉中'"
-                        type="button"
-                        class="rounded-lg border border-amber-200/90 bg-amber-50/90 px-2.5 py-1 text-xs font-bold text-amber-950 hover:bg-amber-100/90 disabled:opacity-50"
-                        :disabled="!!appealWithdrawKey"
-                        data-testid="schedule-slot-appeal-withdraw"
-                        @click="withdrawSlotAppeal(slot.slotKey)"
-                      >
-                        {{
-                          appealWithdrawKey === slot.slotKey ? '撤销中…' : '撤销申诉'
-                        }}
-                      </button>
+                        :actions="[
+                          { key: 'edit', label: '编辑', testid: 'schedule-slot-edit', disabled: scheduleSaving },
+                          { key: 'restore', label: '恢复', testid: 'schedule-slot-restore', danger: true, disabled: scheduleSaving },
+                          ...(slotCheckinStateLabel(slot.slotKey) === '申诉中'
+                            ? [
+                                {
+                                  key: 'withdrawAppeal',
+                                  label: appealWithdrawKey === slot.slotKey ? '撤销中…' : '撤销申诉',
+                                  testid: 'schedule-slot-appeal-withdraw',
+                                  disabled: !!appealWithdrawKey,
+                                } as const,
+                              ]
+                            : []),
+                        ]"
+                        @action="(k) => {
+                          if (k === 'edit') openScheduleEdit(slot.slotKey, slot.content);
+                          else if (k === 'restore') restoreScheduleSlot(slot.slotKey);
+                          else if (k === 'withdrawAppeal') withdrawSlotAppeal(slot.slotKey);
+                        }"
+                      />
                     </div>
                   </td>
                 </tr>
@@ -867,6 +941,7 @@ watch(
               v-for="slot in checkinSchedule.slots"
               :key="`mob-${slot.slotKey}`"
               class="rounded-xl border border-slate-100 bg-[#fbfcfb] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]"
+              :class="isCurrentSlot(slot.slotKey) ? 'border-emerald-200/80 bg-emerald-50/50' : ''"
             >
               <div class="flex flex-col gap-3">
                 <div class="min-w-0">
@@ -889,7 +964,18 @@ watch(
                       {{ slotCheckinStateLabel(slot.slotKey) }}
                     </span>
                   </p>
-                  <p class="mt-1 text-xs text-[#61896f]">提交：{{ slotSubmissionSummary(slot.slotKey) }}</p>
+                  <p class="mt-1 text-xs text-[#61896f]">
+                    提交：
+                    <button
+                      type="button"
+                      class="font-semibold underline decoration-[#dbe6df] underline-offset-2 transition hover:text-[#0a8f4a] hover:decoration-[#0a8f4a]/40"
+                      :class="slotSubmissions(slot.slotKey).length ? 'text-[#2a3832]' : 'pointer-events-none no-underline text-[#2a3832]/70'"
+                      data-testid="schedule-slot-submission-history-mobile"
+                      @click="openSubmissionHistory(slot.slotKey, slot.content)"
+                    >
+                      {{ slotSubmissionSummary(slot.slotKey) }}
+                    </button>
+                  </p>
                 </div>
                 <div class="flex flex-wrap gap-2">
                   <button
@@ -937,6 +1023,49 @@ watch(
                 </div>
               </div>
             </article>
+          </div>
+        </section>
+
+        <section
+          v-if="plan && plan.requirement && (plan.status === 'active' || isArchived)"
+          class="mb-6 overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_12px_36px_-24px_rgba(12,72,48,0.14)] ring-1 ring-slate-100"
+          data-testid="plan-requirement-panel"
+        >
+          <div class="plan-detail-md p-5 sm:p-6" v-html="renderRequirementMd(plan.requirement)" />
+          <!-- 红框位置：长文案底部操作栏 -->
+          <div
+            v-if="plan && !isDraft && authState.token"
+            class="flex flex-wrap items-center gap-2 border-t border-slate-200/70 bg-[#fbfcfb] px-5 py-3 sm:px-6"
+            data-testid="plan-detail-bottom-actions"
+          >
+            <button
+              v-if="plan.status === 'active' && !isArchived"
+              type="button"
+              class="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 hover:bg-slate-50"
+              data-testid="btn-archive-plan"
+              @click="confirmArchiveOpen = true"
+            >
+              归档
+            </button>
+            <button
+              v-if="isArchived"
+              type="button"
+              class="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-900 hover:bg-emerald-100 disabled:opacity-50"
+              data-testid="btn-unarchive-plan"
+              :disabled="archiveSubmitting"
+              @click="submitUnarchivePlan"
+            >
+              {{ archiveSubmitting ? '处理中…' : '移回我的计划' }}
+            </button>
+            <button
+              v-if="canPublishTemplate"
+              type="button"
+              class="rounded-lg border border-[#dbe6df] bg-[#f6f8f6] px-3 py-1.5 text-xs font-semibold text-[#111813] hover:bg-[#eef3ef]"
+              data-testid="btn-publish-template"
+              @click="openPublishForm"
+            >
+              发布为模板
+            </button>
           </div>
         </section>
 
@@ -1199,13 +1328,13 @@ watch(
               >
                 <p class="text-sm font-bold text-rose-900">对核验结果有异议？可提交申诉</p>
                 <p class="mt-1 text-xs text-rose-800/90">
-                  说明情况与理由（至少 4 字）。提交后该时间槽为「申诉中」直至处理；你可随时在打卡表中「撤销申诉」后重新补充材料，再点「提交证明」。
+                  说明情况与理由（至少 4 字）。提交后先做 AI 预审：通过则自动完成本槽打卡；未通过则进入人工审核。人工处理前该槽显示「申诉中」；也可先「撤销申诉」再补充材料后重试「提交证明」。
                 </p>
                 <textarea
                   v-model="checkinAppealText"
                   rows="3"
                   class="mt-2 w-full rounded-xl border border-rose-200/80 bg-white px-3 py-2 text-sm text-[#111813] placeholder:text-rose-300 focus:border-rose-400 focus:outline-none focus:ring-1 focus:ring-rose-300/50"
-                  placeholder="例：已上传的截图在附件中，申请人工复核…"
+                  placeholder="例：已上传的截图在附件中，说明为何应通过核验…"
                 />
                 <div class="mt-2 flex justify-end">
                   <button
@@ -1329,6 +1458,13 @@ watch(
       data-testid="confirm-archive-dialog"
       @confirm="submitArchivePlan"
       @cancel="confirmArchiveOpen = false"
+    />
+
+    <UiCheckinSubmissionDrawer
+      v-model="submissionDrawerOpen"
+      :slot-key="submissionDrawerSlotKey"
+      :plan-text="submissionDrawerPlanText"
+      :submissions="slotSubmissions(submissionDrawerSlotKey)"
     />
     </div>
   </div>

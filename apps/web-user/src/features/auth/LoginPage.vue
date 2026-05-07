@@ -6,6 +6,7 @@ import {
   HttpApiError,
   type OtpPurpose,
 } from "../../lib/api-client";
+import { useAuthCaptcha } from "../../composables/useAuthCaptcha";
 import { trackEvent } from "../../lib/telemetry";
 import { setAuthTier, setAuthToken, setUserPhone } from "../../stores/auth";
 import AuthBackground from "./AuthBackground.vue";
@@ -26,19 +27,46 @@ watch(
   },
 );
 
-/** 「收不到验证码」说明弹层（不直接等同于忘记密码） */
-const showSmsHelp = ref(false);
-
-const purpose = computed<OtpPurpose>(() =>
-  isRegisterMode.value ? "register" : "login",
+const needOtpCaptcha = computed(
+  () => isRegisterMode.value || (!isRegisterMode.value && loginMethod.value === "otp"),
 );
+
+const {
+  captchaId: otpCaptchaId,
+  imageDataUrl: otpCaptchaImageUrl,
+  loading: otpCaptchaLoading,
+  refresh: refreshOtpCaptcha,
+  clear: clearOtpCaptcha,
+} = useAuthCaptcha();
 
 const form = reactive({
   phone: "",
   code: "",
   password: "",
   passwordConfirm: "",
+  captchaText: "",
 });
+
+watch(
+  () => [needOtpCaptcha.value, route.fullPath] as const,
+  async ([need]) => {
+    if (need) {
+      form.captchaText = "";
+      await refreshOtpCaptcha();
+    } else {
+      form.captchaText = "";
+      clearOtpCaptcha();
+    }
+  },
+  { immediate: true },
+);
+
+/** 「收不到验证码」说明弹层（不直接等同于忘记密码） */
+const showSmsHelp = ref(false);
+
+const purpose = computed<OtpPurpose>(() =>
+  isRegisterMode.value ? "register" : "login",
+);
 
 const showPassword = ref(false);
 const showPasswordConfirm = ref(false);
@@ -138,11 +166,21 @@ async function sendCode() {
   errorToastMessage.value = "";
   if (!validatePhone()) return;
   if (cooldownLeft.value > 0) return;
+  if (!otpCaptchaId.value) {
+    await refreshOtpCaptcha();
+  }
+  const captchaText = form.captchaText.trim();
+  if (!captchaText) {
+    errorToastMessage.value = "请输入图形验证码";
+    return;
+  }
   loadingSend.value = true;
   try {
     const r = await getApiClient().sendOtp({
       phone: form.phone.trim(),
       purpose: purpose.value,
+      captchaId: otpCaptchaId.value,
+      captchaText,
     });
     if (
       typeof r === "object" &&
@@ -155,6 +193,8 @@ async function sendCode() {
     } else {
       startCooldown(60);
     }
+    form.captchaText = "";
+    await refreshOtpCaptcha();
     trackEvent("auth_otp_send", { properties: { purpose: purpose.value } });
   } catch (e) {
     if (e instanceof HttpApiError) {
@@ -163,6 +203,8 @@ async function sendCode() {
       errorToastMessage.value =
         e instanceof Error ? e.message : "发送失败，请稍后重试";
     }
+    form.captchaText = "";
+    await refreshOtpCaptcha();
   } finally {
     loadingSend.value = false;
   }
@@ -237,8 +279,12 @@ function setLoginMethod(m: "otp" | "password") {
   // 切换方式时清空另一路径字段，避免带着验证码去点「密码登录」等误提交
   if (m === "password") {
     form.code = "";
+    form.captchaText = "";
+    clearOtpCaptcha();
   } else {
     form.password = "";
+    form.captchaText = "";
+    void refreshOtpCaptcha();
   }
 }
 
@@ -426,6 +472,47 @@ onUnmounted(() => {
                       </button>
                     </div>
                   </div>
+                  <div
+                    class="flex flex-col gap-2 rounded-lg border border-[#dbe6df] bg-[#fafcfb] p-3"
+                  >
+                    <div
+                      class="flex flex-wrap items-center justify-between gap-2"
+                    >
+                      <span class="text-sm font-medium text-[#111813]"
+                        >图形验证码</span
+                      >
+                      <button
+                        type="button"
+                        class="text-sm font-semibold text-primary/90 underline decoration-primary/30 underline-offset-2 transition hover:text-primary hover:decoration-primary"
+                        data-testid="captcha-refresh"
+                        :disabled="otpCaptchaLoading"
+                        @click="refreshOtpCaptcha()"
+                      >
+                        {{ otpCaptchaLoading ? "加载中…" : "换一张" }}
+                      </button>
+                    </div>
+                    <div class="flex flex-wrap items-center gap-3">
+                      <img
+                        v-if="otpCaptchaImageUrl"
+                        :src="otpCaptchaImageUrl"
+                        alt="图形验证码"
+                        width="132"
+                        height="44"
+                        class="h-11 rounded border border-[#dbe6df] bg-white object-contain"
+                      />
+                      <input
+                        v-model="form.captchaText"
+                        type="text"
+                        maxlength="12"
+                        autocomplete="off"
+                        autocapitalize="characters"
+                        spellcheck="false"
+                        aria-label="图形验证码"
+                        class="h-12 w-[8.5rem] rounded-lg border border-[#dbe6df] bg-white px-3 text-base uppercase outline-none focus:border-primary focus:ring-2 focus:ring-primary/50 focus:ring-offset-0"
+                        placeholder="图中字符"
+                      />
+                    </div>
+                  </div>
                   <div class="flex flex-col">
                     <label for="login-code" class="pb-2 text-sm font-medium"
                       >验证码</label
@@ -508,13 +595,54 @@ onUnmounted(() => {
                 </template>
 
                 <template v-else>
+                  <div
+                    class="flex flex-col gap-2 rounded-lg border border-[#dbe6df] bg-[#fafcfb] p-3"
+                  >
+                    <div
+                      class="flex flex-wrap items-center justify-between gap-2"
+                    >
+                      <span class="text-sm font-medium text-[#111813]"
+                        >图形验证码</span
+                      >
+                      <button
+                        type="button"
+                        class="text-sm font-semibold text-primary/90 underline decoration-primary/30 underline-offset-2 transition hover:text-primary hover:decoration-primary"
+                        data-testid="captcha-refresh-login-otp"
+                        :disabled="otpCaptchaLoading"
+                        @click="refreshOtpCaptcha()"
+                      >
+                        {{ otpCaptchaLoading ? "加载中…" : "换一张" }}
+                      </button>
+                    </div>
+                    <div class="flex flex-wrap items-center gap-3">
+                      <img
+                        v-if="otpCaptchaImageUrl"
+                        :src="otpCaptchaImageUrl"
+                        alt="图形验证码"
+                        width="132"
+                        height="44"
+                        class="h-11 rounded border border-[#dbe6df] bg-white object-contain"
+                      />
+                      <input
+                        v-model="form.captchaText"
+                        type="text"
+                        maxlength="12"
+                        autocomplete="off"
+                        autocapitalize="characters"
+                        spellcheck="false"
+                        aria-label="图形验证码"
+                        class="h-12 w-[8.5rem] rounded-lg border border-[#dbe6df] bg-white px-3 text-base uppercase outline-none focus:border-primary focus:ring-2 focus:ring-primary/50 focus:ring-offset-0"
+                        placeholder="图中字符"
+                      />
+                    </div>
+                  </div>
                   <div class="flex flex-col">
-                    <label for="login-code" class="pb-2 text-sm font-medium"
+                    <label for="login-code-otp" class="pb-2 text-sm font-medium"
                       >验证码</label
                     >
                     <div class="flex w-full min-w-0 items-stretch gap-2">
                       <input
-                        id="login-code"
+                        id="login-code-otp"
                         v-model="form.code"
                         type="text"
                         inputmode="numeric"

@@ -4,6 +4,9 @@
  * - console：仅日志（默认；开发/演示）
  * - noop：不发送也不打日志（压测等）
  * - webhook：POST JSON 到 SMS_WEBHOOK_URL，便于自建转发服务对接具体厂商
+ *
+ * 说明：SMS_PROVIDER=aliyun_sms_auth 时，OTP 在 otp.service 内直连阿里云 SendSmsVerifyCode，
+ * 不会走本文件的 dispatchOtpSms。
  */
 export type OtpSmsPayload = {
   phone: string;
@@ -104,6 +107,14 @@ export async function dispatchOtpSms(payload: OtpSmsPayload): Promise<SmsDispatc
 
   if (provider === "webhook") {
     return postWebhook(payload);
+  }
+
+  if (provider === "aliyun_sms_auth") {
+    return {
+      ok: false,
+      message:
+        "aliyun_sms_auth 由 otp.service 内嵌发送，请勿单独调用 dispatchOtpSms；请检查 SMS_PROVIDER 配置",
+    };
   }
 
   return { ok: false, message: `不支持的 SMS_PROVIDER：${provider}` };

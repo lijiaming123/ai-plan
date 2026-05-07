@@ -44,6 +44,7 @@ import {
   validateScheduleStrict,
 } from "./deepseek-schedule";
 import { createDraftStreamSplitter } from "./draft-stream-split";
+import type { CheckinPublicReview } from "./checkin-submission-score.service";
 import {
   createScheduleSlotAppeal,
   withdrawScheduleSlotAppeal,
@@ -182,6 +183,13 @@ function normalizeBody(raw: unknown) {
   } catch {
     return raw;
   }
+}
+
+function parseLastReviewFromBody(raw: unknown): CheckinPublicReview | undefined {
+  if (!isRecord(raw)) return undefined;
+  if (typeof raw.summary !== "string") return undefined;
+  if (!Array.isArray(raw.dimensions)) return undefined;
+  return raw as CheckinPublicReview;
 }
 
 function isNonEmptyString(value: unknown): value is string {
@@ -930,16 +938,44 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
       const body = normalizeBody(request.body);
       const content =
         isRecord(body) && typeof body.content === "string" ? body.content : "";
+      const proofContent =
+        isRecord(body) && typeof body.proofContent === "string"
+          ? body.proofContent
+          : undefined;
+      const rawAtt =
+        isRecord(body) && Array.isArray(body.proofAttachments)
+          ? body.proofAttachments
+          : [];
+      const proofAttachments = rawAtt
+        .filter((x): x is Record<string, unknown> => isRecord(x))
+        .map((x) => ({
+          url: typeof x.url === "string" ? x.url : "",
+          fileName: typeof x.fileName === "string" ? x.fileName : undefined,
+          kind: typeof x.kind === "string" ? x.kind : undefined,
+        }))
+        .filter((a) => a.url.trim().length > 0);
+      const lastReview =
+        isRecord(body) && body.lastReview !== undefined
+          ? parseLastReviewFromBody(body.lastReview)
+          : undefined;
       const result = await createScheduleSlotAppeal({
         planId: id,
         userId: payload.sub,
         slotKey,
         content,
+        proofContent,
+        proofAttachments: proofAttachments.length ? proofAttachments : undefined,
+        lastReview,
       });
       if (!result.ok) {
         return reply.code(result.code).send({ message: result.message });
       }
-      return reply.code(201).send({ appeal: result.appeal });
+      return reply.code(201).send({
+        appeal: result.appeal,
+        outcome: result.outcome,
+        aiRationale: result.aiRationale,
+        ...(result.submission ? { submission: result.submission } : {}),
+      });
     },
   );
 

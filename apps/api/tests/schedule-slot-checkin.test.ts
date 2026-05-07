@@ -253,4 +253,90 @@ describe('schedule slot check-in', () => {
     };
     expect(plan.scheduleSlotSubmissions?.['2026-08-01']?.length ?? 0).toBe(0);
   });
+
+  it('补交证明通过后应自动关闭该槽 open 申诉', async () => {
+    const login = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      payload: { email: 'demo@ai-plan.dev', password: 'Pass1234!' },
+    });
+    const { token } = JSON.parse(login.body) as { token: string };
+
+    const requirementWithJson = [
+      '正文',
+      '```json',
+      JSON.stringify({
+        schedule: {
+          granularity: 'day',
+          slots: [{ slotKey: '2026-12-01', content: '阅读并整理术语' }],
+        },
+      }),
+      '```',
+    ].join('\n');
+
+    const create = await app.inject({
+      method: 'POST',
+      url: '/plans',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        goal: '申诉自动收敛测',
+        deadline: '2026-12-10T00:00:00.000Z',
+        requirement: requirementWithJson,
+        type: 'general',
+        profile: {
+          planMode: 'basic',
+          basicInfo: {
+            planName: '申诉自动收敛测',
+            planContent: '测',
+            currentLevel: 'none',
+            startDate: '2026-12-01',
+            cycle: 'custom',
+            endDate: '2026-12-10',
+            preference: '',
+            timeInvestment: 'none',
+            outputMode: 'daily',
+            granularityMode: 'deep',
+          },
+        },
+      },
+    });
+    const { id: planId } = JSON.parse(create.body) as { id: string };
+
+    await app.inject({
+      method: 'POST',
+      url: `/plans/${planId}/confirm`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: { version: 1 },
+    });
+
+    const appeal = await app.inject({
+      method: 'POST',
+      url: `/plans/${planId}/schedule/slots/2026-12-01/appeals`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: { content: '先申诉占位，后续补齐证明。' },
+    });
+    expect(appeal.statusCode).toBe(201);
+
+    const post = await app.inject({
+      method: 'POST',
+      url: `/plans/${planId}/schedule/slots/2026-12-01/checkins`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        content: '已完成阅读并整理要点，见附件。',
+        attachments: [{ url: 'https://example.com/proof.png', fileName: 'proof.png' }],
+      },
+    });
+    expect(post.statusCode).toBe(201);
+
+    const detail = await app.inject({
+      method: 'GET',
+      url: `/plans/${planId}`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(detail.statusCode).toBe(200);
+    const plan = JSON.parse(detail.body) as {
+      scheduleSlotOpenAppeals?: Record<string, unknown>;
+    };
+    expect(plan.scheduleSlotOpenAppeals?.['2026-12-01']).toBeUndefined();
+  });
 });

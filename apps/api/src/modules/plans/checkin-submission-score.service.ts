@@ -38,23 +38,66 @@ function norm(s: string): string {
 }
 
 function toBand(score: number): CheckinReviewBand {
-  if (score < 42) return "low";
-  if (score < 68) return "mid";
+  if (score < 38) return "low";
+  if (score < 65) return "mid";
   return "high";
 }
 
-function tokenOverlapScore(task: string, user: string): number {
-  const parts = task
-    .split(/[。.;；!！?？\s,，]+/)
+function stripEdgePunct(s: string): string {
+  return s.replace(/^[（(\[【"'「]/g, "").replace(/[）)\]」'"。]+$/, "").trim();
+}
+
+/** 单条要点是否在用户说明中出现（支持中英文大小写、去掉括号后匹配） */
+function userCoversPart(userRaw: string, partRaw: string): boolean {
+  const part = stripEdgePunct(partRaw);
+  if (part.length < 2) return false;
+  const user = userRaw.trim();
+  if (!user) return false;
+  if (user.includes(part)) return true;
+  const pl = part.toLowerCase();
+  const ul = user.toLowerCase();
+  return ul.includes(pl);
+}
+
+/**
+ * 从「计划正文 + 派生标准」拆成较细的比对片段：句号、逗号、顿号、括号内列举等，
+ * 避免把「（A、B、C、D）」整段当作一个必须整段命中的子串。
+ */
+function expandOverlapFragments(combinedTaskText: string): string[] {
+  const primary = combinedTaskText
+    .split(/[。.;；!！?？\s,，\n\r、]+/)
     .map((p) => p.trim())
     .filter((p) => p.length >= 2);
+  const out: string[] = [];
+  for (const p of primary) {
+    if (p.includes("、") && p.length > 12) {
+      const subs = p
+        .split(/、+/g)
+        .map((x) => stripEdgePunct(x.trim()))
+        .filter((x) => x.length >= 2 && x.length <= 80);
+      if (subs.length >= 2) {
+        out.push(...subs.slice(0, 12));
+        continue;
+      }
+    }
+    out.push(stripEdgePunct(p));
+  }
+  const dedup: string[] = [];
+  for (const x of out) {
+    if (x.length < 2) continue;
+    if (!dedup.some((d) => d === x)) dedup.push(x);
+  }
+  return dedup.slice(0, 18);
+}
+
+function tokenOverlapScore(task: string, user: string): number {
+  const parts = expandOverlapFragments(task);
   if (parts.length === 0) return 50;
   let hit = 0;
-  const nu = user;
   for (const p of parts) {
-    if (nu.includes(p)) hit += 1;
+    if (userCoversPart(user, p)) hit += 1;
   }
-  return Math.min(100, 35 + (hit / parts.length) * 65);
+  return Math.min(100, 32 + (hit / parts.length) * 68);
 }
 
 function duplicateLike(task: string, user: string): boolean {
@@ -125,7 +168,8 @@ export function evaluateCheckinSubmissionHeuristic(input: {
   const sub = scoreSubstance(task, user, n);
 
   const overall = Math.round(rel * 0.35 + ev * 0.35 + sub * 0.3);
-  const pass = overall >= 60;
+  /** 略放宽：有附件或说明较长时更容易达线，减少「已分项说明却仍判不相关」的假阴性 */
+  const pass = overall >= 54;
 
   const dimensions: CheckinReviewDimension[] = ORDER.map((id) => {
     const sc = id === "relevance" ? rel : id === "evidence" ? ev : sub;
@@ -266,6 +310,8 @@ async function evaluateCheckinWithDeepseek(input: {
   };
 
   const system = `你是「计划大师」的打卡完成证明审核员。根据「本期计划正文」「验收标准 checkinSpec」以及用户填写的完成说明、附件元数据（仅类型与文件名，你并未看到文件内容）判断是否允许正式提交。
+
+**宽严原则（重要）**：计划中列举的多个关键词、术语或步骤，只要用户在说明里用**同义表述、中英文对应、分条解释**等方式能看出已覆盖，即视为满足，**不得**要求与计划原文逐字一致；**不得**因「少写了一个连接词」或「术语顺序不同」判不通过。仅当说明明显空洞、与本期任务无关、或明显整段复制计划而无自主内容时，才将 passed 设为 false。
 
 你必须只输出**一个** JSON 对象，不要其它文字、不要用 markdown 代码块包裹。结构严格如下（字段名与 dimensions[].id 不可变）：
 {"passed":boolean,"summary":"一句中文总评，说明是否可提交、原因要点","dimensions":[

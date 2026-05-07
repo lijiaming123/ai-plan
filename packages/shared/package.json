@@ -12,7 +12,7 @@
   },
   "scripts": {
     "build": "node ../../node_modules/typescript/bin/tsc -p tsconfig.build.json",
-    "test": "corepack pnpm build && vitest run",
+    "test": "corepack pnpm build && vitest run -c vitest.config.ts",
     "typecheck": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

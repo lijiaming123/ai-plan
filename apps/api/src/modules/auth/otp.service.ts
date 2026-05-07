@@ -1,6 +1,12 @@
 import crypto from "node:crypto";
 import bcrypt from "bcryptjs";
 import { prisma } from "../../lib/prisma";
+import {
+  ALIYUN_SMS_AUTH_OTP_MARKER,
+  checkAliyunSmsVerifyCode,
+  isAliyunSmsAuthProvider,
+  sendAliyunSmsVerifyCode,
+} from "./aliyun-sms-auth.service";
 import { dispatchOtpSms } from "./sms.dispatch";
 
 export type OtpPurpose = "login" | "register" | "reset";
@@ -105,6 +111,42 @@ export async function sendOtp(params: {
     }
   }
 
+  if (isAliyunSmsAuthProvider()) {
+    const ali = await sendAliyunSmsVerifyCode({ phone });
+    if (!ali.ok) {
+      return {
+        ok: false,
+        code: 502,
+        message: ali.message || "短信发送失败，请稍后重试",
+      };
+    }
+    const expiresAt = new Date(now.getTime() + OTP_TTL_SECONDS * 1000);
+    await prisma.authOtp.updateMany({
+      where: {
+        phone,
+        purpose,
+        consumedAt: null,
+        codeHash: ALIYUN_SMS_AUTH_OTP_MARKER,
+      },
+      data: { consumedAt: now },
+    });
+    await prisma.authOtp.create({
+      data: {
+        phone,
+        purpose,
+        codeHash: ALIYUN_SMS_AUTH_OTP_MARKER,
+        expiresAt,
+      },
+    });
+    return {
+      ok: true,
+      phone,
+      purpose,
+      expiresInSeconds: OTP_TTL_SECONDS,
+      cooldownSeconds: OTP_COOLDOWN_SECONDS,
+    };
+  }
+
   const code = generateCode();
   const expiresAt = new Date(now.getTime() + OTP_TTL_SECONDS * 1000);
   const row = await prisma.authOtp.create({
@@ -157,9 +199,6 @@ export async function verifyOtp(params: {
         : "login";
 
   const code = String(params.codeRaw ?? "").trim();
-  if (!/^\d{6}$/.test(code)) {
-    return { ok: false, code: 400, message: "请输入 6 位验证码" };
-  }
 
   let passwordPlain: string | null = null;
   if (purpose === "register" || purpose === "reset") {
@@ -197,11 +236,33 @@ export async function verifyOtp(params: {
   });
   if (!record) return { ok: false, code: 401, message: "验证码已过期或不存在" };
 
-  const ok = crypto.timingSafeEqual(
-    Buffer.from(record.codeHash, "utf8"),
-    Buffer.from(hashOtp({ phone, code }), "utf8"),
+  const aliyunManaged = record.codeHash === ALIYUN_SMS_AUTH_OTP_MARKER;
+  const codeLen = Math.min(
+    8,
+    Math.max(4, Number(process.env.ALIYUN_SMS_AUTH_CODE_LENGTH ?? 6) || 6),
   );
-  if (!ok) return { ok: false, code: 401, message: "验证码错误" };
+  if (aliyunManaged) {
+    if (!new RegExp(`^\\d{${codeLen}}$`).test(code)) {
+      return {
+        ok: false,
+        code: 400,
+        message: `请输入 ${codeLen} 位验证码`,
+      };
+    }
+    const chk = await checkAliyunSmsVerifyCode({ phone, code });
+    if (!chk.ok) {
+      return { ok: false, code: 401, message: chk.message || "验证码错误或已失效" };
+    }
+  } else {
+    if (!/^\d{6}$/.test(code)) {
+      return { ok: false, code: 400, message: "请输入 6 位验证码" };
+    }
+    const ok = crypto.timingSafeEqual(
+      Buffer.from(record.codeHash, "utf8"),
+      Buffer.from(hashOtp({ phone, code }), "utf8"),
+    );
+    if (!ok) return { ok: false, code: 401, message: "验证码错误" };
+  }
 
   if (purpose === "register" && passwordPlain) {
     const existing = await prisma.user.findUnique({

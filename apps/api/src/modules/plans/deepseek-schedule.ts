@@ -22,27 +22,88 @@ export type CheckinSlot = {
 
 export type CheckinSchedule = {
   granularity: ScheduleGranularity;
+  /**
+   * 可选：用于前端做「当前周」等定位（不改变 slotKey 语义，向后兼容旧数据）。
+   * - startDate/endDate 均为 ISO 字符串（通常为 00:00:00Z 的日期）。
+   */
+  meta?: { startDate: string; endDate: string };
   slots: CheckinSlot[];
 };
 
+function stripEdgeBrackets(s: string): string {
+  return s.replace(/^[（(\[【]/g, '').replace(/[）)\]】]$/g, '').trim();
+}
+
+/** 将「…（A、B、C）…」拆成可独立核验的要点，避免要求用户整段复制括号内原文 */
+function expandSegmentIntoCriteria(segment: string): string[] {
+  const s = segment.trim();
+  if (s.length < 4) return [];
+
+  const paren = s.match(/^(.+?)（([^）]+)）(.*)$/);
+  if (paren && /、/.test(paren[2]!)) {
+    const prefix = stripEdgeBrackets(paren[1]!.trim());
+    const terms = paren[2]!
+      .split(/、+/g)
+      .map((x) => stripEdgeBrackets(x.trim()))
+      .filter((x) => x.length >= 1 && x.length <= 64);
+    const suffix = stripEdgeBrackets(paren[3]!.trim());
+    const out: string[] = [];
+    if (prefix.length >= 4) out.push(prefix);
+    out.push(...terms);
+    if (suffix.length >= 4) out.push(suffix);
+    if (out.length >= 2) return out.slice(0, 8);
+  }
+
+  const parenEn = s.match(/^(.+?)\(([^)]+)\)(.*)$/);
+  if (parenEn && /[,，]/.test(parenEn[2]!)) {
+    const prefix = stripEdgeBrackets(parenEn[1]!.trim());
+    const terms = parenEn[2]!
+      .split(/[,，、]+/g)
+      .map((x) => stripEdgeBrackets(x.trim()))
+      .filter((x) => x.length >= 1 && x.length <= 64);
+    const suffix = stripEdgeBrackets(parenEn[3]!.trim());
+    const out: string[] = [];
+    if (prefix.length >= 4) out.push(prefix);
+    out.push(...terms);
+    if (suffix.length >= 4) out.push(suffix);
+    if (out.length >= 2) return out.slice(0, 8);
+  }
+
+  if (/、/.test(s) && s.length > 14) {
+    const pieces = s
+      .split(/、+/g)
+      .map((x) => stripEdgeBrackets(x.trim()))
+      .filter((x) => x.length >= 2 && x.length <= 80);
+    if (pieces.length >= 2) return pieces.slice(0, 8);
+  }
+  return [s];
+}
+
 export function deriveCheckinSpecFromSlotContent(content: string): CheckinSpec {
   const raw = (content ?? '').trim();
-  const segments = raw
-    .split(/[。.;；!！?？\n\r]+/)
-    .map((s) => s.trim())
-    .filter((s) => s.length >= 4)
-    .slice(0, 5);
-  const criteria =
-    segments.length > 0
-      ? segments
+  const coarse = raw
+    .split(/[。.;；!！?？\n\r，,]+/)
+    .map((x) => x.trim())
+    .filter((x) => x.length >= 4);
+  const criteria: string[] = [];
+  for (const seg of coarse.slice(0, 6)) {
+    for (const c of expandSegmentIntoCriteria(seg)) {
+      if (!criteria.includes(c)) criteria.push(c);
+      if (criteria.length >= 8) break;
+    }
+    if (criteria.length >= 8) break;
+  }
+  const finalCriteria =
+    criteria.length > 0
+      ? criteria
       : [
           raw.slice(0, 160).trim() ||
             '按计划完成本期任务，并提交可核验说明或附件。',
         ];
   return {
-    criteria,
+    criteria: finalCriteria,
     evidenceHint:
-      '建议上传截图、文档或学习笔记链接；文字说明请写清「做了什么、产出是什么」，避免仅复制计划原文。',
+      '建议上传截图、文档或学习笔记链接；文字说明写清「做了什么、产出是什么」。同义表述、中英文对应、分条解释均可，不必逐字复述计划原文；列举的多个要点能整体覆盖即可。',
   };
 }
 
@@ -59,10 +120,15 @@ function normalizeOptionalCheckinSpec(
         .slice(0, 8);
       if (criteria.length > 0) {
         const eh = (raw as { evidenceHint?: unknown }).evidenceHint;
-        const evidenceHint =
+        const base =
           typeof eh === 'string' && eh.trim()
             ? eh.trim().slice(0, 500)
             : undefined;
+        const soften =
+          ' 同义表述与分条说明可接受，不必逐字复述计划；列举要点能整体覆盖即可。';
+        const evidenceHint = base
+          ? `${base}${criteria.length > 3 ? soften : ''}`.slice(0, 500)
+          : undefined;
         return { criteria, evidenceHint };
       }
     }

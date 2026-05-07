@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
+import { nextTick } from 'vue';
 import { createMemoryHistory } from 'vue-router';
 const { trackEventMock, trackPageViewMock } = vi.hoisted(() => ({
   trackEventMock: vi.fn(),

@@ -266,6 +266,14 @@ function buildSnapshot(
 
 const MAX_VERSIONS = 3;
 
+function attachScheduleMeta(
+  schedule: CheckinSchedule,
+  meta: { startDate: string; endDate: string },
+): CheckinSchedule {
+  schedule.meta = { startDate: meta.startDate, endDate: meta.endDate };
+  return schedule;
+}
+
 type PlanRow = {
   id: string;
   goal: string;
@@ -1257,6 +1265,7 @@ export async function createGeneratedPlan(
   const schedule = validated.ok
     ? validated.schedule
     : buildFallbackSchedule({ granularity: expectedGranularity, slotKeys });
+  attachScheduleMeta(schedule, { startDate: startDateIso, endDate: input.deadline });
 
   const requirementText = jsonBlock
     ? stripLastJsonCodeBlock(input.requirement)

@@ -47,15 +47,18 @@ model PlanScheduleSlotSubmission {
 
 /// 打卡核验未通过时用户可发起申诉；open=申诉处理中，closed=已处理/已关闭
 model PlanScheduleSlotAppeal {
-  id        String   @id @default(cuid())
-  planId    String
-  slotKey   String
-  userId    String
-  content   String   @default("")
-  status    String   @default("open")
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  plan      Plan     @relation(fields: [planId], references: [id], onDelete: Cascade)
+  id          String   @id @default(cuid())
+  planId      String
+  slotKey     String
+  userId      String
+  content     String   @default("")
+  status      String   @default("open")
+  /// AI 预审：approve=已通过并自动建档；escalate=转人工
+  aiVerdict   String?
+  aiRationale String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  plan        Plan     @relation(fields: [planId], references: [id], onDelete: Cascade)
 
   @@index([planId, userId])
   @@index([planId, slotKey, status])

@@ -145,7 +145,9 @@ describeTelemetryDb('telemetry ingest', () => {
       payload: { email: 'demo@ai-plan.dev', password: 'Pass1234!' },
     });
     const { token } = JSON.parse(login.body) as { token: string };
-    const before = await prisma.telemetryRawEvent.count();
+    const before = await prisma.telemetryRawEvent.count({
+      where: { sessionId: 'session-tracksmith-1' },
+    });
 
     const res = await app.inject({
       method: 'POST',
@@ -169,7 +171,9 @@ describeTelemetryDb('telemetry ingest', () => {
     expect(body.accepted).toBe(1);
     expect(body.dropped).toBe(0);
 
-    const after = await prisma.telemetryRawEvent.count();
+    const after = await prisma.telemetryRawEvent.count({
+      where: { sessionId: 'session-tracksmith-1' },
+    });
     expect(after - before).toBe(1);
 
     const last = await prisma.telemetryRawEvent.findFirst({

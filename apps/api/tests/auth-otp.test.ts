@@ -2,6 +2,23 @@ import bcrypt from "bcryptjs";
 import { describe, expect, it } from "vitest";
 import { buildApp } from "../src/app";
 import { prisma } from "../src/lib/prisma";
+import { peekCaptchaAnswerForTest } from "../src/modules/auth/captcha.service";
+
+async function postOtpSend(
+  app: ReturnType<typeof buildApp>,
+  payload: { phone: string; purpose: string },
+) {
+  const cap = await app.inject({ method: "GET", url: "/auth/captcha" });
+  expect(cap.statusCode).toBe(200);
+  const { captchaId } = JSON.parse(cap.body) as { captchaId: string };
+  const ans = peekCaptchaAnswerForTest(captchaId);
+  expect(ans).toBeDefined();
+  return app.inject({
+    method: "POST",
+    url: "/auth/otp/send",
+    payload: { ...payload, captchaId, captchaText: ans },
+  });
+}
 
 describe("auth otp", () => {
   it("send -> verify -> /auth/me", async () => {
@@ -12,11 +29,7 @@ describe("auth otp", () => {
     // cleanup user to make test deterministic
     await prisma.user.deleteMany({ where: { phone } });
 
-    const send = await app.inject({
-      method: "POST",
-      url: "/auth/otp/send",
-      payload: { phone, purpose: "login" },
-    });
+    const send = await postOtpSend(app, { phone, purpose: "login" });
     expect(send.statusCode).toBe(200);
     const sendBody = JSON.parse(send.body) as {
       ok: true;
@@ -56,11 +69,7 @@ describe("auth otp", () => {
     const phone = "13711110001";
     await prisma.user.deleteMany({ where: { phone } });
 
-    const send = await app.inject({
-      method: "POST",
-      url: "/auth/otp/send",
-      payload: { phone, purpose: "register" },
-    });
+    const send = await postOtpSend(app, { phone, purpose: "register" });
     expect(send.statusCode).toBe(200);
     const sendBody = JSON.parse(send.body) as { ok: true; codeForTest?: string };
     expect(sendBody.codeForTest).toMatch(/^\d{6}$/);
@@ -95,11 +104,7 @@ describe("auth otp", () => {
     const phone = "13711110002";
     await prisma.user.deleteMany({ where: { phone } });
 
-    const send = await app.inject({
-      method: "POST",
-      url: "/auth/otp/send",
-      payload: { phone, purpose: "register" },
-    });
+    const send = await postOtpSend(app, { phone, purpose: "register" });
     expect(send.statusCode).toBe(200);
     const sendBody = JSON.parse(send.body) as { codeForTest?: string };
 
@@ -118,12 +123,9 @@ describe("auth otp", () => {
     await app.ready();
     const phone = "13711110003";
     await prisma.user.deleteMany({ where: { phone } });
+    await prisma.authOtp.deleteMany({ where: { phone, purpose: "register" } });
 
-    const send1 = await app.inject({
-      method: "POST",
-      url: "/auth/otp/send",
-      payload: { phone, purpose: "register" },
-    });
+    const send1 = await postOtpSend(app, { phone, purpose: "register" });
     const b1 = JSON.parse(send1.body) as { codeForTest?: string };
     await app.inject({
       method: "POST",
@@ -137,11 +139,9 @@ describe("auth otp", () => {
       },
     });
 
-    const send2 = await app.inject({
-      method: "POST",
-      url: "/auth/otp/send",
-      payload: { phone, purpose: "register" },
-    });
+    // 已注册场景的再次注册校验：避免被上一次发送触发的 cooldown 影响
+    await prisma.authOtp.deleteMany({ where: { phone, purpose: "register" } });
+    const send2 = await postOtpSend(app, { phone, purpose: "register" });
     expect(send2.statusCode).toBe(200);
     const b2 = JSON.parse(send2.body) as { codeForTest?: string };
     const verify2 = await app.inject({
@@ -172,11 +172,7 @@ describe("auth otp", () => {
       },
     });
 
-    const send = await app.inject({
-      method: "POST",
-      url: "/auth/otp/send",
-      payload: { phone, purpose: "reset" },
-    });
+    const send = await postOtpSend(app, { phone, purpose: "reset" });
     expect(send.statusCode).toBe(200);
     const sendBody = JSON.parse(send.body) as { codeForTest?: string };
 
@@ -216,11 +212,7 @@ describe("auth otp", () => {
     const phone = "13722220002";
     await prisma.user.deleteMany({ where: { phone } });
 
-    const send = await app.inject({
-      method: "POST",
-      url: "/auth/otp/send",
-      payload: { phone, purpose: "reset" },
-    });
+    const send = await postOtpSend(app, { phone, purpose: "reset" });
     expect(send.statusCode).toBe(200);
     const sendBody = JSON.parse(send.body) as { codeForTest?: string };
 
@@ -245,23 +237,44 @@ describe("auth otp", () => {
     await app.ready();
 
     const phone = "13900139000";
-    const a = await app.inject({
-      method: "POST",
-      url: "/auth/otp/send",
-      payload: { phone, purpose: "login" },
-    });
+    const a = await postOtpSend(app, { phone, purpose: "login" });
     expect(a.statusCode).toBe(200);
 
-    const b = await app.inject({
-      method: "POST",
-      url: "/auth/otp/send",
-      payload: { phone, purpose: "login" },
-    });
+    const b = await postOtpSend(app, { phone, purpose: "login" });
     expect(b.statusCode).toBe(429);
     const body = JSON.parse(b.body) as { message: string; cooldownSeconds: number };
     expect(body.cooldownSeconds).toBeGreaterThan(0);
 
     await app.close();
   });
-});
 
+  it("otp send 缺少或错误图形验证码应 400", async () => {
+    const app = buildApp();
+    await app.ready();
+
+    const missing = await app.inject({
+      method: "POST",
+      url: "/auth/otp/send",
+      payload: { phone: "13800138001", purpose: "login" },
+    });
+    expect(missing.statusCode).toBe(400);
+
+    const cap = await app.inject({ method: "GET", url: "/auth/captcha" });
+    expect(cap.statusCode).toBe(200);
+    const { captchaId } = JSON.parse(cap.body) as { captchaId: string };
+
+    const wrong = await app.inject({
+      method: "POST",
+      url: "/auth/otp/send",
+      payload: {
+        phone: "13800138001",
+        purpose: "login",
+        captchaId,
+        captchaText: "ZZZZ",
+      },
+    });
+    expect(wrong.statusCode).toBe(400);
+
+    await app.close();
+  });
+});

@@ -4,6 +4,7 @@ import { authState } from '../stores/auth';
 
 export type FrontendTelemetryEventName =
   | 'auth_login'
+  | 'auth_otp_send'
   | 'plan_create'
   | 'plan_publish'
   | 'checkin_submit'

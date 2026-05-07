@@ -179,6 +179,105 @@ export async function createScheduleSlotCheckin(params: {
     include: { attachments: true },
   });
 
+  // 若该时间槽之前发起过申诉，但用户后来补齐证明并通过核验，应自动关闭申诉，避免 UI 长期停留在「申诉中」。
+  await prisma.planScheduleSlotAppeal.updateMany({
+    where: {
+      planId: params.planId,
+      userId: params.userId,
+      slotKey: params.slotKey,
+      status: "open",
+    },
+    data: { status: "closed" },
+  });
+
+  return {
+    ok: true,
+    submission: {
+      id: created.id,
+      content: created.content,
+      status: created.status,
+      createdAt: created.createdAt.toISOString(),
+      attachments: created.attachments.map((a) => ({
+        id: a.id,
+        url: a.url,
+        fileName: a.fileName,
+        kind: a.kind,
+        hash: a.hash,
+        createdAt: a.createdAt.toISOString(),
+      })),
+    },
+  };
+}
+
+/**
+ * 申诉 AI 通过后直写成功提交（不再跑自动打分），与 createScheduleSlotCheckin 成功分支数据形状一致。
+ */
+export async function persistApprovedCheckinSubmission(params: {
+  planId: string;
+  userId: string;
+  slotKey: string;
+  content: string;
+  attachments?: ScheduleSlotCheckinAttachmentInput[];
+}): Promise<
+  | { ok: false; code: 400 | 403 | 404; message: string }
+  | { ok: true; submission: SerializedScheduleSlotSubmission }
+> {
+  const scheduleCtx = await loadPlanScheduleForUser(params.planId, params.userId);
+  if (!scheduleCtx.ok) return scheduleCtx;
+
+  const slot = scheduleCtx.schedule.slots.find((s) => s.slotKey === params.slotKey);
+  if (!slot) return { ok: false, code: 404, message: 'slot not found' };
+
+  const content = (params.content ?? '').trim();
+  const attachments = Array.isArray(params.attachments) ? params.attachments : [];
+  const normalizedUrls = attachments
+    .map((a) => ({
+      url: typeof a.url === 'string' ? a.url.trim() : '',
+      fileName: typeof a.fileName === 'string' ? a.fileName.trim() : undefined,
+      kind: typeof a.kind === 'string' ? a.kind : undefined,
+    }))
+    .filter((a) => a.url.length > 0);
+
+  if (!content && normalizedUrls.length === 0) {
+    return { ok: false, code: 400, message: 'content or attachments required' };
+  }
+
+  const created = await prisma.planScheduleSlotSubmission.create({
+    data: {
+      planId: params.planId,
+      slotKey: params.slotKey,
+      userId: params.userId,
+      content,
+      status: 'submitted',
+      ...(normalizedUrls.length > 0
+        ? {
+            attachments: {
+              createMany: {
+                data: normalizedUrls.map((a) => ({
+                  url: a.url,
+                  fileName: a.fileName ?? null,
+                  kind: normalizeKind(a.kind, a.fileName, a.url),
+                  hash: hashUrl(a.url),
+                })),
+              },
+            },
+          }
+        : {}),
+    },
+    include: { attachments: true },
+  });
+
+  // 保险：AI 采纳申诉自动建档时，同步关闭 open 申诉
+  await prisma.planScheduleSlotAppeal.updateMany({
+    where: {
+      planId: params.planId,
+      userId: params.userId,
+      slotKey: params.slotKey,
+      status: "open",
+    },
+    data: { status: "closed" },
+  });
+
   return {
     ok: true,
     submission: {

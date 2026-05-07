@@ -17,6 +17,7 @@ import {
   requestPasswordResetDemo,
   validateForgotPasswordEmail,
 } from './auth.service';
+import { createCaptchaSession, verifyCaptchaAnswer } from './captcha.service';
 import { normalizePhoneCN, sendOtp, verifyOtp } from './otp.service';
 
 export async function registerAuthRoutes(fastify: FastifyInstance) {
@@ -80,12 +81,26 @@ export async function registerAuthRoutes(fastify: FastifyInstance) {
     return requestPasswordResetDemo(email);
   });
 
+  /** 图形验证码：用于短信发送前人机校验（内存会话，约 5 分钟有效） */
+  fastify.get('/auth/captcha', async () => createCaptchaSession());
+
   /**
    * 手机验证码发送（商业化普通版主路径）。
    * 说明：生产应接真实短信服务；测试环境会返回 codeForTest 便于闭环测试。
+   * 须先 GET /auth/captcha，再在 body 中携带 captchaId、captchaText。
    */
   fastify.post('/auth/otp/send', async (request, reply) => {
-    const body = request.body as { phone?: unknown; purpose?: unknown } | undefined;
+    const body = request.body as
+      | { phone?: unknown; purpose?: unknown; captchaId?: unknown; captchaText?: unknown }
+      | undefined;
+    const captchaId = String(body?.captchaId ?? '').trim();
+    const captchaText = String(body?.captchaText ?? '').trim();
+    if (!captchaId || !captchaText) {
+      return reply.code(400).send({ message: '请先完成图形验证码' });
+    }
+    if (!verifyCaptchaAnswer(captchaId, captchaText)) {
+      return reply.code(400).send({ message: '图形验证码错误或已过期，请刷新后重试' });
+    }
     const result = await sendOtp({
       phoneRaw: body?.phone,
       purposeRaw: body?.purpose,

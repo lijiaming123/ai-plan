@@ -92,6 +92,12 @@ function expandOverlapFragments(combinedTaskText: string): string[] {
     }
     out.push(stripEdgePunct(p));
   }
+  // 额外提取英文/缩写术语（RAG/Embedding/Retriever 等），避免被中文上下文粘连导致无法命中。
+  const latin = combinedTaskText.match(/[A-Za-z]{2,}/g) ?? [];
+  for (const t of latin) {
+    const s = stripEdgePunct(t.trim());
+    if (s.length >= 2 && s.length <= 32) out.push(s);
+  }
   const dedup: string[] = [];
   for (const x of out) {
     if (x.length < 2) continue;
@@ -121,7 +127,14 @@ function duplicateLike(task: string, user: string): boolean {
 }
 
 function scoreEvidence(textLen: number, attachmentCount: number): number {
-  if (attachmentCount > 0) return 92;
+  // 仅凭“有附件”不应直接判定证据充分：附件内容不可见，且可能不相关。
+  // 将附件作为加分项，但仍要求用户提供最低限度的文字说明来对齐本期任务。
+  if (attachmentCount > 0) {
+    if (textLen >= 60) return 88;
+    if (textLen >= 25) return 78;
+    if (textLen >= 10) return 74;
+    return 66;
+  }
   if (textLen >= 80) return 82;
   if (textLen >= 40) return 70;
   if (textLen >= 25) return 55;
@@ -134,10 +147,18 @@ function scoreSubstance(
   attachmentCount: number,
 ): number {
   if (duplicateLike(task, user)) return 22;
-  if (attachmentCount > 0 && user.trim().length < 8) return 68;
+  if (attachmentCount > 0 && user.trim().length < 8) return 52;
   if (user.trim().length >= 20) return 82;
   if (user.trim().length >= 10) return 62;
   return 48;
+}
+
+function requiresArtifactEvidence(task: string, spec: CheckinSpec): boolean {
+  // 只对“明确要求产出”的任务启用更严格 gate。
+  // 注意：deriveCheckinSpecFromSlotContent 可能生成泛化 evidenceHint（如“上传截图/链接”），
+  // 这不等于任务“必须提供某类图”，因此这里不使用 evidenceHint 触发 gate。
+  const combined = `${task}\n${spec.criteria.join("\n")}`.toLowerCase();
+  return /(流程图|架构图|时序图|图示|示意图|diagram|flow|pipeline)/i.test(combined);
 }
 
 function dimensionHints(
@@ -172,21 +193,44 @@ export function evaluateCheckinSubmissionHeuristic(input: {
   slot: CheckinSlot;
   userContent: string;
   attachmentCount: number;
+  attachmentExtractedText?: string;
 }): { pass: boolean; review: CheckinPublicReview; internalOverall: number } {
   const task =
     input.slot.content?.trim() || input.slot.generatedContent?.trim() || "";
   const spec: CheckinSpec =
     input.slot.checkinSpec ?? deriveCheckinSpecFromSlotContent(task);
   const user = input.userContent.trim();
+  const extracted = (input.attachmentExtractedText ?? "").trim();
   const n = input.attachmentCount;
 
-  let rel = tokenOverlapScore([task, ...spec.criteria].join("。"), user);
-  if (n > 0) rel = Math.max(rel, 72);
+  const combinedTaskText = [task, ...spec.criteria].join("。");
+  let rel = tokenOverlapScore(combinedTaskText, user);
+  if (extracted) {
+    // 抽取文本（OCR/文档）里往往是英文术语或片段；用「仅 task」与「task+criteria」两种粒度取最大值，避免被大量中文 criteria 稀释命中率。
+    rel = Math.max(rel, tokenOverlapScore(combinedTaskText, extracted));
+    rel = Math.max(rel, tokenOverlapScore(task, extracted));
+  }
+  const needsArtifact = requiresArtifactEvidence(task, spec);
+  // 普通任务：有附件时适度放宽相关性，减少“做了但写得简短”导致的假阴性。
+  if (!needsArtifact && n > 0) rel = Math.max(rel, 58);
   const ev = scoreEvidence(user.length, n);
   const sub = scoreSubstance(task, user, n);
 
-  const overall = Math.round(rel * 0.35 + ev * 0.35 + sub * 0.3);
-  /** 略放宽：有附件或说明较长时更容易达线，减少「已分项说明却仍判不相关」的假阴性 */
+  let overall = Math.round(rel * 0.35 + ev * 0.35 + sub * 0.3);
+
+  // 对“流程图/截图/图示”等需要可核验产物的任务更严格：不能只丢一张附件就通过。
+  if (needsArtifact) {
+    const extractedHasSignal = extracted
+      ? expandOverlapFragments(task).some((p) => userCoversPart(extracted, p))
+      : false;
+    const tooShort = user.length < 20 && extracted.length < 30;
+    const tooVague = rel < 52 && !extractedHasSignal; // 基本未对齐本期任务关键词/要点
+    if (tooShort || tooVague) {
+      overall = Math.min(overall, 49);
+    }
+  }
+
+  /** 达线阈值：普通任务保持友好；产物型任务由上方 gate 兜底避免误判 */
   const pass = overall >= 54;
 
   const dimensions: CheckinReviewDimension[] = ORDER.map((id) => {
@@ -316,13 +360,9 @@ async function evaluateCheckinWithDeepseek(input: {
   userContent: string;
   attachmentCount: number;
   attachmentMeta: CheckinAttachmentMeta[];
-}): Promise<{
-  pass: boolean;
-  review: CheckinPublicReview;
-  internalOverall: number;
-}> {
-  const task =
-    input.slot.content?.trim() || input.slot.generatedContent?.trim() || "";
+  attachmentExtractedText?: string;
+}): Promise<{ pass: boolean; review: CheckinPublicReview; internalOverall: number }> {
+  const task = input.slot.content?.trim() || input.slot.generatedContent?.trim() || "";
   const spec: CheckinSpec =
     input.slot.checkinSpec ?? deriveCheckinSpecFromSlotContent(task);
 
@@ -331,6 +371,8 @@ async function evaluateCheckinWithDeepseek(input: {
     checkinSpec: spec,
     userCompletionText: input.userContent.trim(),
     attachmentCount: input.attachmentCount,
+    attachmentExtractedText:
+      (input.attachmentExtractedText ?? "").trim().slice(0, 3000) || null,
     /** 仅元信息；模型不得声称已「阅读」文件内容 */
     attachments: input.attachmentMeta.map((a) => ({
       kind: a.kind,
@@ -341,6 +383,8 @@ async function evaluateCheckinWithDeepseek(input: {
   const system = `你是「计划大师」的打卡完成证明审核员。根据「本期计划正文」「验收标准 checkinSpec」以及用户填写的完成说明、附件元数据（仅类型与文件名，你并未看到文件内容）判断是否允许正式提交。
 
 **宽严原则（重要）**：计划中列举的多个关键词、术语或步骤，只要用户在说明里用**同义表述、中英文对应、分条解释**等方式能看出已覆盖，即视为满足，**不得**要求与计划原文逐字一致；**不得**因「少写了一个连接词」或「术语顺序不同」判不通过。仅当说明明显空洞、与本期任务无关、或明显整段复制计划而无自主内容时，才将 passed 设为 false。
+
+**反作弊与误判约束（重要）**：你并未看到附件内容，因此不得仅因“有附件”就判定证据充分或任务已完成。如果输入中提供了 attachmentExtractedText（OCR/抽取文本摘要），你可以把它当作“附件里可见的文字证据”，但仍需和本期任务/验收点对照。若本期任务明确要求“流程图/截图/图示”等产物，而用户完成说明过短、仅写“已上传/见附件”等泛化句，且 attachmentExtractedText 也无法体现关键术语/步骤，应将 passed 设为 false，并提示用户补充：做了什么、产物是什么、如何对应本期计划。
 
 你必须只输出**一个** JSON 对象，不要其它文字、不要用 markdown 代码块包裹。结构严格如下（字段名与 dimensions[].id 不可变）：
 {"passed":boolean,"summary":"一句中文总评，说明是否可提交、原因要点","dimensions":[
@@ -369,6 +413,7 @@ band 含义：low=偏低，mid=一般，high=良好。passed 为 true 表示达�
       slot: input.slot,
       userContent: input.userContent,
       attachmentCount: input.attachmentCount,
+      attachmentExtractedText: input.attachmentExtractedText,
     });
   }
 
@@ -378,6 +423,7 @@ band 含义：low=偏低，mid=一般，high=良好。passed 为 true 表示达�
       slot: input.slot,
       userContent: input.userContent,
       attachmentCount: input.attachmentCount,
+      attachmentExtractedText: input.attachmentExtractedText,
     });
   }
   return built;
@@ -391,17 +437,16 @@ export async function evaluateCheckinSubmission(input: {
   userContent: string;
   attachmentCount: number;
   attachmentMeta?: CheckinAttachmentMeta[];
-}): Promise<{
-  pass: boolean;
-  review: CheckinPublicReview;
-  internalOverall: number;
-}> {
+  /** OCR/抽取后的附件文本摘要（可空）；用于辅助相关性判定 */
+  attachmentExtractedText?: string;
+}): Promise<{ pass: boolean; review: CheckinPublicReview; internalOverall: number }> {
   const meta = input.attachmentMeta ?? [];
   if (!isDeepseekConfigured()) {
     return evaluateCheckinSubmissionHeuristic({
       slot: input.slot,
       userContent: input.userContent,
       attachmentCount: input.attachmentCount,
+      attachmentExtractedText: input.attachmentExtractedText,
     });
   }
   try {
@@ -410,6 +455,7 @@ export async function evaluateCheckinSubmission(input: {
       userContent: input.userContent,
       attachmentCount: input.attachmentCount,
       attachmentMeta: meta,
+      attachmentExtractedText: input.attachmentExtractedText,
     });
   } catch (e) {
     console.error(
@@ -420,6 +466,7 @@ export async function evaluateCheckinSubmission(input: {
       slot: input.slot,
       userContent: input.userContent,
       attachmentCount: input.attachmentCount,
+      attachmentExtractedText: input.attachmentExtractedText,
     });
   }
 }

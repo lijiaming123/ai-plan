@@ -116,7 +116,29 @@ function deadlineDayFromIso(iso: string): string {
   return /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : iso;
 }
 
-/** 列表仅展示已定稿计划；与详情页「执行中」一致；任务完成度后续可接，进度 0 占位。 */
+function utcDayMsFromIso(iso: string): number | null {
+  const day = iso.slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
+  const [y, m, d] = day.split("-").map((x) => Number(x));
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return null;
+  return Date.UTC(y, m - 1, d);
+}
+
+function computeTimeProgressPercent(params: { startIso: string; endIso: string; now?: Date }): number {
+  const startMs = utcDayMsFromIso(params.startIso);
+  const endMs = utcDayMsFromIso(params.endIso);
+  if (startMs == null || endMs == null) return 0;
+  const now = params.now ?? new Date();
+  const nowMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const totalDays = Math.floor((endMs - startMs) / 86400000) + 1;
+  if (!Number.isFinite(totalDays) || totalDays <= 1) return 100;
+  const elapsedDays = Math.floor((nowMs - startMs) / 86400000);
+  const ratio = elapsedDays / (totalDays - 1);
+  const pct = Math.round(ratio * 100);
+  return Math.max(0, Math.min(100, pct));
+}
+
+/** 列表仅展示已定稿计划；进度采用“时间推进”估算（后续可替换为按槽完成度）。 */
 function rowToCard(row: PlanListRow): PlanCard {
   const deadline = deadlineDayFromIso(row.deadline);
   const { description, coverLine } = buildPlanCardDisplayTexts({
@@ -131,7 +153,10 @@ function rowToCard(row: PlanListRow): PlanCard {
     coverLine,
     deadline,
     image: "",
-    progress: 0,
+    progress: computeTimeProgressPercent({
+      startIso: row.createdAt ?? row.deadline,
+      endIso: row.deadline,
+    }),
     status: "执行中",
     type: row.type,
   };

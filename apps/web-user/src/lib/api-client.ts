@@ -65,6 +65,8 @@ export type CreatePlanInput = {
   requirement: string;
   type: "general" | "study" | "work";
   token: string;
+  /** 续航：来源已定稿计划 id */
+  parentPlanId?: string;
   profile?: {
     planMode: "basic" | "pro";
     basicInfo: {
@@ -228,6 +230,12 @@ export type PlanRecord = {
   status?: string;
   /** 已定稿计划归档时间（ISO）；未归档为 null */
   archivedAt?: string | null;
+  /** 下一步迭代方向（可 PATCH 更新；定稿时也会从正文解析） */
+  nextStep?: string | null;
+  /** 续航父计划 id */
+  parentPlanId?: string | null;
+  /** 父计划摘要（同用户下存在时返回，便于展示「承接自」） */
+  parentPlan?: { id: string; goal: string } | null;
   draft?: {
     versions: Array<{
       version: number;
@@ -478,6 +486,12 @@ export type ApiClient = {
   ): Promise<PlanAssistantApplyOptionResult>;
   parsePlanFile(input: ParsePlanFileInput): Promise<ParsePlanFileResult>;
   getPlan(input: { id: string; token: string }): Promise<PlanRecord>;
+  /** 更新已定稿计划的有限字段（当前支持 nextStep） */
+  patchPlan(input: {
+    id: string;
+    token: string;
+    nextStep?: string;
+  }): Promise<{ nextStep: string | null }>;
   getPlanDraft(input: {
     id: string;
     token: string;
@@ -937,6 +951,9 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
           requirement: input.requirement,
           type: input.type,
           profile: input.profile,
+          ...(input.parentPlanId?.trim()
+            ? { parentPlanId: input.parentPlanId.trim() }
+            : {}),
         }),
       });
     },
@@ -1008,6 +1025,17 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
         headers: {
           Authorization: `Bearer ${input.token}`,
         },
+      });
+    },
+    patchPlan(input) {
+      const body: Record<string, string> = {};
+      if (input.nextStep !== undefined) body.nextStep = input.nextStep;
+      return request<{ nextStep: string | null }>(`/plans/${input.id}`, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${input.token}`,
+        },
+        body: JSON.stringify(body),
       });
     },
     getPlanDraft(input) {

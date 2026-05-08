@@ -33,17 +33,93 @@ import {
 import { listOpenScheduleSlotAppeals } from "./schedule-slot-appeal.service";
 import { listScheduleSlotSubmissionsBySlot } from "./schedule-slot-checkin.service";
 
-const editableFields = ["deadline", "note"] as const;
+const editableFields = ["deadline", "note", "nextStep"] as const;
+
+/** 下一步迭代方向：正文解析与用户编辑共用上限 */
+export const MAX_NEXT_STEP_LEN = 2000;
 
 export type ScheduleGranularity = "day" | "week";
 
 /** PATCH /plans/:id 时仅允许白名单字段通过（其余忽略） */
 export function sanitizePlanPatch(input: Record<string, unknown>) {
-  return Object.fromEntries(
-    Object.entries(input).filter(([key]) =>
-      editableFields.includes(key as (typeof editableFields)[number]),
-    ),
+  const entries = Object.entries(input).filter(([key]) =>
+    editableFields.includes(key as (typeof editableFields)[number]),
   );
+  /** nextStep 仅保留字符串形态；其它类型丢弃该键避免误写入 */
+  return Object.fromEntries(
+    entries.filter(([key, val]) => {
+      if (key !== "nextStep") return true;
+      return typeof val === "string";
+    }),
+  );
+}
+
+/**
+ * 从计划正文 Markdown 中提取「下一步迭代方向」小节的首段内容。
+ * 匹配 ## / ### 标题「下一步迭代方向」，直到下一个同级别及以上标题为止。
+ */
+export function extractNextStepFromRequirement(markdown: string): string | null {
+  const text = typeof markdown === "string" ? markdown.trim() : "";
+  if (!text) return null;
+  const lines = text.split(/\r?\n/);
+  let bodyStart = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^#{2,3}\s*下一步迭代方向\s*$/.test(lines[i].trim())) {
+      bodyStart = i + 1;
+      break;
+    }
+  }
+  if (bodyStart < 0) return null;
+  const buf: string[] = [];
+  for (let j = bodyStart; j < lines.length; j++) {
+    const line = lines[j];
+    if (/^#{1,6}\s/.test(line)) break;
+    buf.push(line);
+  }
+  const inner = buf.join("\n").trim();
+  if (!inner) return null;
+  return inner.length > MAX_NEXT_STEP_LEN
+    ? inner.slice(0, MAX_NEXT_STEP_LEN)
+    : inner;
+}
+
+/** PATCH /plans/:id 允许的字段写入数据库（note/deadline 暂不映射列，仅占位兼容旧客户端） */
+export async function patchConfirmedPlan(params: {
+  planId: string;
+  userId: string;
+  patch: Record<string, unknown>;
+}): Promise<
+  | {
+      ok: true;
+      nextStep: string | null;
+    }
+  | { ok: false; code: 404 | 400; message: string }
+> {
+  const sanitized = sanitizePlanPatch(params.patch);
+  const row = await prisma.plan.findFirst({
+    where: { id: params.planId, userId: params.userId, deletedAt: null },
+  });
+  if (!row) return { ok: false, code: 404, message: "plan not found" };
+
+  if (!("nextStep" in sanitized))
+    return { ok: true, nextStep: row.nextStep ?? null };
+
+  const raw = sanitized.nextStep as string;
+  const trimmed = raw.trim();
+  if (trimmed.length > MAX_NEXT_STEP_LEN) {
+    return {
+      ok: false,
+      code: 400,
+      message: `下一步迭代方向最多 ${MAX_NEXT_STEP_LEN} 字`,
+    };
+  }
+
+  await prisma.plan.update({
+    where: { id: params.planId },
+    data: { nextStep: trimmed.length ? trimmed : null },
+  });
+
+  return { ok: true, nextStep: trimmed.length ? trimmed : null };
 }
 
 type DraftTask = {
@@ -653,6 +729,18 @@ export async function getPlanWithDraft(planId: string, userId: string) {
     where: { id: planId, userId, deletedAt: null },
   });
   if (!plan) return null;
+  let parentPlan: { id: string; goal: string } | null = null;
+  if (plan.parentPlanId) {
+    const row = await prisma.plan.findFirst({
+      where: {
+        id: plan.parentPlanId,
+        userId,
+        deletedAt: null,
+      },
+      select: { id: true, goal: true },
+    });
+    parentPlan = row;
+  }
   const state = await loadPersistedPlanState(plan);
   const scheduleSlotSubmissions = await listScheduleSlotSubmissionsBySlot(
     planId,
@@ -665,6 +753,7 @@ export async function getPlanWithDraft(planId: string, userId: string) {
   return {
     ...plan,
     status: plan.archivedAt ? "archived" : "active",
+    parentPlan,
     draft: {
       versions: state.versions,
       maxVersions: state.maxVersions,
@@ -1133,6 +1222,8 @@ export async function confirmPlanVersion(
   await prisma.$transaction(async (tx) => {
     await tx.planGenerationDraft.delete({ where: { id: draftId } });
 
+    const parsedNext = extractNextStepFromRequirement(snapshot.requirement);
+
     await tx.plan.create({
       data: {
         id: draftId,
@@ -1141,6 +1232,8 @@ export async function confirmPlanVersion(
         deadline: new Date(snapshot.deadline),
         requirement: snapshot.requirement,
         type: draft.type,
+        nextStep: parsedNext,
+        parentPlanId: draft.parentPlanId ?? null,
         currentVersion: version,
         confirmedVersion: version,
       },
@@ -1237,6 +1330,8 @@ export async function createGeneratedPlan(
     userId: string;
     granularityMode?: GranularityMode;
     startDateIso?: string;
+    /** 可选：续航来源计划 id（须同用户且未删除） */
+    parentPlanId?: string | null;
   },
 ) {
   const effectiveGranularityMode: GranularityMode =
@@ -1294,6 +1389,9 @@ export async function createGeneratedPlan(
         deadline: new Date(input.deadline),
         requirement: requirementText,
         type: input.type,
+        parentPlanId: input.parentPlanId?.trim()
+          ? input.parentPlanId.trim()
+          : null,
         currentVersion: 1,
       },
     });
@@ -1443,6 +1541,7 @@ export async function updatePlanScheduleSlot(params: {
   /** 生成草稿多版本：指定 PlanGenerationDraftVersion.version */
   planVersion?: number;
 }) {
+  const MAX_SLOT_CONTENT_LEN = 2000;
   const plan = await prisma.plan.findFirst({
     where: { id: params.planId, userId: params.userId },
   });
@@ -1466,6 +1565,20 @@ export async function updatePlanScheduleSlot(params: {
       ok: false as const,
       code: 403 as const,
       message: "已归档的计划不可编辑打卡表",
+    };
+  }
+
+  // 规则：只要该 slot 曾经出现过“通过”的提交记录（即存在任意提交行），就禁止再编辑/恢复。
+  // 当前实现中：只有核验通过才会创建 PlanScheduleSlotSubmission，因此“存在任意提交行”等价于“曾经通过”。
+  const hasPassedSubmission = await prisma.planScheduleSlotSubmission.findFirst({
+    where: { planId: params.planId, slotKey: params.slotKey, userId: params.userId },
+    select: { id: true },
+  });
+  if (hasPassedSubmission) {
+    return {
+      ok: false as const,
+      code: 409 as const,
+      message: "该时间槽已通过核验，禁止再修改计划内容",
     };
   }
 
@@ -1534,8 +1647,15 @@ export async function updatePlanScheduleSlot(params: {
       return {
         ok: false as const,
         code: 400 as const,
-        message: "content is empty",
+        message: "计划内容不能为空",
       };
+    if (next.length > MAX_SLOT_CONTENT_LEN) {
+      return {
+        ok: false as const,
+        code: 400 as const,
+        message: `计划内容过长（最多 ${MAX_SLOT_CONTENT_LEN} 字）`,
+      };
+    }
     slot.content = next;
     slot.contentSource = "edited";
     slot.editedAt = nowIso;
@@ -1596,6 +1716,22 @@ export async function swapPlanScheduleSlotContent(params: {
       ok: false as const,
       code: 400 as const,
       message: "slot keys must be different",
+    };
+  }
+
+  const hasPassedAnySubmission = await prisma.planScheduleSlotSubmission.findFirst({
+    where: {
+      planId: params.planId,
+      userId: params.userId,
+      slotKey: { in: [keyA, keyB] },
+    },
+    select: { id: true },
+  });
+  if (hasPassedAnySubmission) {
+    return {
+      ok: false as const,
+      code: 409 as const,
+      message: "包含已通过核验的时间槽，禁止修改计划内容",
     };
   }
 

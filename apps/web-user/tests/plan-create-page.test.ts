@@ -30,11 +30,14 @@ describe('PlanCreatePage', () => {
   const createPlanMock = vi.fn();
   const planAssistantMock = vi.fn();
   const parsePlanFileMock = vi.fn();
+  const getPlanMock = vi.fn();
 
   beforeEach(() => {
     createPlanMock.mockReset();
     planAssistantMock.mockReset();
     parsePlanFileMock.mockReset();
+    getPlanMock.mockReset();
+    getPlanMock.mockRejectedValue(new Error('getPlan not mocked'));
     trackEventMock.mockReset();
     trackPageViewMock.mockReset();
     createPlanMock.mockResolvedValue({
@@ -71,6 +74,7 @@ describe('PlanCreatePage', () => {
       createPlan: createPlanMock,
       planAssistant: planAssistantMock,
       parsePlanFile: parsePlanFileMock,
+      getPlan: getPlanMock,
     });
   });
 
@@ -588,6 +592,47 @@ describe('PlanCreatePage', () => {
           }),
         }),
       })
+    );
+  });
+
+  it('continuationFrom 应预填名称与内容并在创建时携带 parentPlanId', async () => {
+    setAuthToken('token_123');
+    getPlanMock.mockResolvedValueOnce({
+      id: 'parent_x',
+      goal: '母计划标题',
+      deadline: new Date().toISOString(),
+      requirement: '旧正文',
+      type: 'general',
+      status: 'active',
+      nextStep: '下一阶段只做精听',
+    });
+
+    const router = createAppRouter(createMemoryHistory());
+    await router.push({
+      path: '/plans/new',
+      query: { continuationFrom: 'parent_x', mode: 'basic' },
+    });
+    await router.isReady();
+
+    const wrapper = mount(PlanCreatePage, {
+      global: { plugins: [router] },
+    });
+    await flushPromises();
+
+    const nameEl = wrapper.get('input[aria-label="计划名称"]')
+      .element as HTMLInputElement;
+    expect(nameEl.value).toContain('母计划标题 · 下一步');
+
+    await setPlanSelect(wrapper, 'field-plan-scenario', 'study');
+    await wrapper.get('form').trigger('submit');
+    await flushPromises();
+
+    expect(createPlanMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        goal: expect.stringContaining('母计划标题'),
+        token: 'token_123',
+        parentPlanId: 'parent_x',
+      }),
     );
   });
 });

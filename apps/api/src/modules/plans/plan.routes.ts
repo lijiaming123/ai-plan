@@ -18,6 +18,7 @@ import {
   compareDraftVersions,
   confirmPlanVersion,
   createGeneratedPlan,
+  patchConfirmedPlan,
   getPlanDraft,
   getPlanWithDraft,
   listArchivedPlansForUser,
@@ -30,7 +31,6 @@ import {
   regeneratePlanVersion,
   REGENERATE_PLAN_SYSTEM,
   restorePlan,
-  sanitizePlanPatch,
   softDeletePlan,
   swapPlanScheduleSlotContent,
   updatePlanScheduleSlot,
@@ -65,6 +65,7 @@ import { runProPlanAgent } from "@ai-plan/pro-plan-agent";
 import { buildPlanAssistantCacheKey } from "./assistant-cache-key";
 import { createLlmRouter } from "../../lib/llm/llm-router";
 import { createDeepseekProvider } from "../../lib/llm/providers/deepseek-provider";
+import { prisma } from "../../lib/prisma";
 
 const planTypes = ["general", "study", "work"] as const;
 const planModes = ["basic", "pro"] as const;
@@ -151,6 +152,8 @@ type CreatePlanBody = {
   deadline: string;
   requirement: string;
   type: PlanType;
+  /** 可选：续航来源已定稿计划 id */
+  parentPlanId?: string;
   profile?: {
     planMode: PlanMode;
     basicInfo: {
@@ -221,6 +224,11 @@ function validateCreatePlanBody(
     return { ok: false, message: "deadline must be a valid date string" };
   if (!isOneOf(raw.type, planTypes))
     return { ok: false, message: "type is invalid" };
+  if ("parentPlanId" in raw && raw.parentPlanId != null) {
+    if (typeof raw.parentPlanId !== "string" || !raw.parentPlanId.trim()) {
+      return { ok: false, message: "parentPlanId 无效" };
+    }
+  }
   // profile is optional metadata for enhanced generation experience.
   // To keep /plans creation highly available across client versions,
   // profile shape mismatches will be tolerated and ignored by route logic.
@@ -777,6 +785,15 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
 
       const body = parsed.data;
       const payload = await request.jwtVerify<{ sub: string }>();
+      const parentPid = body.parentPlanId?.trim();
+      if (parentPid) {
+        const parent = await prisma.plan.findFirst({
+          where: { id: parentPid, userId: payload.sub, deletedAt: null },
+        });
+        if (!parent) {
+          return reply.code(404).send({ message: "父计划不存在或不可访问" });
+        }
+      }
       const granularityMode = isOneOf(
         body.profile?.basicInfo?.granularityMode,
         granularityModes,
@@ -796,6 +813,7 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
         type: body.type,
         granularityMode,
         startDateIso,
+        parentPlanId: parentPid ?? undefined,
       });
 
       return reply.code(201).send(plan);
@@ -805,9 +823,19 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
   fastify.patch(
     "/plans/:id",
     { preHandler: fastify.requireRole("user") },
-    async (request) => {
-      const body = request.body as Record<string, unknown> | undefined;
-      return sanitizePlanPatch(body ?? {});
+    async (request, reply) => {
+      const payload = await request.jwtVerify<{ sub: string }>();
+      const { id } = request.params as { id: string };
+      const raw = normalizeBody(request.body);
+      const patch = isRecord(raw) ? raw : {};
+      const result = await patchConfirmedPlan({
+        planId: id,
+        userId: payload.sub,
+        patch,
+      });
+      if (!result.ok)
+        return reply.code(result.code).send({ message: result.message });
+      return reply.send({ nextStep: result.nextStep });
     },
   );
 

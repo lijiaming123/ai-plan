@@ -475,6 +475,43 @@ function syncModeFromRoute() {
   }
 }
 
+/** 从已完成计划「续航」创建时，由 query.continuationFrom 解析并 POST /plans 写 parentPlanId */
+const continuationParentPlanId = ref<string | null>(null);
+
+async function hydrateContinuationFromRoute() {
+  const raw = route.query.continuationFrom;
+  const id = typeof raw === "string" && raw.trim() ? raw.trim() : "";
+  if (!id) {
+    continuationParentPlanId.value = null;
+    return;
+  }
+  if (!authState.token) return;
+  try {
+    const src = await getApiClient().getPlan({
+      id,
+      token: authState.token,
+    });
+    const ns = (src.nextStep ?? "").trim();
+    if (!ns) {
+      continuationParentPlanId.value = null;
+      return;
+    }
+    continuationParentPlanId.value = id;
+    const g = (src.goal ?? "").trim() || "上一计划";
+    if (!form.goal.trim()) {
+      form.goal = `${g} · 下一步`;
+    }
+    if (!form.requirement.trim()) {
+      form.requirement = `${ns}\n\n（承接自已完成计划「${g}」，请主要依据上一阶段的「下一步迭代方向」生成新计划，勿复述旧计划全文。）`;
+    }
+    if (!form.planScenario) {
+      form.planScenario = "other";
+    }
+  } catch {
+    continuationParentPlanId.value = null;
+  }
+}
+
 function validateForm() {
   errors.planScenario = form.planScenario ? "" : "请选择计划场景";
   errors.goal = form.goal.trim() ? "" : "请输入计划名称";
@@ -620,6 +657,7 @@ async function handleSubmit() {
   void planPayloadDraft;
 
   const deadline = toIsoStartOfDay(effectiveDeadline.value || form.startDate);
+  const parentContinuationId = continuationParentPlanId.value ?? undefined;
   let plan;
   try {
     plan = await client.createPlan({
@@ -627,8 +665,9 @@ async function handleSubmit() {
       deadline,
       requirement: finalRequirementForSubmit,
       type: "general",
-    token: authState.token,
+      token: authState.token,
       profile,
+      ...(parentContinuationId ? { parentPlanId: parentContinuationId } : {}),
     });
   } catch (error) {
     showErrorToast(
@@ -642,6 +681,7 @@ async function handleSubmit() {
         requirement: finalRequirementForSubmit,
         type: "general",
         token: authState.token,
+        ...(parentContinuationId ? { parentPlanId: parentContinuationId } : {}),
       });
     } catch (retryError) {
       showErrorToast(
@@ -652,6 +692,8 @@ async function handleSubmit() {
   } finally {
     isSubmitting.value = false;
   }
+
+  continuationParentPlanId.value = null;
 
   storeDraftStreamPayload(plan.id, {
     assistantPrompt: generatedPrompt.value,
@@ -1140,11 +1182,20 @@ watch(
   },
 );
 
-onMounted(syncModeFromRoute);
+onMounted(() => {
+  syncModeFromRoute();
+  void hydrateContinuationFromRoute();
+});
 watch(
   () => route.query.mode,
   () => {
     syncModeFromRoute();
+  },
+);
+watch(
+  () => route.query.continuationFrom,
+  () => {
+    void hydrateContinuationFromRoute();
   },
 );
 watch(

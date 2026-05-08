@@ -3,7 +3,10 @@
  */
 import { completeDeepseekChat, isDeepseekConfigured } from "../../lib/deepseek";
 import type { CheckinSpec, CheckinSlot } from "./deepseek-schedule";
-import { deriveCheckinSpecFromSlotContent, extractLastJsonCodeBlock } from "./deepseek-schedule";
+import {
+  deriveCheckinSpecFromSlotContent,
+  extractLastJsonCodeBlock,
+} from "./deepseek-schedule";
 
 export type CheckinReviewBand = "low" | "mid" | "high";
 
@@ -31,7 +34,11 @@ const LABEL: Record<CheckinReviewDimension["id"], string> = {
   substance: "说明具体",
 };
 
-const ORDER: CheckinReviewDimension["id"][] = ["relevance", "evidence", "substance"];
+const ORDER: CheckinReviewDimension["id"][] = [
+  "relevance",
+  "evidence",
+  "substance",
+];
 
 function norm(s: string): string {
   return s.replace(/\s+/g, "").toLowerCase();
@@ -44,7 +51,10 @@ function toBand(score: number): CheckinReviewBand {
 }
 
 function stripEdgePunct(s: string): string {
-  return s.replace(/^[（(\[【"'「]/g, "").replace(/[）)\]」'"。]+$/, "").trim();
+  return s
+    .replace(/^[（(\[【"'「]/g, "")
+    .replace(/[）)\]」'"。]+$/, "")
+    .trim();
 }
 
 /** 单条要点是否在用户说明中出现（支持中英文大小写、去掉括号后匹配） */
@@ -118,7 +128,11 @@ function scoreEvidence(textLen: number, attachmentCount: number): number {
   return Math.min(45, textLen * 2);
 }
 
-function scoreSubstance(task: string, user: string, attachmentCount: number): number {
+function scoreSubstance(
+  task: string,
+  user: string,
+  attachmentCount: number,
+): number {
   if (duplicateLike(task, user)) return 22;
   if (attachmentCount > 0 && user.trim().length < 8) return 68;
   if (user.trim().length >= 20) return 82;
@@ -130,7 +144,10 @@ function dimensionHints(
   id: CheckinReviewDimension["id"],
   band: CheckinReviewBand,
 ): string {
-  const hints: Record<CheckinReviewDimension["id"], Record<CheckinReviewBand, string>> = {
+  const hints: Record<
+    CheckinReviewDimension["id"],
+    Record<CheckinReviewBand, string>
+  > = {
     relevance: {
       low: "与本期计划对照不够紧。请写明你针对本期任务做了哪些具体动作或产出。",
       mid: "与本期任务有一定关联；若再补充与计划条目对应的关键词或结果会更好。",
@@ -156,7 +173,8 @@ export function evaluateCheckinSubmissionHeuristic(input: {
   userContent: string;
   attachmentCount: number;
 }): { pass: boolean; review: CheckinPublicReview; internalOverall: number } {
-  const task = input.slot.content?.trim() || input.slot.generatedContent?.trim() || "";
+  const task =
+    input.slot.content?.trim() || input.slot.generatedContent?.trim() || "";
   const spec: CheckinSpec =
     input.slot.checkinSpec ?? deriveCheckinSpecFromSlotContent(task);
   const user = input.userContent.trim();
@@ -251,16 +269,22 @@ function buildReviewFromLlmParsed(parsed: unknown): {
   if (typeof p.passed !== "boolean") return null;
   if (typeof p.summary !== "string" || !p.summary.trim()) return null;
   if (!Array.isArray(p.dimensions)) return null;
-  const byId = new Map<CheckinReviewDimension["id"], { band: CheckinReviewBand; hint: string }>();
+  const byId = new Map<
+    CheckinReviewDimension["id"],
+    { band: CheckinReviewBand; hint: string }
+  >();
   for (const row of p.dimensions) {
     if (!row || typeof row !== "object") return null;
     const r = row as { id?: unknown; band?: unknown; hint?: unknown };
-    if (typeof r.id !== "string" || typeof r.band !== "string" || typeof r.hint !== "string")
+    if (
+      typeof r.id !== "string" ||
+      typeof r.band !== "string" ||
+      typeof r.hint !== "string"
+    )
       return null;
     if (!isDimId(r.id) || !isBand(r.band)) return null;
     const rawHint = r.hint.trim().slice(0, 200);
-    const hint =
-      rawHint.length > 0 ? rawHint : dimensionHints(r.id, r.band);
+    const hint = rawHint.length > 0 ? rawHint : dimensionHints(r.id, r.band);
     byId.set(r.id, { band: r.band, hint });
   }
   if (byId.size !== 3) return null;
@@ -292,8 +316,13 @@ async function evaluateCheckinWithDeepseek(input: {
   userContent: string;
   attachmentCount: number;
   attachmentMeta: CheckinAttachmentMeta[];
-}): Promise<{ pass: boolean; review: CheckinPublicReview; internalOverall: number }> {
-  const task = input.slot.content?.trim() || input.slot.generatedContent?.trim() || "";
+}): Promise<{
+  pass: boolean;
+  review: CheckinPublicReview;
+  internalOverall: number;
+}> {
+  const task =
+    input.slot.content?.trim() || input.slot.generatedContent?.trim() || "";
   const spec: CheckinSpec =
     input.slot.checkinSpec ?? deriveCheckinSpecFromSlotContent(task);
 
@@ -362,7 +391,11 @@ export async function evaluateCheckinSubmission(input: {
   userContent: string;
   attachmentCount: number;
   attachmentMeta?: CheckinAttachmentMeta[];
-}): Promise<{ pass: boolean; review: CheckinPublicReview; internalOverall: number }> {
+}): Promise<{
+  pass: boolean;
+  review: CheckinPublicReview;
+  internalOverall: number;
+}> {
   const meta = input.attachmentMeta ?? [];
   if (!isDeepseekConfigured()) {
     return evaluateCheckinSubmissionHeuristic({
@@ -379,7 +412,10 @@ export async function evaluateCheckinSubmission(input: {
       attachmentMeta: meta,
     });
   } catch (e) {
-    console.error("[checkin] DeepSeek review failed, fallback to heuristic:", e);
+    console.error(
+      "[checkin] DeepSeek review failed, fallback to heuristic:",
+      e,
+    );
     return evaluateCheckinSubmissionHeuristic({
       slot: input.slot,
       userContent: input.userContent,

@@ -15,6 +15,12 @@ model Plan {
   deadline         DateTime
   requirement      String
   type             String
+  /// 计划完成后用于引导「下一步计划」的简短文本（可编辑；由正文解析或 PATCH 写入）
+  nextStep         String?
+  /// 由哪条计划「续航」创建而来（可选）
+  parentPlanId     String?
+  parentPlan       Plan?         @relation("PlanContinuation", fields: [parentPlanId], references: [id], onDelete: SetNull)
+  childPlans       Plan[]        @relation("PlanContinuation")
   currentVersion   Int           @default(1)
   confirmedVersion Int?
   stages                  PlanStage[]
@@ -27,6 +33,7 @@ model Plan {
 
   @@index([userId, deletedAt])
   @@index([userId, archivedAt])
+  @@index([parentPlanId])
 }
 
 /// 已定稿计划下，按打卡时间槽提交的执行证明（文字 + 外链附件）
@@ -85,6 +92,8 @@ model PlanGenerationDraft {
   deadline       DateTime
   requirement    String
   type           String
+  /// 可选：沿用父计划建立的续航关联，确认写入 Plan.parentPlanId
+  parentPlanId   String?
   currentVersion Int                          @default(1)
   createdAt      DateTime                     @default(now())
   stages         PlanGenerationDraftStage[]

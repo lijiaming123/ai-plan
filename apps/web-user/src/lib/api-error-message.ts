@@ -21,8 +21,21 @@ function isLikelyBackendUserMessage(detail: string): boolean {
   const t = detail.trim();
   if (!t || t.length > 240) return false;
   if (/Invalid\s+['']?[\w.]+['']?\s+invocation|\.ts:\d+|\\\\|\bprisma\./i.test(t)) return false;
-  // 允许英文短句（如 zod 校验失败信息），但仍避免堆栈/路径等开发细节泄漏
-  return true;
+  // 中文短提示：直接透传
+  if (/[\u4e00-\u9fff]/.test(t)) return true;
+
+  // 英文短提示：仅对白名单类型透传（避免把无意义的 "bad"/"x" 直接展示给用户）
+  // 常见来源：Zod 校验错误、payload 字段检查等。
+  if (
+    /^(Expected\b|Invalid\b|must\b|should\b|required\b|cannot\b|can not\b)/i.test(t) ||
+    // 更具体的字段路径/结构化提示才透传；避免 "bad payload" 这类无信息文案
+    /\b(planId|content|deadline|goal|requirement|tags|category)\b/i.test(t) ||
+    /\b(payload\.[\w.]+)\b/i.test(t)
+  ) {
+    return true;
+  }
+
+  return false;
 }
 
 export function formatHttpApiUserMessage(status: number, detail: string): string {

@@ -9,6 +9,7 @@ import {
   evaluateCheckinSubmission,
   type CheckinPublicReview,
 } from './checkin-submission-score.service';
+import { extractTextFromAttachmentUrl } from '../uploads/attachment-extract.service';
 
 export type ScheduleSlotCheckinAttachmentInput = {
   url: string;
@@ -135,6 +136,31 @@ export async function createScheduleSlotCheckin(params: {
     return { ok: false, code: 400, message: 'content or attachments required' };
   }
 
+  // 附件文本提取：仅用于核验，不落库。限制数量/耗时，避免滥用。
+  const MAX_ATTACHMENTS_FOR_EXTRACT = 5;
+  const EXTRACT_MAX_BYTES = 2 * 1024 * 1024;
+  const EXTRACT_PER_TIMEOUT_MS = 2000;
+  const EXTRACT_TOTAL_BUDGET_MS = 6000;
+  let attachmentExtractedText = "";
+  try {
+    const start = Date.now();
+    const items = normalizedUrls.slice(0, MAX_ATTACHMENTS_FOR_EXTRACT);
+    const parts: string[] = [];
+    for (const a of items) {
+      if (Date.now() - start > EXTRACT_TOTAL_BUDGET_MS) break;
+      const r = await extractTextFromAttachmentUrl({
+        url: a.url,
+        timeoutMs: EXTRACT_PER_TIMEOUT_MS,
+        maxBytes: EXTRACT_MAX_BYTES,
+        maxChars: 1200,
+      });
+      if (r.ok && r.text.trim()) parts.push(r.text.trim());
+    }
+    attachmentExtractedText = parts.join("\n\n").slice(0, 3000);
+  } catch {
+    attachmentExtractedText = "";
+  }
+
   const attachmentMeta = normalizedUrls.map((a) => ({
     fileName: a.fileName,
     kind: normalizeKind(a.kind, a.fileName, a.url),
@@ -144,6 +170,7 @@ export async function createScheduleSlotCheckin(params: {
     userContent: content,
     attachmentCount: normalizedUrls.length,
     attachmentMeta,
+    attachmentExtractedText,
   });
   if (!pass) {
     return {

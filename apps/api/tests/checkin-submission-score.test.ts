@@ -22,6 +22,19 @@ describe("checkin-submission-score", () => {
     expect(review.passed).toBe(true);
   });
 
+  it("要求流程图时：附件抽取文本命中关键术语可通过", async () => {
+    const task = "阅读RAG入门文章，并绘制RAG流程图。";
+    const { pass, review } = await evaluateCheckinSubmission({
+      slot: slot(task),
+      userContent: "见附件",
+      attachmentCount: 1,
+      attachmentExtractedText:
+        "RAG pipeline: chunking -> embedding -> retriever -> generator",
+    });
+    expect(pass).toBe(true);
+    expect(review.passed).toBe(true);
+  });
+
   it("极短且无附件应不通过", async () => {
     const { pass, review } = await evaluateCheckinSubmission({
       slot: slot("完成练习"),

@@ -281,7 +281,15 @@ async function applyMarket(id: string) {
   }
 }
 
-function openMarketDetail(id: string) {
+type TemplateDetailFrom = 'market_list' | 'my_created' | 'my_favorited' | 'my_liked';
+
+function openMarketDetail(id: string, from: TemplateDetailFrom) {
+  trackEvent('template_detail_click', {
+    properties: {
+      templateId: id,
+      from,
+    },
+  });
   void router.push(`/templates/market/${encodeURIComponent(id)}`);
 }
 
@@ -650,7 +658,7 @@ const myScopeOptions: MyScope[] = ['created', 'favorited', 'liked'];
           empty-hint="还没有符合条件的模板，可切换到「我创建的」或去模板市场发现更多。"
           @update:sort="setMarketSort"
           @apply="applyMarket"
-          @open-detail="openMarketDetail"
+          @open-detail="(id) => openMarketDetail(id, myScope === 'created' ? 'my_created' : myScope === 'favorited' ? 'my_favorited' : 'my_liked')"
           @toggle-like="onToggleLike"
           @toggle-favorite="onToggleFavorite"
           @edit="openEdit"
@@ -847,7 +855,7 @@ const myScopeOptions: MyScope[] = ['created', 'favorited', 'liked'];
           empty-hint="暂时没有用户模板，换个筛选条件或稍后再来。"
           @update:sort="setMarketSort"
           @apply="applyMarket"
-          @open-detail="openMarketDetail"
+          @open-detail="(id) => openMarketDetail(id, 'market_list')"
           @toggle-like="onToggleLike"
           @toggle-favorite="onToggleFavorite"
         >

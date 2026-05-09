@@ -12,6 +12,8 @@ export type FrontendTelemetryEventName =
   | 'notification_open'
   | 'draft_regenerate'
   | 'template_publish'
+  | 'template_detail_click'
+  | 'template_detail_open'
   | 'template_use';
 
 type TrackEventOptions = {

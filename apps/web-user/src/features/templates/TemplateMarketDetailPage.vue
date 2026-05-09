@@ -31,6 +31,15 @@ async function loadDetail() {
       token: authState.token || undefined,
     });
     detail.value = res;
+    // 详情打开埋点：仅登录态；绑定发布版本 id 便于后续版本维度统计
+    if (authState.token) {
+      trackEvent('template_detail_open', {
+        properties: {
+          templateId: res.id,
+          versionId: res.preview.versionId,
+        },
+      });
+    }
   } catch (e) {
     detail.value = null;
     errorToastMessage.value = e instanceof Error ? e.message : '没能加载模板详情，请稍后再试';
@@ -52,6 +61,7 @@ async function apply() {
         templateId: detail.value.id,
         templateSource: 'market',
         planId,
+        versionId: detail.value.preview.versionId,
       },
     });
     await router.push(`/plans/${planId}`);

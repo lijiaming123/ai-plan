@@ -103,6 +103,15 @@ describe('TemplatesPage / TemplateMarketList', () => {
     setAuthToken(demoJwt());
     const wrapper2 = mount(TemplatesPage, { global: { plugins: [router] } });
     await flushPromises();
+
+    // 点击详情应打点并跳转
+    await wrapper2.get('[data-testid="btn-detail"]').trigger('click');
+    await flushPromises();
+    expect(trackEventMock).toHaveBeenCalledWith('template_detail_click', {
+      properties: { templateId: 'm1', from: 'market_list' },
+    });
+    expect(router.currentRoute.value.fullPath).toBe('/templates/market/m1');
+
     await wrapper2.get('[data-testid="tab-mine"]').trigger('click');
     await nextTick();
     await flushPromises();

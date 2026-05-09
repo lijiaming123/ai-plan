@@ -24,10 +24,10 @@
 
 | 列 | 项 |
 |----|-----|
-| **待办** | 审核/举报/处置/频控/审计/版本化（见 `.ai/epics/epic-web-user-template-market-ugc.md`） |
+| **待办** | 审计/Telemetry 聚合完善（Story 017，见 `.ai/epics/epic-web-user-template-market-ugc.md`） |
 | **进行中** | — |
 | **测试中** | — |
-| **已完成** | — |
+| **已完成** | Story 013 状态机+风控审核 · Story 014 作者管理（编辑/下架/重提）· Story 015 审核队列+审核记录 · Story 016 举报+处置 · Story 018 频控 · Story 019 版本化+apply 绑定 · Story 020 详情页+结构化预览 |
 
 ## 其他
 

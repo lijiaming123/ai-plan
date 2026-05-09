@@ -1016,6 +1016,37 @@
   - apps/web-user/tests/template-market.test.ts
   - ai-plan/.ai/logs/operation-log.md
 
+## 2026-05-09 17:17:04
+
+- 操作人：用户
+- 操作：用户提示
+- 提示词：「进入 版本化/详情预览」
+- 内容：用户批准进入 Story 019/020（模板版本化 + 详情/预览）实施。
+- 状态：已接收
+- 相关文件：ai-plan/.ai/stories/story-019-template-versioning-and-apply-binding.md
+
+## 2026-05-09 17:17:04
+
+- 操作人：AI
+- 操作：Story实施
+- 提示词：响应用户「进入 版本化/详情预览」
+- 内容：实施 Story 019/020 的最小可用版本化与详情预览闭环。\n\n后端：Prisma 新增 `MarketTemplateVersion`（发布版本快照：version/payload/payloadHash）与 `TemplateApplication`（套用绑定：userId/templateId/versionId/planId，不做 FK 以兼容当前 createGeneratedPlan 返回 draftId）；`MarketTemplate` 增加 `currentPublishedVersionId`。审核通过（`POST /admin/templates/:id/approve`）创建新版本并回填 `currentPublishedVersionId`。公开详情（`GET /templates/market/:id`）改为返回公开字段 + `preview`（从当前发布版本 payload 解析并裁剪，不返回 payload），并对历史已发布模板做“懒补版本”。套用（`POST /templates/market/:id/apply`）改为使用当前发布版本 payload 生成计划，并写入 `TemplateApplication` 绑定版本。\n\n前端：新增详情页路由 `/templates/market/:id` 与页面 `TemplateMarketDetailPage.vue`，展示模板信息 + 结构化预览并支持套用；列表卡片新增“详情”入口。为避免归档页无限滚动在整套用例中偶发不稳定，将 `ArchivePage` 中 observer 绑定从 `queueMicrotask` 调整为 `nextTick().then(...)`（行为不变，仅提升测试稳定性）。\n\n测试证据：API `tests/admin-template-review.test.ts` / `tests/template-market.test.ts` 通过（版本创建、懒补、apply 绑定、preview 字段）；web-user 新增 `tests/template-market-detail.test.ts` 并通过；web-user 全量 `vitest run` 122/122 通过。
+- 状态：成功
+- 相关文件：
+  - ai-plan/apps/api/prisma/schema.prisma
+  - ai-plan/apps/api/src/modules/templates/admin-template-review.routes.ts
+  - ai-plan/apps/api/src/modules/templates/market-template.service.ts
+  - ai-plan/apps/api/tests/admin-template-review.test.ts
+  - ai-plan/apps/api/tests/template-market.test.ts
+  - ai-plan/apps/web-user/src/lib/api-client.ts
+  - ai-plan/apps/web-user/src/router/index.ts
+  - ai-plan/apps/web-user/src/features/templates/TemplateMarketList.vue
+  - ai-plan/apps/web-user/src/features/templates/TemplatesPage.vue
+  - ai-plan/apps/web-user/src/features/templates/TemplateMarketDetailPage.vue
+  - ai-plan/apps/web-user/tests/template-market-detail.test.ts
+  - ai-plan/apps/web-user/src/features/archive/ArchivePage.vue
+  - ai-plan/.ai/logs/operation-log.md
+
 ## 2026-05-09 16:01:17
 
 - 操作人：AI

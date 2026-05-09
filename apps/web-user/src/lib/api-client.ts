@@ -63,14 +63,14 @@ export type CreatePlanInput = {
   goal: string;
   deadline: string;
   requirement: string;
-  type: "general" | "study" | "work";
+  type: "general" | "study" | "work" | "travel";
   token: string;
   /** 续航：来源已定稿计划 id */
   parentPlanId?: string;
   profile?: {
     planMode: "basic" | "pro";
     basicInfo: {
-      planScenario: "study" | "work" | "exam" | "fitness" | "other";
+      planScenario: "study" | "travel" | "other";
       planName: string;
       planContent: string;
       currentLevel: "none" | "newbie" | "junior" | "intermediate" | "advanced";
@@ -170,7 +170,7 @@ export type PlanAssistantApplyOptionInput = {
     startDate: string;
     endDate: string;
     cycle: "1w" | "1m" | "3m" | "6m" | "custom";
-    type: "general" | "study" | "work";
+    type: "general" | "study" | "work" | "travel";
   };
 };
 
@@ -203,6 +203,12 @@ export type PlanListRow = {
   type: string;
   status: string;
   createdAt: string;
+  /** 计划开始日期（ISO）；用于计算“未开始” */
+  startDate?: string | null;
+  /** 是否所有打卡段都已提交（不受日期是否到达影响） */
+  completed?: boolean;
+  /** 执行中：今天应打卡但未提交（用于列表页红色提醒） */
+  todayMissing?: boolean;
 };
 
 export type DeletedPlanListRow = {
@@ -236,6 +242,8 @@ export type PlanRecord = {
   parentPlanId?: string | null;
   /** 父计划摘要（同用户下存在时返回，便于展示「承接自」） */
   parentPlan?: { id: string; goal: string } | null;
+  /** 由此计划「续航」创建的子计划列表（按创建时间升序；可多条） */
+  childPlans?: Array<{ id: string; goal: string; createdAt: string }>;
   draft?: {
     versions: Array<{
       version: number;
@@ -274,7 +282,7 @@ export type PlanRecord = {
   } | null;
   /** 已定稿计划：各打卡槽的提交记录（GET /plans/:id） */
   scheduleSlotSubmissions?: Record<string, ScheduleSlotCheckinRecord[]>;
-  /** 各时间槽进行中的申诉（open）；无键表示该槽无待处理申诉 */
+  /** 各打卡段进行中的申诉（open）；无键表示该段无待处理申诉 */
   scheduleSlotOpenAppeals?: Record<
     string,
     { id: string; content: string; createdAt: string }
@@ -312,9 +320,30 @@ export type MarketTemplateBrief = {
   likeCount: number;
   applicationCount: number;
   publishedAt: string | null;
+  /** 作者侧管理与审核状态（created scope 可能返回；市场列表通常为 published） */
+  status?: string;
+  rejectedAt?: string | null;
+  rejectReasonCode?: string | null;
+  rejectNote?: string | null;
   /** 登录访问市场列表时由后端返回 */
   favorited?: boolean;
   likedByMe?: boolean;
+};
+
+export type MarketTemplatePreview = {
+  goal: string;
+  deadline: string;
+  requirementExcerpt: string;
+  type: string;
+  granularityMode: string | null;
+  startDateIso: string | null;
+  versionId: string;
+  version: number;
+  payloadHash: string;
+};
+
+export type MarketTemplateDetail = MarketTemplateBrief & {
+  preview: MarketTemplatePreview;
 };
 
 export type MarketListResult = {
@@ -538,7 +567,15 @@ export type ApiClient = {
     token: string;
     content?: string;
     attachments?: Array<{ url: string; fileName?: string; kind?: string }>;
+    /** 客户端幂等键（服务端支持时可用于去重；不支持也不会影响兼容性） */
+    idempotencyKey?: string;
   }): Promise<{ submission: ScheduleSlotCheckinRecord }>;
+  /** DELETE .../checkins：撤销本打卡段的完成记录（通常仅删除最新一次/当前有效记录） */
+  deletePlanScheduleSlotCheckin(input: {
+    id: string;
+    slotKey: string;
+    token: string;
+  }): Promise<{ ok: true }>;
   postPlanScheduleSlotAppeal(input: {
     id: string;
     slotKey: string;
@@ -629,6 +666,15 @@ export type ApiClient = {
     id: string;
     token: string;
   }): Promise<{ favorited: boolean }>;
+  unpublishMarketTemplate(input: { id: string; token: string }): Promise<{ ok: true }>;
+  patchMarketTemplate(input: {
+    id: string;
+    token: string;
+    title?: string;
+    summary?: string;
+    category?: string;
+    tags?: string[];
+  }): Promise<{ ok: true }>;
   applyPresetTemplate(input: {
     id: string;
     token: string;
@@ -637,6 +683,7 @@ export type ApiClient = {
     id: string;
     token: string;
   }): Promise<{ planId: string }>;
+  getMarketTemplateDetail(input: { id: string; token?: string }): Promise<MarketTemplateDetail>;
   /** multipart 单文件，字段名 `file`；返回可写入提交的公开 URL */
   uploadUserFile(input: {
     token: string;
@@ -1095,17 +1142,36 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
       });
     },
     postPlanScheduleSlotCheckin(input) {
+      const hasPayload =
+        (input.content != null && String(input.content).trim().length > 0) ||
+        (Array.isArray(input.attachments) && input.attachments.length > 0);
       return request<{ submission: ScheduleSlotCheckinRecord }>(
         `/plans/${input.id}/schedule/slots/${encodeURIComponent(input.slotKey)}/checkins`,
         {
           method: "POST",
           headers: {
             Authorization: `Bearer ${input.token}`,
+            ...(input.idempotencyKey
+              ? { "Idempotency-Key": input.idempotencyKey }
+              : {}),
           },
-          body: JSON.stringify({
-            content: input.content,
-            attachments: input.attachments,
-          }),
+          body: hasPayload
+            ? JSON.stringify({
+                content: input.content,
+                attachments: input.attachments,
+              })
+            : undefined,
+        },
+      );
+    },
+    deletePlanScheduleSlotCheckin(input) {
+      return request<{ ok: true }>(
+        `/plans/${input.id}/schedule/slots/${encodeURIComponent(input.slotKey)}/checkins`,
+        {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${input.token}`,
+          },
         },
       );
     },
@@ -1284,6 +1350,24 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
         },
       );
     },
+    unpublishMarketTemplate(input) {
+      return request<{ ok: true }>(`/templates/market/${input.id}/unpublish`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${input.token}` },
+      });
+    },
+    patchMarketTemplate(input) {
+      return request<{ ok: true }>(`/templates/market/${input.id}`, {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${input.token}` },
+        body: JSON.stringify({
+          title: input.title,
+          summary: input.summary,
+          category: input.category,
+          tags: input.tags,
+        }),
+      });
+    },
     applyPresetTemplate(input) {
       return request<{ planId: string }>(
         `/templates/presets/${input.id}/apply`,
@@ -1301,6 +1385,14 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
           headers: { Authorization: `Bearer ${input.token}` },
         },
       );
+    },
+    getMarketTemplateDetail(input) {
+      const headers: Record<string, string> = {};
+      if (input.token) headers.Authorization = `Bearer ${input.token}`;
+      return request<MarketTemplateDetail>(`/templates/market/${encodeURIComponent(input.id)}`, {
+        method: "GET",
+        headers,
+      });
     },
     async uploadUserFile(input) {
       const fd = new FormData();

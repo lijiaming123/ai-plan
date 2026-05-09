@@ -11,6 +11,7 @@ import type {
   SerializedScheduleSlotSubmission,
 } from "./schedule-slot-checkin.service";
 import { persistApprovedCheckinSubmission } from "./schedule-slot-checkin.service";
+import { markUploadedFilesReferenced } from "../uploads/upload-reference.service";
 
 export type OpenAppealBySlot = Record<
   string,
@@ -124,6 +125,15 @@ export async function createScheduleSlotAppeal(params: {
     .map((a) => (typeof a?.url === "string" ? a.url.trim() : ""))
     .filter((u) => u.length > 0);
 
+  const markAppealProofUploads = async () => {
+    if (!proofUrls.length) return;
+    await markUploadedFilesReferenced({
+      userId: params.userId,
+      urls: proofUrls,
+      referencedBy: `appeal:${created.id}`,
+    });
+  };
+
   const screening = await runAppealAiScreening({
     planGoal: plan.goal ?? "",
     slotContent,
@@ -177,6 +187,7 @@ export async function createScheduleSlotAppeal(params: {
       where: { id: created.id },
       data: { aiVerdict: "escalate", aiRationale: escRationale },
     });
+    await markAppealProofUploads();
     return {
       ok: true,
       appeal: appealOut,
@@ -185,6 +196,7 @@ export async function createScheduleSlotAppeal(params: {
     };
   }
 
+  await markAppealProofUploads();
   return {
     ok: true,
     appeal: appealOut,

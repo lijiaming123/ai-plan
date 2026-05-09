@@ -202,7 +202,7 @@ export async function getPlanHeatmapForUser(userId: string, year: number): Promi
   });
 
   const submissions = await prisma.$queryRaw<Array<{ planId: string; slotKey: string }>>(
-    Prisma.sql`SELECT "planId", "slotKey" FROM "PlanScheduleSlotSubmission" WHERE "userId" = ${userId}`,
+    Prisma.sql`SELECT "planId", "slotKey" FROM "PlanScheduleSlotSubmission" WHERE "userId" = ${userId} AND "closedAt" IS NULL`,
   );
 
   const checkinSet = new Set<string>();

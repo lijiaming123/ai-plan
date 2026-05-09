@@ -184,7 +184,7 @@ async function loadHeatmap() {
   } catch (e) {
     heatmapData.value = null;
     errorToastMessage.value =
-      e instanceof Error ? e.message : "加载热力图失败";
+      e instanceof Error ? e.message : "没能加载热力图，请稍后再试";
   } finally {
     heatmapLoading.value = false;
   }
@@ -209,7 +209,7 @@ async function loadRecentPlans() {
     recentPlans.value = [];
     plansForYearBounds.value = [];
     recentPlansError.value =
-      e instanceof Error ? e.message : "最近计划加载失败";
+      e instanceof Error ? e.message : "没能加载最近计划，请稍后再试";
   } finally {
     recentPlansLoading.value = false;
   }

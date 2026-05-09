@@ -1,12 +1,34 @@
 <script setup lang="ts">
 import type { MarketTemplateBrief } from '../../lib/api-client';
 
+function statusLabel(status: string | undefined) {
+  const s = (status ?? 'published').toLowerCase();
+  if (s === 'pending_review') return '待审核';
+  if (s === 'published') return '已发布';
+  if (s === 'rejected') return '已驳回';
+  if (s === 'unpublished') return '已下架';
+  if (s === 'banned') return '已封禁';
+  return s;
+}
+
+function statusTone(status: string | undefined) {
+  const s = (status ?? 'published').toLowerCase();
+  if (s === 'pending_review') return 'bg-amber-50 text-amber-950 ring-amber-200/70';
+  if (s === 'published') return 'bg-emerald-50 text-emerald-950 ring-emerald-200/70';
+  if (s === 'rejected') return 'bg-rose-50 text-rose-950 ring-rose-200/70';
+  if (s === 'unpublished') return 'bg-stone-100 text-stone-800 ring-stone-200/70';
+  if (s === 'banned') return 'bg-stone-900/10 text-stone-900 ring-stone-300/70';
+  return 'bg-stone-100 text-stone-800 ring-stone-200/70';
+}
+
 withDefaults(
   defineProps<{
     items: MarketTemplateBrief[];
     loading: boolean;
     sort: 'likes' | 'new';
     loggedIn: boolean;
+    /** 作者管理：展示编辑/下架等按钮（仅 created scope 使用） */
+    manageMode?: boolean;
     /** 是否显示收藏按钮（模板市场等） */
     showFavorite?: boolean;
     /** 空列表时的说明文案 */
@@ -20,8 +42,12 @@ withDefaults(
 const emit = defineEmits<{
   'update:sort': [value: 'likes' | 'new'];
   apply: [id: string];
+  openDetail: [id: string];
   toggleLike: [id: string];
   toggleFavorite: [id: string];
+  edit: [id: string];
+  unpublish: [id: string];
+  resubmit: [id: string];
 }>();
 </script>
 
@@ -102,7 +128,34 @@ const emit = defineEmits<{
             <span class="material-symbols-outlined text-[14px] text-rose-500/90" aria-hidden="true">favorite</span>
             {{ item.likeCount }}
           </span>
+          <template v-if="manageMode">
+            <span class="text-[#c5d0c9]">·</span>
+            <span
+              class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-semibold ring-1"
+              :class="statusTone(item.status)"
+              data-testid="template-status"
+            >
+              <span class="material-symbols-outlined text-[14px]" aria-hidden="true">policy</span>
+              {{ statusLabel(item.status) }}
+            </span>
+            <span
+              v-if="(item.status ?? '').toLowerCase() === 'rejected' && (item.rejectReasonCode || item.rejectNote)"
+              class="inline-flex items-center gap-1 text-rose-700"
+              data-testid="template-reject-hint"
+              :title="`${item.rejectReasonCode ?? ''}${item.rejectNote ? `：${item.rejectNote}` : ''}`"
+            >
+              <span class="material-symbols-outlined text-[14px]" aria-hidden="true">info</span>
+              查看原因
+            </span>
+          </template>
         </div>
+        <p
+          v-if="manageMode && (item.status ?? '').toLowerCase() === 'rejected' && (item.rejectReasonCode || item.rejectNote)"
+          class="mt-2 rounded-xl bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-900 ring-1 ring-rose-200/70"
+          data-testid="template-reject-reason"
+        >
+          驳回原因：{{ item.rejectReasonCode ?? 'unknown' }}{{ item.rejectNote ? ` · ${item.rejectNote}` : '' }}
+        </p>
         <div class="mt-4 flex flex-wrap gap-2 border-t border-stone-100 pt-4">
           <button
             type="button"
@@ -112,6 +165,45 @@ const emit = defineEmits<{
           >
             <span class="material-symbols-outlined text-[18px]" aria-hidden="true">bolt</span>
             {{ loggedIn ? '套用' : '登录后套用' }}
+          </button>
+          <button
+            type="button"
+            class="inline-flex items-center gap-1 rounded-full border border-stone-200 bg-white px-3.5 py-2 text-sm font-semibold text-stone-800 transition hover:border-emerald-200 hover:bg-emerald-50/50"
+            data-testid="btn-detail"
+            @click="emit('openDetail', item.id)"
+          >
+            <span class="material-symbols-outlined text-[18px]" aria-hidden="true">open_in_new</span>
+            详情
+          </button>
+          <button
+            v-if="manageMode && loggedIn"
+            type="button"
+            class="inline-flex items-center gap-1 rounded-full border border-stone-200 bg-white px-3.5 py-2 text-sm font-semibold text-stone-800 transition hover:border-emerald-200 hover:bg-emerald-50/50"
+            data-testid="btn-edit"
+            @click="emit('edit', item.id)"
+          >
+            <span class="material-symbols-outlined text-[18px]" aria-hidden="true">edit</span>
+            编辑
+          </button>
+          <button
+            v-if="manageMode && loggedIn && (item.status ?? 'published').toLowerCase() === 'published'"
+            type="button"
+            class="inline-flex items-center gap-1 rounded-full border border-rose-200/80 bg-rose-50/80 px-3.5 py-2 text-sm font-semibold text-rose-950 transition hover:bg-rose-100/80"
+            data-testid="btn-unpublish"
+            @click="emit('unpublish', item.id)"
+          >
+            <span class="material-symbols-outlined text-[18px]" aria-hidden="true">visibility_off</span>
+            下架
+          </button>
+          <button
+            v-if="manageMode && loggedIn && ['rejected','unpublished'].includes((item.status ?? '').toLowerCase())"
+            type="button"
+            class="inline-flex items-center gap-1 rounded-full border border-emerald-200/80 bg-emerald-50/70 px-3.5 py-2 text-sm font-semibold text-emerald-950 transition hover:bg-emerald-100/70"
+            data-testid="btn-resubmit"
+            @click="emit('resubmit', item.id)"
+          >
+            <span class="material-symbols-outlined text-[18px]" aria-hidden="true">refresh</span>
+            重新提交
           </button>
           <button
             type="button"

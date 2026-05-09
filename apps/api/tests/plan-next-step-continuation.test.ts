@@ -235,8 +235,63 @@ describe('plan next-step continuation', () => {
     expect(getParent.statusCode).toBe(200);
     const parentRow = JSON.parse(getParent.body) as {
       nextStep: string | null;
+      childPlans?: Array<{ id: string; goal: string }>;
     };
     expect(parentRow.nextStep).toBe('父级留给子计划的提示。');
+    expect(parentRow.childPlans?.length).toBe(1);
+    expect(parentRow.childPlans?.[0]?.id).toBe(child.id);
+    expect(parentRow.childPlans?.[0]?.goal).toBe('child plan');
+
+    const childReq2 = buildRequirementWithSchedule('第二子计划', [
+      { slotKey: '2026-06-03', content: 'c2' },
+    ]);
+    const childCreate2 = await app.inject({
+      method: 'POST',
+      url: '/plans',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        goal: 'child plan two',
+        deadline: '2026-06-03T00:00:00.000Z',
+        requirement: childReq2,
+        type: 'general',
+        parentPlanId: parent.id,
+        profile: {
+          planMode: 'basic',
+          basicInfo: {
+            planName: 'c2',
+            planContent: 'c2',
+            currentLevel: 'none',
+            startDate: '2026-06-03',
+            cycle: 'custom',
+            endDate: '2026-06-03',
+            preference: '',
+            timeInvestment: 'none',
+            outputMode: 'daily',
+            granularityMode: 'deep',
+          },
+        },
+      },
+    });
+    expect(childCreate2.statusCode).toBe(201);
+    const child2 = JSON.parse(childCreate2.body) as { id: string };
+    await app.inject({
+      method: 'POST',
+      url: `/plans/${child2.id}/confirm`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: { version: 1 },
+    });
+    const getParent2 = await app.inject({
+      method: 'GET',
+      url: `/plans/${parent.id}`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const parentAgain = JSON.parse(getParent2.body) as {
+      childPlans?: Array<{ id: string; goal: string }>;
+    };
+    expect(parentAgain.childPlans?.map((c) => c.id)).toEqual([
+      child.id,
+      child2.id,
+    ]);
 
     const getChild = await app.inject({
       method: 'GET',
@@ -255,7 +310,7 @@ describe('plan next-step continuation', () => {
     expect(childRow.nextStep).toBe('子计划的迭代方向段落。');
 
     await prisma.plan.deleteMany({
-      where: { id: { in: [parent.id, child.id] } },
+      where: { id: { in: [parent.id, child.id, child2.id] } },
     });
   });
 });

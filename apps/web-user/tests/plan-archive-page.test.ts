@@ -327,4 +327,28 @@ describe("ArchivePage", () => {
       token: "token_123",
     });
   });
+
+  it("归档页应提供“了解归档”FAQ（默认收起，可展开查看）", async () => {
+    listArchivedPlans.mockResolvedValue({ plans: [], hasMore: false });
+
+    const router = createAppRouter(createMemoryHistory());
+    await router.push("/archive");
+    await router.isReady();
+
+    const wrapper = mount(ArchivePage, {
+      global: { plugins: [router] },
+    });
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="archive-faq-body"]').exists()).toBe(false);
+
+    await wrapper.get('[data-testid="archive-faq-toggle"]').trigger("click");
+    await nextTick();
+
+    const body = wrapper.get('[data-testid="archive-faq-body"]');
+    expect(body.text()).toContain("归档和删除有什么区别");
+    expect(body.text()).toContain("归档后为什么不能打卡/编辑");
+    expect(body.text()).toContain("怎么恢复继续执行");
+    expect(body.text()).toContain("归档会丢数据吗");
+  });
 });

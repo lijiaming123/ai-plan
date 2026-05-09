@@ -7,6 +7,12 @@ const props = defineProps<{
   slotKey: string;
   planText?: string;
   submissions: ScheduleSlotCheckinRecord[];
+  /** 抽屉标题（默认：提交记录） */
+  title?: string;
+  /** slotKey 上方的小标题前缀（默认：本段打卡） */
+  slotPrefixLabel?: string;
+  /** 顶部提示（可选） */
+  tipText?: string;
 }>();
 
 const emit = defineEmits<{
@@ -37,6 +43,9 @@ const visibleSubmissions = computed(() => {
   if (viewMode.value === "latest") return latest.value ? [latest.value] : [];
   return props.submissions;
 });
+
+const headerTitle = computed(() => props.title?.trim() || "提交记录");
+const slotPrefix = computed(() => props.slotPrefixLabel?.trim() || "本段打卡");
 
 function formatTime(iso: string): string {
   try {
@@ -87,10 +96,10 @@ function openAllAttachments() {
       <header class="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
         <div class="min-w-0">
           <p class="text-xs font-semibold tracking-[0.12em] text-[#61896f]">
-            时间槽 {{ slotKey }}
+            {{ slotPrefix }} {{ slotKey }}
           </p>
           <h3 class="mt-1 text-lg font-extrabold text-[#0f1f16]">
-            提交记录
+            {{ headerTitle }}
           </h3>
           <div class="mt-2 flex flex-wrap items-center gap-2 text-[11px] font-semibold text-[#7c8a84]">
             <span v-if="totalCount" class="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 ring-1 ring-slate-200/70">
@@ -106,6 +115,13 @@ function openAllAttachments() {
           <p v-if="planText" class="mt-2 line-clamp-3 text-xs leading-relaxed text-[#5a6f62]">
             {{ planText }}
           </p>
+          <p
+            v-if="tipText?.trim()"
+            class="mt-2 rounded-xl border border-slate-200/80 bg-slate-50/90 px-3 py-2.5 text-xs leading-relaxed text-[#4a5c52]"
+            data-testid="checkin-submission-drawer-tip"
+          >
+            {{ tipText }}
+          </p>
         </div>
         <button
           type="button"
@@ -119,6 +135,7 @@ function openAllAttachments() {
       </header>
 
       <main class="ui-scrollbar min-h-0 flex-1 space-y-3 overflow-y-auto px-5 py-4">
+        <slot name="composer" />
         <div v-if="totalCount" class="flex flex-wrap items-center justify-between gap-2">
           <div class="inline-flex rounded-xl border border-[#dbe6df] bg-white p-1 text-xs font-semibold text-[#111813]">
             <button
@@ -156,7 +173,7 @@ function openAllAttachments() {
           v-if="totalCount === 0"
           class="rounded-2xl border border-dashed border-slate-200 bg-[#fbfcfb] p-4 text-sm text-[#5a6f62]"
         >
-          暂无提交记录。
+          这里还没有记录。
         </div>
 
         <section

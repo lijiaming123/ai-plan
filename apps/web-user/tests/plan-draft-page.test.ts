@@ -619,7 +619,7 @@ describe("PlanDraftPage", () => {
     wrapper.unmount();
   });
 
-  it("应支持草稿时间槽交换内容并携带 version 调用 API", async () => {
+  it("应支持草稿打卡段交换内容并携带 version 调用 API", async () => {
     getPlanDraftMock.mockResolvedValueOnce({
       goal: "测试目标",
       deadline: new Date().toISOString(),

@@ -49,7 +49,10 @@ import {
   createScheduleSlotAppeal,
   withdrawScheduleSlotAppeal,
 } from "./schedule-slot-appeal.service";
-import { createScheduleSlotCheckin } from "./schedule-slot-checkin.service";
+import {
+  closeLatestScheduleSlotCheckin,
+  createScheduleSlotCheckin,
+} from "./schedule-slot-checkin.service";
 import {
   buildScheduleSlotKeys,
   decideScheduleGranularity,
@@ -67,7 +70,7 @@ import { createLlmRouter } from "../../lib/llm/llm-router";
 import { createDeepseekProvider } from "../../lib/llm/providers/deepseek-provider";
 import { prisma } from "../../lib/prisma";
 
-const planTypes = ["general", "study", "work"] as const;
+const planTypes = ["general", "study", "work", "travel"] as const;
 const planModes = ["basic", "pro"] as const;
 const levels = [
   "none",
@@ -442,6 +445,54 @@ function sanitizeTextContent(content: string) {
 const DEEPSEEK_SYSTEM =
   "你是「计划大师」的 AI 计划顾问。根据用户给出的信息与要求，用中文输出可直接作为「计划内容」保存的正文：务实用语、分阶段目标与验收、可执行任务（优先按周，必要时到天）、风险与应对、复盘建议。不要输出与计划无关的寒暄。";
 
+const DEEPSEEK_SYSTEM_TRAVEL =
+  "你是「旅行行程规划师」。根据用户给出的信息与要求，用中文输出可直接作为「行程攻略/行程安排」保存的正文：按天/按时段给出路线顺序、交通方式与通勤时长、预约/门票/营业时间提醒、备选方案与注意事项。不要用“完成任务/提交证明/产出”这类学习计划语气，也不要输出与行程无关的寒暄。";
+
+const DEEPSEEK_SYSTEM_GENERAL =
+  "你是「轻量行动清单教练」。根据用户给出的信息与要求，用中文输出可直接作为「行动清单/习惯计划」保存的正文：强调最小可执行动作、简单规则与复盘，不要要求上传证明/材料；完成方式默认是“勾选完成”，可选写一句备注。不要输出与清单无关的寒暄。";
+
+const TRAVEL_SCHEDULE_INSTRUCTIONS = [
+  "【行程化输出要求（仅适用于旅游/旅行类计划）】",
+  "你正在生成的是“行程安排”，不是学习计划。每个 schedule slot.content 必须同时包含以下要素：",
+  "1) 早/午/晚（或上午/下午/晚上）的路线顺序（地点/景点/餐饮/休息点按先后排列）；",
+  "2) 交通方式 + 预计通勤时长（如地铁/公交/打车/步行/高铁/航班）；",
+  "3) 预约/门票/营业时间/入园与排队等提醒（如需提前预约、建议到达时间）；",
+  "4) 备选方案（如下雨/人多/临时关闭时替代点位或改线）；",
+  "5) 可选记录建议（如拍照点/一句话记录/当日小结）。",
+  "风格：攻略/行程规划，务实可执行；避免“完成任务/提交证明/学习产出/打卡证据”等措辞。",
+].join("\n");
+
+const GENERAL_SCHEDULE_INSTRUCTIONS = [
+  "【轻量清单输出要求（仅适用于其它/通用/checkbox-only 计划）】",
+  "你正在生成的是“轻量行动清单/习惯计划”，不是学习计划也不是旅行行程。",
+  "每个 schedule slot.content 用 1-2 句中文描述“最小行动 + 可选加强动作（可省略）”。",
+  "不要在 slot.content 或 checkinSpec 中要求上传证明/材料/附件/链接；默认完成方式是“勾选完成”，用户可选写一句备注。",
+  "建议：避免过度规划，不要给太长的解释或方法论。",
+].join("\n");
+
+function isTravelLikeRequirementText(text: string): boolean {
+  const t = (text ?? "").toLowerCase();
+  if (!t.trim()) return false;
+  if (/\btype\s*[:=]\s*travel\b/i.test(t)) return true;
+  if (/\bplan\s*type\s*[:=]\s*travel\b/i.test(t)) return true;
+  if (/\btravel\b/.test(t) && /(行程|旅行|旅游|攻略|出行|路线|景点|酒店|航班|高铁|车次|地铁|公交|通勤)/i.test(text))
+    return true;
+  return /(行程|旅行|旅游|攻略|出行|路线|景点|酒店|民宿|航班|高铁|车次|地铁|公交|步行|打车|门票|预约|营业时间|开放时间)/i.test(
+    text,
+  );
+}
+
+function isGeneralLikeRequirementText(text: string): boolean {
+  const t = (text ?? "").toLowerCase();
+  if (!t.trim()) return false;
+  if (/\btype\s*[:=]\s*general\b/i.test(t)) return true;
+  if (/\bplan\s*type\s*[:=]\s*general\b/i.test(t)) return true;
+  if (/planScenario\"?\s*[:=]\s*\"?other\b/i.test(t)) return true;
+  if (/场景\s*[:：]\s*(other|其它|通用)/i.test(text)) return true;
+  if (/(其它|通用|清单|习惯|打卡|每日|最小行动)/i.test(text)) return true;
+  return false;
+}
+
 /** 配置 DeepSeek 时走云端对话；失败则回退到本地模板文案，避免接口整体失败 */
 async function tryDeepseekAssistant(
   log: FastifyBaseLogger,
@@ -483,12 +534,19 @@ async function tryDeepseekAssistant(
         body.requirement.trim().length > 0
           ? body.requirement
           : `请根据以下目标生成计划：${body.goal}`;
+      const travelLike = isTravelLikeRequirementText(baseRequirement);
+      const generalLike = !travelLike && isGeneralLikeRequirementText(baseRequirement);
       const userContent = [
         `目标：${body.goal}`,
         `起始：${body.startDate}，预计完成：${body.endDate}，周期代码：${body.cycle}`,
         "",
         `补充说明：`,
         baseRequirement,
+        ...(travelLike
+          ? ["", TRAVEL_SCHEDULE_INSTRUCTIONS]
+          : generalLike
+            ? ["", GENERAL_SCHEDULE_INSTRUCTIONS]
+            : []),
         "",
         `请输出两部分：`,
         `1) 可直接保存为「计划内容」的中文正文；`,
@@ -508,7 +566,14 @@ async function tryDeepseekAssistant(
       ].join("\n");
 
       const deepseekRaw = await completeDeepseekChat([
-        { role: "system", content: DEEPSEEK_SYSTEM },
+        {
+          role: "system",
+          content: travelLike
+            ? DEEPSEEK_SYSTEM_TRAVEL
+            : generalLike
+              ? DEEPSEEK_SYSTEM_GENERAL
+              : DEEPSEEK_SYSTEM,
+        },
         { role: "user", content: userContent },
       ]);
       const jsonBlock = extractLastJsonCodeBlock(deepseekRaw);
@@ -845,6 +910,10 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
     async (request, reply) => {
       const payload = await request.jwtVerify<{ sub: string }>();
       const { id, slotKey } = request.params as { id: string; slotKey: string };
+      const idempotencyKeyRaw = String(
+        request.headers["idempotency-key"] ?? request.headers["Idempotency-Key"] ?? "",
+      ).trim();
+      const idempotencyKey = idempotencyKeyRaw.length ? idempotencyKeyRaw : undefined;
       const body = normalizeBody(request.body);
       const content =
         isRecord(body) && typeof body.content === "string"
@@ -920,6 +989,14 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
     async (request, reply) => {
       const payload = await request.jwtVerify<{ sub: string }>();
       const { id, slotKey } = request.params as { id: string; slotKey: string };
+      const idempotencyKeyRaw = String(
+        request.headers["idempotency-key"] ??
+          request.headers["Idempotency-Key"] ??
+          "",
+      ).trim();
+      const idempotencyKey = idempotencyKeyRaw.length
+        ? idempotencyKeyRaw
+        : undefined;
       const body = normalizeBody(request.body);
       const content =
         isRecord(body) && typeof body.content === "string"
@@ -942,6 +1019,7 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
         slotKey,
         content,
         attachments,
+        idempotencyKey,
       });
       if (!result.ok) {
         if (result.code === 422) {
@@ -954,6 +1032,24 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
         return reply.code(result.code).send({ message: result.message });
       }
       return reply.code(201).send({ submission: result.submission });
+    },
+  );
+
+  fastify.delete(
+    "/plans/:id/schedule/slots/:slotKey/checkins",
+    { preHandler: fastify.requireRole("user") },
+    async (request, reply) => {
+      const payload = await request.jwtVerify<{ sub: string }>();
+      const { id, slotKey } = request.params as { id: string; slotKey: string };
+      const result = await closeLatestScheduleSlotCheckin({
+        planId: id,
+        userId: payload.sub,
+        slotKey,
+      });
+      if (!result.ok) {
+        return reply.code(result.code).send({ message: result.message });
+      }
+      return reply.send({ ok: true });
     },
   );
 
@@ -1299,6 +1395,9 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
 
             const prompt = [
               streamInput.assistantPrompt.trim(),
+              ...(isTravelLikeRequirementText(streamInput.assistantPrompt)
+                ? ["", TRAVEL_SCHEDULE_INSTRUCTIONS]
+                : []),
               "",
               "请在正文后追加一个严格的 JSON 代码块（```json ...```），仅包含如下结构：",
               "{",
@@ -1318,7 +1417,12 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
             const splitter = createDraftStreamSplitter();
             for await (const chunk of streamDeepseekChat(
               [
-                { role: "system", content: DEEPSEEK_SYSTEM },
+                {
+                  role: "system",
+                  content: isTravelLikeRequirementText(streamInput.assistantPrompt)
+                    ? DEEPSEEK_SYSTEM_TRAVEL
+                    : DEEPSEEK_SYSTEM,
+                },
                 { role: "user", content: prompt },
               ],
               { signal: abort.signal },
@@ -1565,12 +1669,14 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
               body.requirement.trim().length > 0
                 ? body.requirement
                 : `请根据以下目标生成计划：${body.goal}`;
+            const travelLike = isTravelLikeRequirementText(baseRequirement);
             const userContent = [
               `目标：${body.goal}`,
               `起始：${body.startDate}，预计完成：${body.endDate}，周期代码：${body.cycle}`,
               "",
               `补充说明：`,
               baseRequirement,
+              ...(travelLike ? ["", TRAVEL_SCHEDULE_INSTRUCTIONS] : []),
               "",
               `请输出两部分：`,
               `1) 可直接保存为「计划内容」的中文正文；`,
@@ -1591,7 +1697,7 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
 
             for await (const chunk of streamDeepseekChat(
               [
-                { role: "system", content: DEEPSEEK_SYSTEM },
+                { role: "system", content: travelLike ? DEEPSEEK_SYSTEM_TRAVEL : DEEPSEEK_SYSTEM },
                 { role: "user", content: userContent },
               ],
               { signal: abort.signal },

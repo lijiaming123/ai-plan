@@ -109,7 +109,7 @@ const formPanelKey = computed(() => {
 function validatePhone(): boolean {
   const p = form.phone.trim();
   if (!/^\d{11}$/.test(p)) {
-    errorMessage.value = "请输入 11 位手机号";
+    errorMessage.value = "手机号看起来不对，请输入 11 位数字";
     return false;
   }
   errorMessage.value = "";
@@ -119,7 +119,7 @@ function validatePhone(): boolean {
 function validateCode(): boolean {
   const c = form.code.trim();
   if (!/^\d{6}$/.test(c)) {
-    errorMessage.value = "请输入 6 位验证码";
+    errorMessage.value = "验证码应为 6 位数字";
     return false;
   }
   errorMessage.value = "";
@@ -130,11 +130,11 @@ function validateRegisterPasswords(): boolean {
   const p = form.password;
   const c = form.passwordConfirm;
   if (p.length < 8) {
-    errorMessage.value = "密码至少 8 位";
+    errorMessage.value = "密码至少 8 位，建议包含字母和数字";
     return false;
   }
   if (p !== c) {
-    errorMessage.value = "两次输入的密码不一致";
+    errorMessage.value = "两次输入的密码不一致，请再确认一下";
     return false;
   }
   errorMessage.value = "";
@@ -201,7 +201,7 @@ async function sendCode() {
       errorToastMessage.value = e.message;
     } else {
       errorToastMessage.value =
-        e instanceof Error ? e.message : "发送失败，请稍后重试";
+        e instanceof Error ? e.message : "没发出去，请稍后再试";
     }
     form.captchaText = "";
     await refreshOtpCaptcha();
@@ -235,7 +235,7 @@ async function verifyWithOtp() {
     await router.push("/plans");
   } catch (e) {
     errorToastMessage.value =
-      e instanceof Error ? e.message : "验证失败，请稍后重试";
+      e instanceof Error ? e.message : "没验证成功，请稍后再试";
   } finally {
     loadingVerify.value = false;
   }
@@ -258,7 +258,7 @@ async function loginWithPassword() {
     await router.push("/plans");
   } catch (e) {
     errorToastMessage.value =
-      e instanceof Error ? e.message : "登录失败，请稍后重试";
+      e instanceof Error ? e.message : "没登录成功，请稍后再试";
   } finally {
     loadingPasswordLogin.value = false;
   }
@@ -743,7 +743,7 @@ onUnmounted(() => {
           <li>请确认填写的是 <strong>11 位手机号</strong>，且未误填邮箱。</li>
           <li>验证码发送有 <strong>冷却时间</strong>，请稍后再点「发送验证码」。</li>
           <li>同一手机号每日获取次数有限，超过上限需次日再试。</li>
-          <li>演示环境可能不发真实短信，可在<strong>服务端日志</strong>查看验证码。</li>
+          <li>如果仍收不到短信，可以改用<strong>密码登录</strong>，或稍后再试。</li>
         </ul>
         <p class="mt-5 text-sm leading-relaxed text-stone-600">
           若你记得账号但需要<strong>重置登录密码</strong>（与「收不到短信」不同），请前往

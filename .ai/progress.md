@@ -1,6 +1,6 @@
 # 项目进度看板（ai-plan / `.ai`）
 
-> 最近更新：2026-04-22 — 新增 web-admin「运营增长分析工作台」Epic（待审批）。
+> 最近更新：2026-05-09 — 新增 web-user「模板市场（公开 UGC）」Epic（待审批）。
 
 ## 概览 · 热力图（Epic）
 
@@ -19,6 +19,15 @@
 | **进行中** | Story 005+ · Analytics 报表 API 与 web-admin 页面 |
 | **测试中** | — |
 | **已完成** | Story 012 · RBAC + 审计 · Story 001–002 · Telemetry 字典 + ingest · Story 003–004 · raw 表落库 + 日聚合（`/admin/telemetry/aggregate-day`） |
+
+## web-user · 模板市场（公开 UGC）（Epic）
+
+| 列 | 项 |
+|----|-----|
+| **待办** | 审核/举报/处置/频控/审计/版本化（见 `.ai/epics/epic-web-user-template-market-ugc.md`） |
+| **进行中** | — |
+| **测试中** | — |
+| **已完成** | — |
 
 ## 其他
 

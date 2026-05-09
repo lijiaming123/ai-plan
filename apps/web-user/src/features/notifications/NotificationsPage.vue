@@ -103,7 +103,7 @@ async function loadFirst() {
     items.value = r.items;
     nextCursor.value = r.nextCursor;
   } catch (e) {
-    const msg = e instanceof Error ? e.message : "加载失败";
+    const msg = e instanceof Error ? e.message : "没能加载通知，请稍后再试";
     err.value = msg;
     listError.value = msg;
     items.value = [];
@@ -124,7 +124,7 @@ async function loadMore() {
     items.value = items.value.concat(r.items);
     nextCursor.value = r.nextCursor;
   } catch (e) {
-    err.value = e instanceof Error ? e.message : "加载更多失败";
+    err.value = e instanceof Error ? e.message : "没能加载更多，请稍后再试";
   } finally {
     moreLoading.value = false;
   }
@@ -167,7 +167,7 @@ async function markAllRead() {
     await loadFirst();
     window.dispatchEvent(new Event("notif-refresh"));
   } catch (e) {
-    err.value = e instanceof Error ? e.message : "操作失败";
+    err.value = e instanceof Error ? e.message : "没操作成功，请稍后再试";
   }
 }
 
@@ -193,7 +193,7 @@ async function saveRemindTime() {
       saveOk.value = false;
     }, 3200);
   } catch (e) {
-    err.value = e instanceof Error ? e.message : "保存失败";
+    err.value = e instanceof Error ? e.message : "没保存成功，请稍后再试";
   } finally {
     prefsLoading.value = false;
   }
@@ -422,7 +422,7 @@ watch(
                   >error</span
                 >
                 <div class="min-w-0">
-                  <p class="font-extrabold text-[#0a1810]">加载失败</p>
+                  <p class="font-extrabold text-[#0a1810]">没能加载出来</p>
                   <p class="notif-mute mt-0.5 text-[12px]">
                     {{ listError }}
                   </p>
@@ -499,7 +499,7 @@ watch(
                     {{ filter === "unread" ? "暂无未读" : "暂无消息" }}
                   </p>
                   <p class="notif-mute mt-0.5 text-[12px]">
-                    {{ filter === "unread" ? "切到「全部」可查看历史消息。" : "有未打时间槽时，会在这里出现提醒。" }}
+                    {{ filter === "unread" ? "切到「全部」可查看历史消息。" : "有待打卡的节点时，会在这里提醒你。" }}
                   </p>
                 </div>
                 <button

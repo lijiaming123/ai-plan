@@ -83,9 +83,11 @@ watch(
       <div class="flex items-start justify-between gap-3">
         <div class="min-w-0">
           <h3 class="text-lg font-extrabold text-stone-900">{{ title }}</h3>
-          <p v-if="description" class="mt-1 text-sm text-stone-600">
-            {{ description }}
-          </p>
+          <slot name="description">
+            <p v-if="description" class="mt-1 text-sm text-stone-600">
+              {{ description }}
+            </p>
+          </slot>
         </div>
         <button
           type="button"

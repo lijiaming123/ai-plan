@@ -16,6 +16,7 @@ const mockListRows: PlanListRow[] = [
   {
     id: "plan_a",
     goal: "进行中 A",
+    startDate: "2026-01-01T00:00:00.000Z",
     deadline: "2026-12-01T00:00:00.000Z",
     requirement: "描述 A",
     type: "general",
@@ -25,6 +26,7 @@ const mockListRows: PlanListRow[] = [
   {
     id: "plan_b",
     goal: "进行中 B",
+    startDate: "2026-01-02T00:00:00.000Z",
     deadline: "2026-12-02T00:00:00.000Z",
     requirement: "描述 B",
     type: "general",
@@ -34,6 +36,7 @@ const mockListRows: PlanListRow[] = [
   {
     id: "plan_c",
     goal: "个人健身年度目标",
+    startDate: "2026-01-03T00:00:00.000Z",
     deadline: "2026-12-03T00:00:00.000Z",
     requirement: "健身相关",
     type: "general",
@@ -43,6 +46,8 @@ const mockListRows: PlanListRow[] = [
   {
     id: "plan_d",
     goal: "已定稿 D",
+    // 未开始：开始日期在未来（相对测试运行日）
+    startDate: "2099-01-01T00:00:00.000Z",
     deadline: "2026-12-04T00:00:00.000Z",
     requirement: "说明",
     type: "general",
@@ -52,6 +57,8 @@ const mockListRows: PlanListRow[] = [
   {
     id: "plan_e",
     goal: "已定稿 E",
+    completed: true,
+    startDate: "2026-01-05T00:00:00.000Z",
     deadline: "2026-12-05T00:00:00.000Z",
     requirement: "说明",
     type: "general",
@@ -87,15 +94,15 @@ describe("PlanOverviewPage filter", () => {
 
     await wrapper.get('[data-testid="filter-执行中"]').trigger("click");
     await flushPromises();
-    expect(wrapper.findAll('[data-testid="plan-card"]').length).toBe(5);
+    expect(wrapper.findAll('[data-testid="plan-card"]').length).toBe(3);
 
     await wrapper.get('[data-testid="filter-已完成"]').trigger("click");
     await flushPromises();
-    expect(wrapper.findAll('[data-testid="plan-card"]').length).toBe(0);
+    expect(wrapper.findAll('[data-testid="plan-card"]').length).toBe(1);
 
     await wrapper.get('[data-testid="filter-未开始"]').trigger("click");
     await flushPromises();
-    expect(wrapper.findAll('[data-testid="plan-card"]').length).toBe(0);
+    expect(wrapper.findAll('[data-testid="plan-card"]').length).toBe(1);
   });
 
   it("应与URL查询参数同步筛选状态", async () => {
@@ -115,7 +122,7 @@ describe("PlanOverviewPage filter", () => {
     });
     await flushPromises();
 
-    expect(wrapper.findAll('[data-testid="plan-card"]').length).toBe(5);
+    expect(wrapper.findAll('[data-testid="plan-card"]').length).toBe(3);
     // legacy 中文参数会被自动迁移为英文
     expect(router.currentRoute.value.query.status).toBe("in_progress");
 
@@ -123,7 +130,7 @@ describe("PlanOverviewPage filter", () => {
     await flushPromises();
 
     expect(router.currentRoute.value.query.status).toBe("not_started");
-    expect(wrapper.findAll('[data-testid="plan-card"]').length).toBe(0);
+    expect(wrapper.findAll('[data-testid="plan-card"]').length).toBe(1);
   });
 
   it("应根据顶栏搜索关键字筛选计划卡片", async () => {
@@ -175,7 +182,7 @@ describe("PlanOverviewPage filter", () => {
     await flushPromises();
 
     expect(wrapper.find('[data-testid="error-toast"]').exists()).toBe(true);
-    expect(wrapper.get('[data-testid="error-toast"]').text()).toContain("数据库");
+    expect(wrapper.get('[data-testid="error-toast"]').text()).toContain("服务暂时不可用");
     expect(wrapper.text()).not.toMatch(/localhost:5432|prisma/i);
   });
 });

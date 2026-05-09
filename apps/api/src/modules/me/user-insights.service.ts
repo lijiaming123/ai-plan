@@ -99,6 +99,7 @@ export async function getUserInsights(userId: string): Promise<UserInsightsRespo
       where: {
         userId,
         createdAt: { gte: weekStart, lt: weekEnd },
+        closedAt: null,
       },
     }),
     prisma.plan.findMany({
@@ -116,7 +117,7 @@ export async function getUserInsights(userId: string): Promise<UserInsightsRespo
   if (planIds.length > 0) {
     const distinctSlots = await prisma.planScheduleSlotSubmission.groupBy({
       by: ["planId", "slotKey"],
-      where: { userId, planId: { in: planIds } },
+      where: { userId, planId: { in: planIds }, closedAt: null },
     });
     const doneByPlan = new Map<string, Set<string>>();
     for (const row of distinctSlots) {
@@ -153,6 +154,7 @@ export async function getUserInsights(userId: string): Promise<UserInsightsRespo
     where: {
       userId,
       createdAt: { gte: trendSince },
+      closedAt: null,
     },
     select: { createdAt: true },
   });

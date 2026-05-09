@@ -9,6 +9,7 @@ import {
   getUploadRoot,
   saveUploadedFile,
 } from './upload.service';
+import { prisma } from '../../lib/prisma';
 
 /**
  * POST /uploads：multipart 单文件，字段名 `file`，需登录。
@@ -19,6 +20,7 @@ export async function registerUploadRoutes(fastify: FastifyInstance) {
     '/uploads',
     { preHandler: fastify.requireRole('user') },
     async (request, reply) => {
+      const payload = await request.jwtVerify<{ sub: string }>();
       const data = await request.file();
       if (!data) {
         return reply.code(400).send({ message: 'file field required' });
@@ -30,6 +32,18 @@ export async function registerUploadRoutes(fastify: FastifyInstance) {
           filename: data.filename,
           file: data.file,
         });
+        try {
+          await (prisma as any).uploadedFile.create({
+            data: {
+              userId: payload.sub,
+              storageName: saved.storageName,
+              originalName: saved.originalName,
+              kind: saved.kind,
+            },
+          });
+        } catch {
+          // 记录失败不影响主流程（避免 DB 问题导致上传不可用）
+        }
         const { path, url } = buildPublicFileUrl(request, saved.storageName);
         return reply.send({
           path,

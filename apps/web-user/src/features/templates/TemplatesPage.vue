@@ -40,6 +40,7 @@ const PAGE_SIZE = 20;
 
 const HOT_TAGS = [
   '学习',
+  '旅游',
   '考试',
   '工作',
   '项目',
@@ -52,6 +53,7 @@ const CATEGORY_OPTIONS = [
   '',
   'general',
   'study',
+  'travel',
   'work',
   'exam',
   'fitness',
@@ -62,6 +64,7 @@ const categoryLabel: Record<string, string> = {
   '': '分类',
   general: '通用',
   study: '学习',
+  travel: '旅游',
   work: '工作',
   exam: '考试',
   fitness: '运动',
@@ -110,7 +113,7 @@ async function loadPresets() {
     );
     presets.value = res.items;
   } catch (e) {
-    errorToastMessage.value = e instanceof Error ? e.message : '加载预设模板失败';
+    errorToastMessage.value = e instanceof Error ? e.message : '没能加载模板，请稍后再试';
   } finally {
     loadingPresets.value = false;
   }
@@ -131,7 +134,7 @@ async function loadMarket() {
     marketItems.value = res.items;
     marketTotal.value = res.total;
   } catch (e) {
-    errorToastMessage.value = e instanceof Error ? e.message : '加载用户模板失败';
+    errorToastMessage.value = e instanceof Error ? e.message : '没能加载模板，请稍后再试';
   } finally {
     loadingMarket.value = false;
   }
@@ -154,7 +157,7 @@ async function loadMy() {
     myItems.value = res.items;
     myTotal.value = res.total;
   } catch (e) {
-    errorToastMessage.value = e instanceof Error ? e.message : '加载我的模板失败';
+    errorToastMessage.value = e instanceof Error ? e.message : '没能加载模板，请稍后再试';
   } finally {
     loadingMy.value = false;
   }
@@ -254,7 +257,7 @@ async function applyPreset(id: string) {
     });
     await router.push(`/plans/${planId}`);
   } catch (e) {
-    errorToastMessage.value = e instanceof Error ? e.message : '套用失败';
+    errorToastMessage.value = e instanceof Error ? e.message : '没能套用模板，请稍后再试';
   }
 }
 
@@ -274,8 +277,12 @@ async function applyMarket(id: string) {
     });
     await router.push(`/plans/${planId}`);
   } catch (e) {
-    errorToastMessage.value = e instanceof Error ? e.message : '套用失败';
+    errorToastMessage.value = e instanceof Error ? e.message : '没能套用模板，请稍后再试';
   }
+}
+
+function openMarketDetail(id: string) {
+  void router.push(`/templates/market/${encodeURIComponent(id)}`);
 }
 
 function setMarketSort(value: 'likes' | 'new') {
@@ -306,7 +313,7 @@ async function onToggleLike(id: string) {
       patchItemInLists(id, { likedByMe: true, likeCount: r.likeCount });
     }
   } catch (e) {
-    errorToastMessage.value = e instanceof Error ? e.message : '操作失败';
+    errorToastMessage.value = e instanceof Error ? e.message : '没操作成功，请稍后再试';
   }
 }
 
@@ -326,7 +333,102 @@ async function onToggleFavorite(id: string) {
       patchItemInLists(id, { favorited: true });
     }
   } catch (e) {
-    errorToastMessage.value = e instanceof Error ? e.message : '收藏失败';
+    errorToastMessage.value = e instanceof Error ? e.message : '收藏没成功，请稍后再试';
+  }
+}
+
+const editingTemplate = ref<MarketTemplateBrief | null>(null);
+const editSubmitting = ref(false);
+const editForm = ref({
+  title: '',
+  summary: '',
+  category: '',
+  tags: '',
+});
+
+function openEdit(id: string) {
+  const item = myItems.value.find((x) => x.id === id);
+  if (!item) return;
+  editingTemplate.value = item;
+  editForm.value = {
+    title: item.title ?? '',
+    summary: item.summary ?? '',
+    category: item.category ?? 'general',
+    tags: (item.tags ?? []).join(','),
+  };
+}
+
+function closeEdit() {
+  editingTemplate.value = null;
+}
+
+async function submitEdit() {
+  if (!editingTemplate.value || !authState.token) return;
+  const title = editForm.value.title.trim();
+  const summary = editForm.value.summary.trim();
+  if (!title) {
+    errorToastMessage.value = '标题不能为空';
+    return;
+  }
+  if (!summary) {
+    errorToastMessage.value = '摘要不能为空';
+    return;
+  }
+  const tags = editForm.value.tags
+    .split(/[,，]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  editSubmitting.value = true;
+  try {
+    await client.patchMarketTemplate({
+      id: editingTemplate.value.id,
+      token: authState.token,
+      title,
+      summary,
+      category: editForm.value.category.trim() || 'general',
+      tags,
+    });
+    patchItemInLists(editingTemplate.value.id, {
+      title,
+      summary,
+      category: editForm.value.category.trim() || 'general',
+      tags,
+      status: 'pending_review',
+    });
+    closeEdit();
+  } catch (e) {
+    errorToastMessage.value = e instanceof Error ? e.message : '编辑没成功，请稍后再试';
+  } finally {
+    editSubmitting.value = false;
+  }
+}
+
+async function onUnpublish(id: string) {
+  if (!authState.token) return;
+  try {
+    await client.unpublishMarketTemplate({ id, token: authState.token });
+    patchItemInLists(id, { status: 'unpublished', publishedAt: null });
+  } catch (e) {
+    errorToastMessage.value = e instanceof Error ? e.message : '下架没成功，请稍后再试';
+  }
+}
+
+async function onResubmit(id: string) {
+  if (!authState.token) return;
+  const item = myItems.value.find((x) => x.id === id);
+  if (!item) return;
+  try {
+    await client.patchMarketTemplate({
+      id,
+      token: authState.token,
+      title: item.title,
+      summary: item.summary,
+      category: item.category,
+      tags: item.tags,
+    });
+    patchItemInLists(id, { status: 'pending_review' });
+  } catch (e) {
+    errorToastMessage.value = e instanceof Error ? e.message : '重新提交没成功，请稍后再试';
   }
 }
 
@@ -543,12 +645,17 @@ const myScopeOptions: MyScope[] = ['created', 'favorited', 'liked'];
           :loading="loadingMy"
           :sort="marketSort"
           :logged-in="loggedIn"
+          :manage-mode="myScope === 'created'"
           :show-favorite="true"
           empty-hint="还没有符合条件的模板，可切换到「我创建的」或去模板市场发现更多。"
           @update:sort="setMarketSort"
           @apply="applyMarket"
+          @open-detail="openMarketDetail"
           @toggle-like="onToggleLike"
           @toggle-favorite="onToggleFavorite"
+          @edit="openEdit"
+          @unpublish="onUnpublish"
+          @resubmit="onResubmit"
         >
           <template #empty>
             <p class="font-semibold">{{ hasFilters ? '没有符合当前筛选的模板' : '这里还没有模板' }}</p>
@@ -596,6 +703,59 @@ const myScopeOptions: MyScope[] = ['created', 'favorited', 'liked'];
             </div>
           </template>
         </TemplateMarketList>
+
+        <UiConfirmDialog
+          v-if="editingTemplate"
+          :open="true"
+          title="编辑模板信息"
+          confirm-text="保存并重新审核"
+          cancel-text="取消"
+          :confirm-loading="editSubmitting"
+          @confirm="submitEdit"
+          @cancel="closeEdit"
+        >
+          <div class="space-y-3 text-left">
+            <label class="block">
+              <span class="text-xs font-semibold text-stone-600">标题</span>
+              <input
+                v-model="editForm.title"
+                type="text"
+                class="mt-1 w-full rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-200 focus:ring-2 focus:ring-emerald-100"
+                data-testid="edit-title"
+              />
+            </label>
+            <label class="block">
+              <span class="text-xs font-semibold text-stone-600">摘要</span>
+              <textarea
+                v-model="editForm.summary"
+                rows="3"
+                class="mt-1 w-full rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-200 focus:ring-2 focus:ring-emerald-100"
+                data-testid="edit-summary"
+              />
+            </label>
+            <label class="block">
+              <span class="text-xs font-semibold text-stone-600">分类</span>
+              <select
+                v-model="editForm.category"
+                class="mt-1 w-full rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-200 focus:ring-2 focus:ring-emerald-100"
+                data-testid="edit-category"
+              >
+                <option v-for="c in CATEGORY_OPTIONS" :key="c" :value="c">
+                  {{ categoryLabel[c] ?? c }}
+                </option>
+              </select>
+            </label>
+            <label class="block">
+              <span class="text-xs font-semibold text-stone-600">标签（逗号分隔）</span>
+              <input
+                v-model="editForm.tags"
+                type="text"
+                class="mt-1 w-full rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-200 focus:ring-2 focus:ring-emerald-100"
+                data-testid="edit-tags"
+              />
+            </label>
+          </div>
+        </UiConfirmDialog>
 
         <div class="flex items-center justify-end gap-2" aria-label="分页">
           <button
@@ -687,6 +847,7 @@ const myScopeOptions: MyScope[] = ['created', 'favorited', 'liked'];
           empty-hint="暂时没有用户模板，换个筛选条件或稍后再来。"
           @update:sort="setMarketSort"
           @apply="applyMarket"
+          @open-detail="openMarketDetail"
           @toggle-like="onToggleLike"
           @toggle-favorite="onToggleFavorite"
         >

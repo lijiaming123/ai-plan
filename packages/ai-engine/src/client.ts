@@ -2,7 +2,7 @@ export type GeneratePlanInput = {
   goal: string;
   deadline: string;
   requirement: string;
-  type: 'general' | 'study' | 'work';
+  type: 'general' | 'study' | 'work' | 'travel';
 };
 
 export type GeneratedTask = {
@@ -25,7 +25,13 @@ export function generatePlanDraft(input: GeneratePlanInput): GeneratedPlanDraft 
   return {
     stages: [
       {
-        name: `${input.type === 'study' ? '学习' : '执行'}准备`,
+        name: `${
+          input.type === 'study'
+            ? '学习'
+            : input.type === 'travel'
+              ? '行前'
+              : '执行'
+        }准备`,
         sortOrder: 1,
         tasks: [
           { id: 'task-1', title: `梳理目标：${input.goal}`, order: 1 },

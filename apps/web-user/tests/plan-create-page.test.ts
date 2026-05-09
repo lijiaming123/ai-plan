@@ -97,7 +97,7 @@ describe('PlanCreatePage', () => {
         goal: '三个月完成作品集',
         requirement: '12周内完成前端作品集并达到可投递标准',
         token: 'token_123',
-        type: 'general',
+        type: 'study',
         profile: expect.objectContaining({
           planMode: 'basic',
           basicInfo: expect.objectContaining({
@@ -116,7 +116,8 @@ describe('PlanCreatePage', () => {
     expect(trackEventMock).toHaveBeenCalledWith('plan_create', {
       properties: {
         planId: 'plan_1',
-        type: 'general',
+        type: 'study',
+        planScenario: 'study',
       },
     });
     const draftRaw = sessionStorage.getItem('ai-plan:draft-stream:plan_1');
@@ -311,7 +312,7 @@ describe('PlanCreatePage', () => {
     await flushPromises();
 
     expect(createPlanMock).not.toHaveBeenCalled();
-    expect(wrapper.text()).toContain('请先在「计划助手」完成一次优化确认');
+    expect(wrapper.text()).toContain('还差一步：请先在「计划助手」确认一次优化版本，再生成计划。');
   });
 
   it('专业版对话支持Enter发送并自动合并到助手草稿', async () => {
@@ -383,7 +384,10 @@ describe('PlanCreatePage', () => {
     await wrapper.get('[data-testid="tier-tab-pro"]').trigger('click');
     await wrapper.get('input[aria-label="计划名称"]').setValue('工作项目推进');
     await wrapper.get('textarea[aria-label="计划内容"]').setValue('完成季度目标与里程碑交付');
-    await setPlanSelect(wrapper, 'field-plan-scenario', 'work');
+    await setPlanSelect(wrapper, 'field-plan-scenario', 'travel');
+    await flushPromises();
+    await wrapper.get('input[aria-label="出发地"]').setValue('上海');
+    await wrapper.get('input[aria-label="目的地"]').setValue('东京');
     await wrapper.get('form').trigger('submit');
     await flushPromises();
 
@@ -398,11 +402,12 @@ describe('PlanCreatePage', () => {
     expect(createPlanMock).toHaveBeenCalledWith(
       expect.objectContaining({
         requirement: expect.stringMatching(/目标：工作项目推进/),
+        type: 'travel',
       })
     );
     expect(createPlanMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        requirement: expect.stringContaining('【用户在「计划内容」中的说明】'),
+        requirement: expect.stringContaining('【用户自由补充】'),
       })
     );
     expect(createPlanMock).toHaveBeenCalledWith(
@@ -418,7 +423,7 @@ describe('PlanCreatePage', () => {
       assistantPrompt?: string;
       createTier?: string;
     };
-    expect(payload.assistantPrompt).toContain('你是一名资深 AI 计划顾问与执行教练');
+    expect(payload.assistantPrompt).toContain('你是一名资深旅行规划师');
     expect(payload.createTier).toBe('pro');
   });
 
@@ -452,6 +457,7 @@ describe('PlanCreatePage', () => {
       expect.objectContaining({
         goal: '前端',
         requirement: expect.any(String),
+        type: 'study',
       })
     );
     expect(createPlanMock.mock.calls[1]?.[0]).not.toHaveProperty('profile');
@@ -475,7 +481,7 @@ describe('PlanCreatePage', () => {
     await wrapper.get('form').trigger('submit');
     await flushPromises();
 
-    expect(wrapper.get('[data-testid="error-toast"]').text()).toContain('请求参数有误');
+    expect(wrapper.get('[data-testid="error-toast"]').text()).toContain('提交的信息有点问题');
     await wrapper.get('button[aria-label="关闭错误提示"]').trigger('click');
     await flushPromises();
     expect(wrapper.find('[data-testid="error-toast"]').exists()).toBe(false);
@@ -506,7 +512,7 @@ describe('PlanCreatePage', () => {
 
     await wrapper.get('input[aria-label="计划名称"]').setValue('数学强化');
     await wrapper.get('textarea[aria-label="计划内容"]').setValue('考研数学冲刺');
-    await setPlanSelect(wrapper, 'field-plan-scenario', 'exam');
+    await setPlanSelect(wrapper, 'field-plan-scenario', 'study');
     await setPlanSelect(wrapper, 'field-time-investment', 'custom');
     await wrapper.get('input[aria-label="自定义每周投入小时"]').setValue('12');
     await wrapper.get('form').trigger('submit');
@@ -533,7 +539,7 @@ describe('PlanCreatePage', () => {
 
     await wrapper.get('input[aria-label="计划名称"]').setValue('考研冲刺');
     await wrapper.get('textarea[aria-label="计划内容"]').setValue('提升总分并补齐薄弱科目');
-    await setPlanSelect(wrapper, 'field-plan-scenario', 'exam');
+    await setPlanSelect(wrapper, 'field-plan-scenario', 'study');
 
     const tagInput = wrapper.get('input[aria-label="添加重点倾斜"]');
     await tagInput.setValue('数学');
@@ -569,7 +575,7 @@ describe('PlanCreatePage', () => {
 
     await wrapper.get('input[aria-label="计划名称"]').setValue('考研冲刺');
     await wrapper.get('textarea[aria-label="计划内容"]').setValue('提升总分并补齐薄弱科目');
-    await setPlanSelect(wrapper, 'field-plan-scenario', 'exam');
+    await setPlanSelect(wrapper, 'field-plan-scenario', 'study');
 
     const tagInput = wrapper.get('input[aria-label="添加重点倾斜"]');
     const tags = ['数学', '英语', '政治', '专业课', '阅读', '写作', '听力', '口语', '逻辑'];
@@ -632,6 +638,7 @@ describe('PlanCreatePage', () => {
         goal: expect.stringContaining('母计划标题'),
         token: 'token_123',
         parentPlanId: 'parent_x',
+        type: 'study',
       }),
     );
   });

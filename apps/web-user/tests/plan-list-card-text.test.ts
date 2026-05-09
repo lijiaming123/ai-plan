@@ -27,7 +27,7 @@ describe("plan-list-card-text", () => {
       "**类型**: 备考 **依据**: 用户希望三个月内通过考试。第二句是补充说明，不应出现在封面一句里。";
     const { description, coverLine } = buildPlanCardDisplayTexts({
       requirement: long,
-      type: "exam",
+      type: "general",
       goal: "软考冲刺",
     });
     expect(coverLine).toContain("用户希望");

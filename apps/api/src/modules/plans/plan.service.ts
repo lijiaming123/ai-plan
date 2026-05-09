@@ -16,6 +16,7 @@ import {
   generatePlanDraft,
   type GeneratePlanInput,
 } from "@ai-plan/ai-engine/client";
+import { getDefaultTimeZone, ymdInTimeZone } from "../../lib/reminder-tz";
 import {
   resolveGranularityPlan,
   type GranularityMode,
@@ -96,9 +97,9 @@ export async function patchConfirmedPlan(params: {
   | { ok: false; code: 404 | 400; message: string }
 > {
   const sanitized = sanitizePlanPatch(params.patch);
-  const row = await prisma.plan.findFirst({
+  const row = (await (prisma as any).plan.findFirst({
     where: { id: params.planId, userId: params.userId, deletedAt: null },
-  });
+  })) as { nextStep?: string | null } | null;
   if (!row) return { ok: false, code: 404, message: "plan not found" };
 
   if (!("nextStep" in sanitized))
@@ -114,7 +115,7 @@ export async function patchConfirmedPlan(params: {
     };
   }
 
-  await prisma.plan.update({
+  await (prisma as any).plan.update({
     where: { id: params.planId },
     data: { nextStep: trimmed.length ? trimmed : null },
   });
@@ -509,6 +510,9 @@ const planListSelect = {
   requirement: true,
   type: true,
   createdAt: true,
+  currentVersion: true,
+  confirmedVersion: true,
+  userId: true,
 } as const;
 
 function mapPlanListRow(row: {
@@ -518,6 +522,9 @@ function mapPlanListRow(row: {
   requirement: string;
   type: string;
   createdAt: Date;
+  completed?: boolean;
+  startDateIso?: string | null;
+  todayMissing?: boolean;
 }) {
   return {
     id: row.id,
@@ -527,6 +534,9 @@ function mapPlanListRow(row: {
     type: row.type,
     status: "active",
     createdAt: row.createdAt.toISOString(),
+    completed: row.completed === true,
+    startDate: row.startDateIso ?? null,
+    todayMissing: row.todayMissing === true,
   };
 }
 
@@ -547,7 +557,147 @@ export async function listPlansForUser(
     orderBy,
     select: planListSelect,
   });
-  return rows.map(mapPlanListRow);
+  if (rows.length === 0) return [];
+
+  // 批量计算 completed（所有槽位都有提交）。使用单条 SQL 聚合避免 N+1：
+  // - slotCount: PlanVersion.schedule.slots 数组长度
+  // - submittedSlots: distinct slotKey 提交数量
+  const ids = rows.map((r) => r.id);
+  const stats = (await prisma.$queryRawUnsafe(
+    `
+    SELECT
+      p.id AS "planId",
+      COALESCE(jsonb_array_length(pv.schedule->'slots'), 0) AS "slotCount",
+      COALESCE(COUNT(DISTINCT s."slotKey"), 0) AS "submittedCount",
+      pv.schedule->>'granularity' AS "granularity",
+      pv.schedule->'meta'->>'startDate' AS "startDateIso"
+    FROM "Plan" p
+    LEFT JOIN "PlanVersion" pv
+      ON pv."planId" = p.id
+     AND pv.version = COALESCE(p."confirmedVersion", p."currentVersion", 1)
+    LEFT JOIN "PlanScheduleSlotSubmission" s
+      ON s."planId" = p.id
+     AND s."userId" = p."userId"
+     AND s."closedAt" IS NULL
+    WHERE p.id = ANY($1)
+    GROUP BY p.id, pv.schedule
+    `,
+    ids,
+  )) as Array<{
+    planId: string;
+    slotCount: number;
+    submittedCount: number;
+    granularity: string | null;
+    startDateIso: string | null;
+  }>;
+  const byId = new Map<
+    string,
+    {
+      slotCount: number;
+      submittedCount: number;
+      granularity: string | null;
+      startDateIso: string | null;
+    }
+  >();
+  for (const r of stats)
+    byId.set(r.planId, {
+      slotCount: r.slotCount,
+      submittedCount: r.submittedCount,
+      granularity: r.granularity,
+      startDateIso: r.startDateIso,
+    });
+
+  const tz = getDefaultTimeZone();
+  const todayKey = ymdInTimeZone(new Date(), tz);
+  const pairs: Array<{ planId: string; slotKey: string }> = [];
+
+  const base = rows.map((row) => {
+    const st = byId.get(row.id);
+    const completed =
+      st != null && st.slotCount > 0 && st.submittedCount >= st.slotCount;
+    const startDateIso = st?.startDateIso ?? row.createdAt.toISOString();
+
+    if (!completed) {
+      const start = toDateOnly(startDateIso);
+      const end = toDateOnly(row.deadline.toISOString());
+      const today = toDateOnly(todayKey);
+      const durationDays = daysBetweenInclusive(start, end);
+      const isInRange = today >= start && today <= end;
+      if (isInRange && st?.slotCount && st.slotCount > 0) {
+        const granularity = (st.granularity ?? "day").toLowerCase();
+        if (granularity === "week") {
+          const dayIndex = Math.max(0, daysBetweenInclusive(start, today) - 1);
+          const weekIndex = Math.max(1, Math.floor(dayIndex / 7) + 1);
+          const maxWeeks = Math.max(1, Math.ceil(durationDays / 7));
+          if (weekIndex <= maxWeeks) {
+            pairs.push({ planId: row.id, slotKey: `W${weekIndex}` });
+          }
+        } else {
+          // day granularity
+          pairs.push({ planId: row.id, slotKey: todayKey });
+        }
+      }
+    }
+
+    return { row, completed, startDateIso };
+  });
+
+  const todaySubmittedByPair = new Map<string, boolean>();
+  if (pairs.length > 0) {
+    const planIds = pairs.map((p) => p.planId);
+    const slotKeys = pairs.map((p) => p.slotKey);
+    const submitted = (await prisma.$queryRawUnsafe(
+      `
+      SELECT
+        v."planId" AS "planId",
+        v."slotKey" AS "slotKey",
+        COALESCE(COUNT(s.id), 0) > 0 AS "submitted"
+      FROM unnest($1::text[], $2::text[]) AS v("planId", "slotKey")
+      LEFT JOIN "PlanScheduleSlotSubmission" s
+        ON s."planId" = v."planId"
+       AND s."slotKey" = v."slotKey"
+       AND s."userId" = $3
+       AND s."closedAt" IS NULL
+      GROUP BY v."planId", v."slotKey"
+      `,
+      planIds,
+      slotKeys,
+      userId,
+    )) as Array<{ planId: string; slotKey: string; submitted: boolean }>;
+    for (const r of submitted) {
+      todaySubmittedByPair.set(`${r.planId}::${r.slotKey}`, r.submitted === true);
+    }
+  }
+
+  return base.map((b) => {
+    const { row, completed, startDateIso } = b;
+    const st = byId.get(row.id);
+    let todayMissing = false;
+    if (!completed) {
+      const start = toDateOnly(startDateIso);
+      const end = toDateOnly(row.deadline.toISOString());
+      const today = toDateOnly(todayKey);
+      const isInRange = today >= start && today <= end;
+      if (isInRange && st?.slotCount && st.slotCount > 0) {
+        const granularity = (st.granularity ?? "day").toLowerCase();
+        const slotKey =
+          granularity === "week"
+            ? (() => {
+                const dayIndex = Math.max(
+                  0,
+                  daysBetweenInclusive(start, today) - 1,
+                );
+                const weekIndex = Math.max(1, Math.floor(dayIndex / 7) + 1);
+                return `W${weekIndex}`;
+              })()
+            : todayKey;
+        const submitted = todaySubmittedByPair.get(`${row.id}::${slotKey}`);
+        todayMissing = submitted === false;
+      }
+    }
+
+    return mapPlanListRow({ ...row, completed, startDateIso, todayMissing });
+  });
 }
 
 /** 归档列表：已归档且未进回收站；支持分页与按目标模糊搜索 */
@@ -725,9 +875,9 @@ export async function restorePlan(params: {
 
 /** 用户维度的计划详情 + 草稿元数据（版本列表、是否还可 regenerate） */
 export async function getPlanWithDraft(planId: string, userId: string) {
-  const plan = await prisma.plan.findFirst({
+  const plan = (await (prisma as any).plan.findFirst({
     where: { id: planId, userId, deletedAt: null },
-  });
+  })) as (Record<string, unknown> & { parentPlanId?: string | null }) | null;
   if (!plan) return null;
   let parentPlan: { id: string; goal: string } | null = null;
   if (plan.parentPlanId) {
@@ -741,7 +891,16 @@ export async function getPlanWithDraft(planId: string, userId: string) {
     });
     parentPlan = row;
   }
-  const state = await loadPersistedPlanState(plan);
+  const childPlans = await (prisma as any).plan.findMany({
+    where: {
+      parentPlanId: plan.id,
+      userId,
+      deletedAt: null,
+    },
+    select: { id: true, goal: true, createdAt: true },
+    orderBy: { createdAt: "asc" },
+  });
+  const state = await loadPersistedPlanState(plan as any);
   const scheduleSlotSubmissions = await listScheduleSlotSubmissionsBySlot(
     planId,
     userId,
@@ -754,6 +913,7 @@ export async function getPlanWithDraft(planId: string, userId: string) {
     ...plan,
     status: plan.archivedAt ? "archived" : "active",
     parentPlan,
+    childPlans,
     draft: {
       versions: state.versions,
       maxVersions: state.maxVersions,
@@ -800,6 +960,31 @@ export async function getPlanDraft(draftId: string, userId: string) {
 export const REGENERATE_PLAN_SYSTEM =
   "你是「计划大师」的 AI 计划顾问。根据用户给出的信息与要求，用中文输出可直接作为「计划内容」保存的正文：务实用语、分阶段目标与验收、可执行任务（优先按周，必要时到天）、风险与应对、复盘建议。不要输出与计划无关的寒暄。";
 
+export const REGENERATE_PLAN_SYSTEM_TRAVEL =
+  "你是「旅行行程规划师」。根据用户给出的信息与要求，用中文输出可直接作为「行程攻略/行程安排」保存的正文：按天/按时段给出路线顺序、交通方式与通勤时长、预约/门票/营业时间提醒、备选方案与注意事项。不要用“完成任务/提交证明/产出”这类学习计划语气，也不要输出与行程无关的寒暄。";
+
+export const REGENERATE_PLAN_SYSTEM_GENERAL =
+  "你是「轻量行动清单教练」。根据用户给出的信息与要求，用中文输出可直接作为「行动清单/习惯计划」保存的正文：强调最小可执行动作、简单规则与复盘，不要要求上传证明/材料；完成方式默认是“勾选完成”，可选写一句备注。不要输出与清单无关的寒暄。";
+
+const TRAVEL_SCHEDULE_INSTRUCTIONS = [
+  "【行程化输出要求（仅适用于旅游/旅行类计划）】",
+  "你正在生成的是“行程安排”，不是学习计划。每个 schedule slot.content 必须同时包含以下要素：",
+  "1) 早/午/晚（或上午/下午/晚上）的路线顺序（地点/景点/餐饮/休息点按先后排列）；",
+  "2) 交通方式 + 预计通勤时长（如地铁/公交/打车/步行/高铁/航班）；",
+  "3) 预约/门票/营业时间/入园与排队等提醒（如需提前预约、建议到达时间）；",
+  "4) 备选方案（如下雨/人多/临时关闭时替代点位或改线）；",
+  "5) 可选记录建议（如拍照点/一句话记录/当日小结）。",
+  "风格：攻略/行程规划，务实可执行；避免“完成任务/提交证明/学习产出/打卡证据”等措辞。",
+].join("\n");
+
+const GENERAL_SCHEDULE_INSTRUCTIONS = [
+  "【轻量清单输出要求（仅适用于其它/通用/checkbox-only 计划）】",
+  "你正在生成的是“轻量行动清单/习惯计划”，不是学习计划也不是旅行行程。",
+  "每个 schedule slot.content 用 1-2 句中文描述“最小行动 + 可选加强动作（可省略）”。",
+  "不要在 slot.content 或 checkinSpec 中要求上传证明/材料/附件/链接；默认完成方式是“勾选完成”，用户可选写一句备注。",
+  "建议：避免过度规划，不要给太长的解释或方法论。",
+].join("\n");
+
 function buildRegenerateUserContentForModel(params: {
   goal: string;
   planType: string;
@@ -831,6 +1016,16 @@ function buildRegenerateUserContentForModel(params: {
     return jb ? stripLastJsonCodeBlock(baseRequirement) : baseRequirement;
   })().trim();
 
+  const travelLike =
+    (planType ?? "").toLowerCase() === "travel" ||
+    /(行程|旅行|旅游|攻略|出行|路线|景点|酒店|民宿|航班|高铁|车次|地铁|公交|步行|打车|门票|预约|营业时间|开放时间)/i.test(
+      baseRequirement ?? "",
+    );
+  const generalLike =
+    !travelLike &&
+    (planType ?? "").toLowerCase() === "general" &&
+    /(其它|通用|清单|习惯|打卡|每日|最小行动)/i.test(baseRequirement ?? "");
+
   return [
     "请基于以下「当前版本」重新生成一整版计划说明（将作为草稿新版本保存）。在保持目标一致的前提下，可优化阶段表述、验收要点与每日/每周打卡文案；不要简单复述原文。",
     "",
@@ -841,6 +1036,11 @@ function buildRegenerateUserContentForModel(params: {
     "",
     "【当前版本正文】",
     bodyText || "（暂无）",
+    ...(travelLike
+      ? ["", TRAVEL_SCHEDULE_INSTRUCTIONS]
+      : generalLike
+        ? ["", GENERAL_SCHEDULE_INSTRUCTIONS]
+        : []),
     "",
     "请输出：",
     "1) 可直接保存为「计划内容」的中文正文；",
@@ -853,7 +1053,11 @@ function buildRegenerateUserContentForModel(params: {
     "    ]",
     "  }",
     "}",
-    "注意：slotKey 必须严格来自下方「时间槽」列表，且顺序必须完全一致；content 为当期计划一段中文（1-3句，具体可执行）。可选 checkinSpec：criteria 为 2-5 条可验收短句，evidenceHint 提示用户应提交何种证明（利于打卡核验）。",
+    travelLike
+      ? "注意：slotKey 必须严格来自下方「时间槽」列表，且顺序必须完全一致；content 必须按“行程化输出要求”撰写（可执行、含路线/交通/提醒/备选/记录建议）。可选 checkinSpec：criteria 为 2-5 条当期提醒/清单短句，evidenceHint 可写“预约/携带物品/拍照点/注意事项”等备忘。"
+      : generalLike
+        ? "注意：slotKey 必须严格来自下方「时间槽」列表，且顺序必须完全一致；content 必须按“轻量清单输出要求”撰写；不要要求提交证明/材料。可选 checkinSpec：criteria 为 2-5 条自我提醒短句，evidenceHint 可写“勾选完成即可，可选备注”。"
+        : "注意：slotKey 必须严格来自下方「时间槽」列表，且顺序必须完全一致；content 为当期计划一段中文（1-3句，具体可执行）。可选 checkinSpec：criteria 为 2-5 条可验收短句，evidenceHint 提示用户应提交何种证明（利于打卡核验）。",
     "",
     "时间槽：",
     ...slotKeys.map((k) => `- ${k}`),
@@ -1110,7 +1314,15 @@ async function tryRegeneratePlanContentWithDeepseek(params: {
 
   try {
     const deepseekRaw = await completeDeepseekChat([
-      { role: "system", content: REGENERATE_PLAN_SYSTEM },
+      {
+        role: "system",
+        content:
+          (params.planType ?? "").toLowerCase() === "travel"
+            ? REGENERATE_PLAN_SYSTEM_TRAVEL
+            : (params.planType ?? "").toLowerCase() === "general"
+              ? REGENERATE_PLAN_SYSTEM_GENERAL
+              : REGENERATE_PLAN_SYSTEM,
+      },
       { role: "user", content: userContent },
     ]);
     const jsonBlock = extractLastJsonCodeBlock(deepseekRaw);
@@ -1224,7 +1436,7 @@ export async function confirmPlanVersion(
 
     const parsedNext = extractNextStepFromRequirement(snapshot.requirement);
 
-    await tx.plan.create({
+    await (tx as any).plan.create({
       data: {
         id: draftId,
         userId: draft.userId,
@@ -1233,7 +1445,7 @@ export async function confirmPlanVersion(
         requirement: snapshot.requirement,
         type: draft.type,
         nextStep: parsedNext,
-        parentPlanId: draft.parentPlanId ?? null,
+        parentPlanId: (draft as any).parentPlanId ?? null,
         currentVersion: version,
         confirmedVersion: version,
       },
@@ -1382,7 +1594,7 @@ export async function createGeneratedPlan(
   snapshot.schedule = schedule;
 
   return prisma.$transaction(async (tx) => {
-    const createdDraft = await tx.planGenerationDraft.create({
+    const createdDraft = await (tx as any).planGenerationDraft.create({
       data: {
         userId: input.userId,
         goal: input.goal,
@@ -1569,9 +1781,14 @@ export async function updatePlanScheduleSlot(params: {
   }
 
   // 规则：只要该 slot 曾经出现过“通过”的提交记录（即存在任意提交行），就禁止再编辑/恢复。
-  // 当前实现中：只有核验通过才会创建 PlanScheduleSlotSubmission，因此“存在任意提交行”等价于“曾经通过”。
+  // 当前实现中：只有核验通过或旅游勾选完成才会创建 active submission，因此 active 行等价于“当前已完成”。
   const hasPassedSubmission = await prisma.planScheduleSlotSubmission.findFirst({
-    where: { planId: params.planId, slotKey: params.slotKey, userId: params.userId },
+    where: {
+      planId: params.planId,
+      slotKey: params.slotKey,
+      userId: params.userId,
+      closedAt: null,
+    } as never,
     select: { id: true },
   });
   if (hasPassedSubmission) {
@@ -1724,7 +1941,8 @@ export async function swapPlanScheduleSlotContent(params: {
       planId: params.planId,
       userId: params.userId,
       slotKey: { in: [keyA, keyB] },
-    },
+      closedAt: null,
+    } as never,
     select: { id: true },
   });
   if (hasPassedAnySubmission) {

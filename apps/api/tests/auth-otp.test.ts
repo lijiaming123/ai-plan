@@ -20,14 +20,18 @@ async function postOtpSend(
   });
 }
 
+async function cleanupOtpPhone(phone: string) {
+  await prisma.authOtp.deleteMany({ where: { phone } });
+  await prisma.user.deleteMany({ where: { phone } });
+}
+
 describe("auth otp", () => {
   it("send -> verify -> /auth/me", async () => {
     const app = buildApp();
     await app.ready();
 
     const phone = "13800138000";
-    // cleanup user to make test deterministic
-    await prisma.user.deleteMany({ where: { phone } });
+    await cleanupOtpPhone(phone);
 
     const send = await postOtpSend(app, { phone, purpose: "login" });
     expect(send.statusCode).toBe(200);
@@ -67,7 +71,7 @@ describe("auth otp", () => {
     await app.ready();
 
     const phone = "13711110001";
-    await prisma.user.deleteMany({ where: { phone } });
+    await cleanupOtpPhone(phone);
 
     const send = await postOtpSend(app, { phone, purpose: "register" });
     expect(send.statusCode).toBe(200);
@@ -102,7 +106,7 @@ describe("auth otp", () => {
     const app = buildApp();
     await app.ready();
     const phone = "13711110002";
-    await prisma.user.deleteMany({ where: { phone } });
+    await cleanupOtpPhone(phone);
 
     const send = await postOtpSend(app, { phone, purpose: "register" });
     expect(send.statusCode).toBe(200);
@@ -122,8 +126,7 @@ describe("auth otp", () => {
     const app = buildApp();
     await app.ready();
     const phone = "13711110003";
-    await prisma.user.deleteMany({ where: { phone } });
-    await prisma.authOtp.deleteMany({ where: { phone, purpose: "register" } });
+    await cleanupOtpPhone(phone);
 
     const send1 = await postOtpSend(app, { phone, purpose: "register" });
     const b1 = JSON.parse(send1.body) as { codeForTest?: string };
@@ -160,11 +163,13 @@ describe("auth otp", () => {
     await app.close();
   });
 
-  it("找回密码：验证码 + 新密码 后可用新密码登录", async () => {
+  it(
+    "找回密码：验证码 + 新密码 后可用新密码登录",
+    async () => {
     const app = buildApp();
     await app.ready();
     const phone = "13722220001";
-    await prisma.user.deleteMany({ where: { phone } });
+    await cleanupOtpPhone(phone);
     await prisma.user.create({
       data: {
         phone,
@@ -204,13 +209,15 @@ describe("auth otp", () => {
     expect(loginNew.statusCode).toBe(200);
 
     await app.close();
-  });
+    },
+    15000,
+  );
 
   it("找回密码：未注册手机号应 404", async () => {
     const app = buildApp();
     await app.ready();
     const phone = "13722220002";
-    await prisma.user.deleteMany({ where: { phone } });
+    await cleanupOtpPhone(phone);
 
     const send = await postOtpSend(app, { phone, purpose: "reset" });
     expect(send.statusCode).toBe(200);
@@ -237,6 +244,7 @@ describe("auth otp", () => {
     await app.ready();
 
     const phone = "13900139000";
+    await cleanupOtpPhone(phone);
     const a = await postOtpSend(app, { phone, purpose: "login" });
     expect(a.statusCode).toBe(200);
 

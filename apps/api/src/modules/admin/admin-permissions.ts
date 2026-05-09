@@ -4,6 +4,8 @@ export const ADMIN_PERMISSIONS = [
   'users:read',
   'audit:read',
   'rbac:manage',
+  'templates:review',
+  'templates:moderate',
 ] as const;
 
 export type AdminPermission = (typeof ADMIN_PERMISSIONS)[number];

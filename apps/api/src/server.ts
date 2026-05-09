@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 import { isDeepseekConfigured } from './lib/deepseek';
 import { buildApp } from './app';
 import { runCheckinReminderJob } from './modules/notifications/checkin-reminder.service';
+import { maybeRunUploadGarbageCollectionJob } from './modules/uploads/upload-gc.service';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const apiPackageRoot = resolve(__dirname, '..');
@@ -45,5 +46,15 @@ void app
     }, ms);
     void runCheckinReminderJob().catch((err) => {
       console.error('[checkin-reminder:initial]', err);
+    });
+
+    const gcMs = 60 * 60 * 1000;
+    setInterval(() => {
+      void maybeRunUploadGarbageCollectionJob().catch((err) => {
+        console.error('[upload-gc]', err);
+      });
+    }, gcMs);
+    void maybeRunUploadGarbageCollectionJob().catch((err) => {
+      console.error('[upload-gc:initial]', err);
     });
   });

@@ -31,6 +31,13 @@ const publishForm = ref({
 
 const isDraft = computed(() => plan.value?.status === "draft");
 const isArchived = computed(() => plan.value?.status === "archived");
+const isTravelPlan = computed(
+  () => (plan.value?.type ?? "").toLowerCase() === "travel",
+);
+
+const isGeneralPlan = computed(
+  () => (plan.value?.type ?? "").toLowerCase() === "general",
+);
 
 const breadcrumbTail = computed(() => {
   if (loading.value && !plan.value) return "加载中…";
@@ -54,6 +61,7 @@ function formatDetailDeadline(iso: string): string {
 
 const statusLabel = computed(() => {
   if (isArchived.value) return "已归档";
+  if (isCompletedPlan.value) return "已完成";
   const s = plan.value?.status;
   if (s === "active") return "执行中";
   if (s === "draft") return "草稿";
@@ -65,10 +73,11 @@ const typeLabel = computed(() => {
   const map: Record<string, string> = {
     general: "通用",
     study: "学习",
+    travel: "旅游",
     work: "工作",
     exam: "考试",
     fitness: "运动",
-    other: "其他",
+    other: "其它",
   };
   return map[t] ?? plan.value?.type ?? "";
 });
@@ -91,7 +100,10 @@ function openPublishForm() {
   publishForm.value = {
     title: p.goal.slice(0, 200),
     summary: p.requirement.slice(0, 5000),
-    category: p.type === "study" || p.type === "work" ? p.type : "general",
+    category:
+      p.type === "study" || p.type === "work" || p.type === "travel"
+        ? p.type
+        : "general",
     tags: "",
   };
   showPublishForm.value = true;
@@ -123,7 +135,7 @@ async function submitPublishTemplate() {
     showPublishForm.value = false;
     await router.push({ path: "/templates", query: { published: "1" } });
   } catch (e) {
-    showError(e instanceof Error ? e.message : "发布失败");
+    showError(e instanceof Error ? e.message : "没发布成功，请稍后再试");
   } finally {
     publishSubmitting.value = false;
   }
@@ -162,11 +174,11 @@ async function saveScheduleEdit() {
 
   const next = (scheduleEditContent.value ?? "").trim();
   if (!next) {
-    showError("计划内容不能为空");
+    showError("这里还没写内容。补充一下再保存吧。");
     return;
   }
   if (next.length > SLOT_CONTENT_MAX_LEN) {
-    showError(`计划内容过长（最多 ${SLOT_CONTENT_MAX_LEN} 字）`);
+    showError(`内容有点长了（最多 ${SLOT_CONTENT_MAX_LEN} 字），可以适当精简一下`);
     return;
   }
 
@@ -191,7 +203,7 @@ async function saveScheduleEdit() {
       const score = inter / a.size;
       if (score < 0.05) {
         okBanner.value =
-          "提示：编辑内容可能与计划目标不完全一致（软校验），仍可保存。";
+          "提醒：这段内容看起来和你的目标不太一致。需要我帮你一起调整吗？你也可以继续保存。";
         window.setTimeout(() => {
           okBanner.value = "";
         }, 4000);
@@ -227,7 +239,7 @@ async function saveScheduleEdit() {
     }
     scheduleEditOpen.value = false;
   } catch (e) {
-    showError(e instanceof Error ? e.message : "保存失败");
+    showError(e instanceof Error ? e.message : "没保存成功，请稍后再试");
   } finally {
     scheduleSaving.value = false;
   }
@@ -260,7 +272,7 @@ async function restoreScheduleSlot(slotKey: string) {
         };
     }
   } catch (e) {
-    showError(e instanceof Error ? e.message : "恢复失败");
+    showError(e instanceof Error ? e.message : "没恢复成功，请稍后再试");
   } finally {
     scheduleSaving.value = false;
   }
@@ -334,6 +346,7 @@ function scheduleRowLeftMarkClass(slotKey: string): string {
 
 const confirmArchiveOpen = ref(false);
 const archiveSubmitting = ref(false);
+const showGoArchiveFromBanner = ref(false);
 
 function slotSubmissions(slotKey: string) {
   return plan.value?.scheduleSlotSubmissions?.[slotKey] ?? [];
@@ -376,7 +389,7 @@ function slotMoreActions(slotKey: string) {
       disabled: scheduleSaving.value,
     });
   }
-  if (slotCheckinStateLabel(slotKey) === "申诉中") {
+  if (!isTravelPlan.value && slotCheckinStateLabel(slotKey) === "申诉中") {
     actions.push({
       key: "withdrawAppeal",
       label: appealWithdrawKey.value === slotKey ? "撤销中…" : "撤销申诉",
@@ -449,8 +462,10 @@ const NEXT_STEP_MAX_LEN = 2000;
 const continuationHintOpen = ref(false);
 const continuationHintDontShowAgain = ref(false);
 const continuationHintConsumedForVisit = ref(false);
+let continuationHintTimer: number | null = null;
 const nextStepDraft = ref("");
 const nextStepSaving = ref(false);
+const nextStepPanelExpanded = ref(true);
 
 const planFullySubmitted = computed(() => {
   if (isDraft.value || !checkinSchedule.value) return false;
@@ -459,17 +474,49 @@ const planFullySubmitted = computed(() => {
   return slots.every((s) => slotSubmissions(s.slotKey).length > 0);
 });
 
+const isCompletedPlan = computed(
+  () => !isArchived.value && !isDraft.value && planFullySubmitted.value,
+);
+
 const trimmedNextStepDraft = computed(() => nextStepDraft.value.trim());
 
 const showNextPlanQuickAction = computed(
   () => planFullySubmitted.value && trimmedNextStepDraft.value.length > 0,
 );
 
+function extractNextStepFromRequirementMd(md: string): string | null {
+  const raw = typeof md === "string" ? md : "";
+  if (!raw.trim()) return null;
+  const lines = raw.split(/\r?\n/);
+  let start = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^#{2,3}\s*下一步迭代方向\s*$/.test(lines[i]?.trim() ?? "")) {
+      start = i + 1;
+      break;
+    }
+  }
+  if (start < 0) return null;
+  const buf: string[] = [];
+  for (let j = start; j < lines.length; j++) {
+    const line = lines[j] ?? "";
+    if (/^#{1,6}\s+/.test(line)) break;
+    buf.push(line);
+  }
+  const inner = buf.join("\n").trim();
+  if (!inner) return null;
+  return inner.length > NEXT_STEP_MAX_LEN ? inner.slice(0, NEXT_STEP_MAX_LEN) : inner;
+}
+
 watch(
   () => [plan.value?.id, plan.value?.nextStep] as const,
   ([id, ns]) => {
     if (!id) return;
-    nextStepDraft.value = ns != null ? String(ns) : "";
+    const fromDb = ns != null ? String(ns) : "";
+    const inferred = extractNextStepFromRequirementMd(plan.value?.requirement ?? "") ?? "";
+    // 优先使用数据库字段；为空时用正文解析结果做默认值（兼容历史计划）
+    const next = fromDb.trim() ? fromDb : inferred;
+    nextStepDraft.value = next;
+    nextStepPanelExpanded.value = next.trim().length > 0;
   },
   { immediate: true },
 );
@@ -494,10 +541,14 @@ watch(
     full: planFullySubmitted.value,
     hasNext: trimmedNextStepDraft.value.length > 0,
     archived: isArchived.value,
+    inferred: extractNextStepFromRequirementMd(plan.value?.requirement ?? "") ?? "",
   }),
   (ctx) => {
     if (ctx.loading || !ctx.pid || ctx.archived) return;
-    if (!ctx.full || !ctx.hasNext) return;
+    // 需求：首次进入“已完成计划”就提示（不依赖 nextStep 是否已填）
+    if (!ctx.full) return;
+    // 需求：只有当计划文案中确实有「下一步迭代方向」内容时才弹窗
+    if (!ctx.inferred.trim()) return;
     if (continuationHintConsumedForVisit.value) return;
     try {
       if (localStorage.getItem(continuationHintStorageKey(ctx.pid)) === "1")
@@ -506,7 +557,15 @@ watch(
       /* ignore */
     }
     continuationHintConsumedForVisit.value = true;
-    continuationHintOpen.value = true;
+    if (continuationHintTimer) {
+      window.clearTimeout(continuationHintTimer);
+      continuationHintTimer = null;
+    }
+    // 动画：延迟出现，而不是立刻遮罩
+    continuationHintTimer = window.setTimeout(() => {
+      continuationHintOpen.value = true;
+      continuationHintTimer = null;
+    }, 220);
   },
 );
 
@@ -525,7 +584,7 @@ async function saveNextStepField() {
   if (!authState.token || !plan.value) return;
   const trimmed = trimmedNextStepDraft.value;
   if (trimmed.length > NEXT_STEP_MAX_LEN) {
-    showError(`下一步迭代方向最多 ${NEXT_STEP_MAX_LEN} 字`);
+    showError(`下一步内容有点长了（最多 ${NEXT_STEP_MAX_LEN} 字），可以精简一下`);
     return;
   }
   nextStepSaving.value = true;
@@ -536,12 +595,12 @@ async function saveNextStepField() {
       nextStep: trimmed,
     });
     plan.value = { ...plan.value, nextStep: res.nextStep };
-    okBanner.value = "已保存下一步迭代方向";
+    okBanner.value = "已保存下一步要做的事";
     window.setTimeout(() => {
       okBanner.value = "";
     }, 3500);
   } catch (e) {
-    showError(e instanceof Error ? e.message : "保存失败");
+    showError(e instanceof Error ? e.message : "没保存成功，请稍后再试");
   } finally {
     nextStepSaving.value = false;
   }
@@ -562,9 +621,12 @@ function checkinBandLabel(
   return "偏低";
 }
 
-type SlotCheckinState = "未提交" | "已提交" | "申诉中";
+type SlotCheckinState = "未提交" | "已提交" | "申诉中" | "未完成" | "已完成";
 
 function slotCheckinStateLabel(slotKey: string): SlotCheckinState {
+  if (isTravelPlan.value) {
+    return slotSubmissions(slotKey).length > 0 ? "已完成" : "未完成";
+  }
   if (plan.value?.scheduleSlotOpenAppeals?.[slotKey]) return "申诉中";
   if (slotSubmissions(slotKey).length > 0) return "已提交";
   return "未提交";
@@ -575,7 +637,7 @@ function slotCheckinStatePillClass(slotKey: string): string {
   if (s === "申诉中") {
     return "bg-amber-50 text-amber-900 ring-1 ring-amber-200/80";
   }
-  if (s === "已提交") {
+  if (s === "已提交" || s === "已完成") {
     return "bg-emerald-50 text-emerald-900 ring-1 ring-emerald-200/80";
   }
   return "bg-slate-100 text-slate-600 ring-1 ring-slate-200/80";
@@ -622,7 +684,7 @@ function clearCheckinDraftForSlot(slotKey: string) {
   }
 }
 
-function openCheckinSubmit(slotKey: string, planText: string) {
+function prepareCheckinDraft(slotKey: string, planText: string) {
   checkinSlotKey.value = slotKey;
   checkinSlotPlanText.value = planText;
   checkinContent.value = "";
@@ -630,8 +692,99 @@ function openCheckinSubmit(slotKey: string, planText: string) {
   checkinManualLinks.value = [{ url: "", fileName: "" }];
   checkinReview.value = null;
   checkinAppealText.value = "";
-  checkinOpen.value = true;
   tryLoadCheckinDraft(slotKey);
+}
+
+function openCheckinSubmit(slotKey: string, planText: string) {
+  prepareCheckinDraft(slotKey, planText);
+  checkinOpen.value = true;
+}
+
+function openTravelRecordDrawer(slotKey: string, planText: string) {
+  prepareCheckinDraft(slotKey, planText);
+  submissionDrawerSlotKey.value = slotKey;
+  submissionDrawerPlanText.value = planText;
+  submissionDrawerOpen.value = true;
+}
+
+async function toggleTravelSlotCompletion(slotKey: string) {
+  if (checkinSaving.value) return;
+  if (!authState.token) return;
+  checkinSaving.value = true;
+  try {
+    const done = slotSubmissions(slotKey).length > 0;
+    if (done) {
+      await getApiClient().deletePlanScheduleSlotCheckin({
+        id: planId.value,
+        slotKey,
+        token: authState.token,
+      });
+      const cur = { ...(plan.value?.scheduleSlotSubmissions ?? {}) };
+      delete cur[slotKey];
+      if (plan.value) plan.value = { ...plan.value, scheduleSlotSubmissions: cur };
+      okBanner.value = "已撤销完成";
+    } else {
+      const { submission } = await getApiClient().postPlanScheduleSlotCheckin({
+        id: planId.value,
+        slotKey,
+        token: authState.token,
+      });
+      const cur = { ...(plan.value?.scheduleSlotSubmissions ?? {}) };
+      cur[slotKey] = [submission, ...(cur[slotKey] ?? [])];
+      if (plan.value) plan.value = { ...plan.value, scheduleSlotSubmissions: cur };
+      okBanner.value = "已标记完成";
+    }
+    window.setTimeout(() => {
+      okBanner.value = "";
+    }, 3000);
+  } catch {
+    showError("操作失败，请稍后再试");
+  } finally {
+    checkinSaving.value = false;
+  }
+}
+
+function openGeneralNoteDrawer(slotKey: string, planText: string) {
+  prepareCheckinDraft(slotKey, planText);
+  submissionDrawerSlotKey.value = slotKey;
+  submissionDrawerPlanText.value = planText;
+  submissionDrawerOpen.value = true;
+}
+
+async function submitGeneralNote() {
+  if (checkinSaving.value) return;
+  if (!authState.token || !checkinSlotKey.value) return;
+  const text = checkinContent.value.trim();
+  if (!text) {
+    showError("请填写一句备注（可选，但这里需要有内容才能提交）");
+    return;
+  }
+  checkinSaving.value = true;
+  try {
+    const idem = `note:${planId.value}:${checkinSlotKey.value}:${Date.now()}:${Math.random()
+      .toString(16)
+      .slice(2)}`;
+    const { submission } = await getApiClient().postPlanScheduleSlotCheckin({
+      id: planId.value,
+      slotKey: checkinSlotKey.value,
+      token: authState.token,
+      content: text,
+      idempotencyKey: idem,
+    });
+    const slot = checkinSlotKey.value;
+    const cur = { ...(plan.value?.scheduleSlotSubmissions ?? {}) };
+    cur[slot] = [submission, ...(cur[slot] ?? [])];
+    if (plan.value) plan.value = { ...plan.value, scheduleSlotSubmissions: cur };
+    okBanner.value = "已保存备注";
+    window.setTimeout(() => (okBanner.value = ""), 3000);
+    checkinContent.value = "";
+    checkinReview.value = null;
+    checkinAppealText.value = "";
+  } catch (e) {
+    showError(e instanceof Error ? e.message : "没保存成功，请稍后再试");
+  } finally {
+    checkinSaving.value = false;
+  }
 }
 
 watch(
@@ -679,14 +832,64 @@ function removeCheckinManualRow(idx: number) {
   }
 }
 
-function mergedCheckinAttachments(): Array<{ url: string; fileName?: string }> {
+const CHECKIN_MAX_FILES = 12;
+const CHECKIN_MAX_FILE_SIZE_BYTES = 15 * 1024 * 1024;
+const CHECKIN_ALLOWED_MIME_PREFIX = ["image/"];
+const CHECKIN_ALLOWED_EXT = [
+  ".pdf",
+  ".doc",
+  ".docx",
+  ".txt",
+  ".md",
+  ".csv",
+] as const;
+
+function isAllowedFile(file: File): boolean {
+  if (CHECKIN_ALLOWED_MIME_PREFIX.some((p) => file.type.startsWith(p))) return true;
+  const name = (file.name ?? "").toLowerCase();
+  return CHECKIN_ALLOWED_EXT.some((ext) => name.endsWith(ext));
+}
+
+function normalizeHttpsUrl(input: string): string | null {
+  const raw = (input ?? "").trim();
+  if (!raw) return null;
+  try {
+    const u = new URL(raw);
+    if (u.protocol !== "https:") return null;
+    return u.toString();
+  } catch {
+    return null;
+  }
+}
+
+function mergedCheckinAttachmentsOrThrow(): Array<{ url: string; fileName?: string }> {
   const manual = checkinManualLinks.value
-    .map((a) => ({
-      url: a.url.trim(),
-      fileName: a.fileName.trim() || undefined,
-    }))
-    .filter((a) => a.url.length > 0);
-  return [...checkinUploadedFiles.value, ...manual];
+    .map((a) => {
+      const url = normalizeHttpsUrl(a.url);
+      const fileName = (a.fileName ?? "").trim() || undefined;
+      return { url, fileName };
+    })
+    .filter((a) => Boolean(a.url)) as Array<{ url: string; fileName?: string }>;
+
+  const invalidManualCount = checkinManualLinks.value.filter((r) => {
+    const raw = (r.url ?? "").trim();
+    return raw.length > 0 && !normalizeHttpsUrl(raw);
+  }).length;
+  if (invalidManualCount > 0) {
+    throw new Error("手动链接仅支持可访问的 https 链接（请检查是否缺少 https:// 或链接格式不正确）");
+  }
+
+  const all = [...checkinUploadedFiles.value, ...manual];
+  // 去重：同 URL 只保留一份，避免多次粘贴/重复上传导致材料膨胀
+  const uniq: Array<{ url: string; fileName?: string }> = [];
+  const seen = new Set<string>();
+  for (const a of all) {
+    if (!a.url) continue;
+    if (seen.has(a.url)) continue;
+    seen.add(a.url);
+    uniq.push(a);
+  }
+  return uniq.slice(0, CHECKIN_MAX_FILES);
 }
 
 function onCheckinDrop(e: DragEvent) {
@@ -702,13 +905,29 @@ function addCheckinManualLinkRow() {
 async function onCheckinFilesPicked(files: FileList | null) {
   if (!files?.length || !authState.token) return;
   const arr = Array.from(files);
+  const remaining = Math.max(0, CHECKIN_MAX_FILES - checkinUploadedFiles.value.length);
+  if (remaining <= 0) {
+    showError(`最多上传 ${CHECKIN_MAX_FILES} 个文件（可先移除部分后再试）`);
+    return;
+  }
+  const sliced = arr.slice(0, remaining);
+  const rejectedTooLarge = sliced.filter((f) => f.size > CHECKIN_MAX_FILE_SIZE_BYTES);
+  if (rejectedTooLarge.length > 0) {
+    showError(`单文件不超过 15MB（有 ${rejectedTooLarge.length} 个文件过大）`);
+    return;
+  }
+  const rejectedType = sliced.filter((f) => !isAllowedFile(f));
+  if (rejectedType.length > 0) {
+    showError(`有 ${rejectedType.length} 个文件类型不支持，请改为图片/PDF/Word/文本等`);
+    return;
+  }
   checkinFileUploading.value = true;
   checkinUploadProgress.value = "";
   try {
-    const total = arr.length;
+    const total = sliced.length;
     for (let i = 0; i < total; i++) {
       if (total > 1) checkinUploadProgress.value = `${i + 1} / ${total}`;
-      const f = arr[i]!;
+      const f = sliced[i]!;
       const res = await getApiClient().uploadUserFile({
         token: authState.token,
         file: f,
@@ -719,7 +938,7 @@ async function onCheckinFilesPicked(files: FileList | null) {
       });
     }
   } catch (e) {
-    showError(e instanceof Error ? e.message : "文件上传失败");
+    showError(e instanceof Error ? e.message : "没上传成功，请稍后再试");
   } finally {
     checkinUploadProgress.value = "";
     checkinFileUploading.value = false;
@@ -727,21 +946,32 @@ async function onCheckinFilesPicked(files: FileList | null) {
 }
 
 async function submitCheckin() {
+  if (checkinSaving.value) return;
   if (!authState.token || !checkinSlotKey.value) return;
-  const atts = mergedCheckinAttachments();
+  let atts: Array<{ url: string; fileName?: string }> = [];
+  try {
+    atts = mergedCheckinAttachmentsOrThrow();
+  } catch (e) {
+    showError(e instanceof Error ? e.message : "请检查链接格式");
+    return;
+  }
   const text = checkinContent.value.trim();
   if (!text && atts.length === 0) {
-    showError("请填写说明、上传文件或添加至少一条有效链接");
+    showError("还差一点：请填写说明、上传文件，或添加至少一条链接");
     return;
   }
   checkinSaving.value = true;
   try {
+    const idem = `checkin:${planId.value}:${checkinSlotKey.value}:${Date.now()}:${Math.random()
+      .toString(16)
+      .slice(2)}`;
     const { submission } = await getApiClient().postPlanScheduleSlotCheckin({
       id: planId.value,
       slotKey: checkinSlotKey.value,
       token: authState.token,
       content: text || undefined,
       attachments: atts.length ? atts : undefined,
+      idempotencyKey: idem,
     });
     const slot = checkinSlotKey.value;
     trackEvent("checkin_submit", {
@@ -755,10 +985,22 @@ async function submitCheckin() {
     cur[slot] = [submission, ...(cur[slot] ?? [])];
     if (plan.value)
       plan.value = { ...plan.value, scheduleSlotSubmissions: cur };
-    checkinOpen.value = false;
-    checkinReview.value = null;
+    if (isTravelPlan.value) {
+      okBanner.value = "已添加记录";
+      window.setTimeout(() => {
+        okBanner.value = "";
+      }, 3000);
+      checkinContent.value = "";
+      checkinUploadedFiles.value = [];
+      checkinManualLinks.value = [{ url: "", fileName: "" }];
+      checkinReview.value = null;
+      checkinAppealText.value = "";
+    } else {
+      checkinOpen.value = false;
+      checkinReview.value = null;
+    }
   } catch (e) {
-    if (e instanceof HttpApiError && e.status === 422) {
+    if (!isTravelPlan.value && e instanceof HttpApiError && e.status === 422) {
       const body = e.body as
         | { review?: CheckinPublicReview }
         | null
@@ -770,7 +1012,7 @@ async function submitCheckin() {
       }
     }
     checkinReview.value = null;
-    showError(e instanceof Error ? e.message : "提交失败");
+    showError(isTravelPlan.value ? "没操作成功，请稍后再试" : e instanceof Error ? e.message : "没提交成功，请稍后再试");
   } finally {
     checkinSaving.value = false;
   }
@@ -811,14 +1053,14 @@ async function submitCheckinAppeal() {
     }
     okBanner.value =
       r.outcome === "ai_approved"
-        ? `AI 预审已通过申诉，本时间槽打卡已自动完成。${r.aiRationale ? `（${r.aiRationale}）` : ""}`
+        ? `AI 预审已通过申诉，本打卡段已自动完成。${r.aiRationale ? `（${r.aiRationale}）` : ""}`
         : `申诉已提交。${r.aiRationale ? `${r.aiRationale} ` : ""}未通过 AI 预审或需复核的将进入人工队列；该槽在人工处理前显示「申诉中」，也可先撤销申诉再补充材料。`;
     window.setTimeout(() => {
       okBanner.value = "";
     }, 5000);
     await loadPlanDetail();
   } catch (e) {
-    showError(e instanceof Error ? e.message : "提交申诉失败");
+    showError(e instanceof Error ? e.message : "没提交成功，请稍后再试");
   } finally {
     appealSubmitting.value = false;
   }
@@ -840,7 +1082,7 @@ async function withdrawSlotAppeal(slotKey: string) {
       okBanner.value = "";
     }, 6000);
   } catch (e) {
-    showError(e instanceof Error ? e.message : "撤销申诉失败");
+    showError(e instanceof Error ? e.message : "没撤销成功，请稍后再试");
   } finally {
     appealWithdrawKey.value = null;
   }
@@ -878,7 +1120,7 @@ async function loadPlanDetail() {
       token: authState.token,
     });
   } catch (error) {
-    showError(error instanceof Error ? error.message : "加载计划详情失败");
+    showError(error instanceof Error ? error.message : "没能加载计划详情，请稍后再试");
   } finally {
     loading.value = false;
   }
@@ -895,11 +1137,13 @@ async function submitArchivePlan() {
     confirmArchiveOpen.value = false;
     await loadPlanDetail();
     okBanner.value = "已移入归档。可在侧栏「归档」中查看或恢复。";
+    showGoArchiveFromBanner.value = true;
     window.setTimeout(() => {
       okBanner.value = "";
+      showGoArchiveFromBanner.value = false;
     }, 4000);
   } catch (e) {
-    showError(e instanceof Error ? e.message : "归档失败");
+    showError(e instanceof Error ? e.message : "没归档成功，请稍后再试");
   } finally {
     archiveSubmitting.value = false;
   }
@@ -915,14 +1159,21 @@ async function submitUnarchivePlan() {
     });
     await loadPlanDetail();
     okBanner.value = "已移回「我的计划」，可继续执行与打卡。";
+    showGoArchiveFromBanner.value = false;
     window.setTimeout(() => {
       okBanner.value = "";
     }, 4000);
   } catch (e) {
-    showError(e instanceof Error ? e.message : "恢复执行失败");
+    showError(e instanceof Error ? e.message : "没恢复成功，请稍后再试");
   } finally {
     archiveSubmitting.value = false;
   }
+}
+
+function goArchiveFromBanner() {
+  showGoArchiveFromBanner.value = false;
+  okBanner.value = "";
+  void router.push("/archive");
 }
 
 const lastOpenedCheckinQueryKey = ref("");
@@ -943,6 +1194,7 @@ watch(
     () => route.query.slotKey,
     canSubmitCheckin,
     checkinSchedule,
+    () => plan.value?.type,
   ],
   () => {
     if (route.query.openCheckin !== "1") return;
@@ -954,7 +1206,8 @@ watch(
     const slot = checkinSchedule.value.slots.find((s) => s.slotKey === sk);
     if (!slot) return;
     lastOpenedCheckinQueryKey.value = key;
-    openCheckinSubmit(sk, slot.content);
+    if (isTravelPlan.value) openTravelRecordDrawer(sk, slot.content);
+    else openCheckinSubmit(sk, slot.content);
   },
   { immediate: true },
 );
@@ -967,60 +1220,91 @@ watch(
     <UiErrorToast :message="errorToastMessage" @close="clearError" />
     <div
       v-if="okBanner"
-      class="pointer-events-none fixed left-1/2 top-4 z-[60] -translate-x-1/2 rounded-full bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-900 shadow-lg ring-1 ring-emerald-200/90"
+      class="fixed left-1/2 top-4 z-[60] -translate-x-1/2 rounded-full bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-900 shadow-lg ring-1 ring-emerald-200/90"
       role="status"
+      data-testid="plan-ok-banner"
     >
-      {{ okBanner }}
-    </div>
-
-    <div
-      v-if="continuationHintOpen"
-      class="fixed inset-0 z-[62] flex items-center justify-center bg-black/45 p-4"
-      data-testid="plan-continuation-hint-dialog"
-      role="dialog"
-      aria-modal="true"
-      @click.self="continuationHintOpen = false"
-    >
-      <div
-        class="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl ring-1 ring-slate-200/80"
-        @click.stop
-      >
-        <h3 class="text-lg font-extrabold text-[#0f1f16]">
-          要制定下一步计划吗？
-        </h3>
-        <p class="mt-2 text-sm leading-relaxed text-[#5a6f62]">
-          当前计划各时间槽均已提交。可使用「下一步迭代方向」一键创建接续计划。
-        </p>
-        <label
-          class="mt-4 flex cursor-pointer items-start gap-2 text-sm text-[#37403d]"
+      <div class="flex items-center gap-2">
+        <span class="min-w-0 truncate">{{ okBanner }}</span>
+        <button
+          v-if="showGoArchiveFromBanner"
+          type="button"
+          class="pointer-events-auto shrink-0 rounded-full bg-white/70 px-3 py-1 text-xs font-bold text-emerald-900 ring-1 ring-emerald-200/70 transition hover:bg-white"
+          data-testid="go-archive-from-banner"
+          @click="goArchiveFromBanner"
         >
-          <input
-            v-model="continuationHintDontShowAgain"
-            type="checkbox"
-            class="mt-1"
-          />
-          <span>本计划不再提示</span>
-        </label>
-        <div class="mt-6 flex flex-wrap justify-end gap-2">
-          <button
-            type="button"
-            class="rounded-lg px-4 py-2 text-sm font-semibold text-[#61896f] hover:bg-emerald-50/60"
-            data-testid="plan-continuation-hint-close"
-            @click="continuationHintOpen = false"
-          >
-            稍后
-          </button>
-          <button
-            type="button"
-            class="rounded-lg bg-[#111813] px-4 py-2 text-sm font-bold text-white hover:bg-[#0d1410]"
-            data-testid="plan-continuation-hint-ok"
-            @click="acknowledgeContinuationHint()"
-          >
-            知道了
-          </button>
-        </div>
+          去归档看看
+        </button>
       </div>
     </div>
+
+    <Transition
+      enter-active-class="transition duration-250 ease-out"
+      enter-from-class="opacity-0"
+      enter-to-class="opacity-100"
+      leave-active-class="transition duration-180 ease-in"
+      leave-from-class="opacity-100"
+      leave-to-class="opacity-0"
+    >
+      <div
+        v-if="continuationHintOpen"
+        class="fixed inset-0 z-[62] flex items-center justify-center bg-black/45 p-4"
+        data-testid="plan-continuation-hint-dialog"
+        role="dialog"
+        aria-modal="true"
+        @click.self="continuationHintOpen = false"
+      >
+        <Transition
+          enter-active-class="transition duration-250 ease-out delay-75"
+          enter-from-class="opacity-0 translate-y-1 scale-[0.98]"
+          enter-to-class="opacity-100 translate-y-0 scale-100"
+          leave-active-class="transition duration-180 ease-in"
+          leave-from-class="opacity-100 translate-y-0 scale-100"
+          leave-to-class="opacity-0 translate-y-1 scale-[0.98]"
+        >
+          <div
+            v-if="continuationHintOpen"
+            class="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl ring-1 ring-slate-200/80"
+            @click.stop
+          >
+            <h3 class="text-lg font-extrabold text-[#0f1f16]">
+              要制定下一步计划吗？
+            </h3>
+            <p class="mt-2 text-sm leading-relaxed text-[#5a6f62]">
+              当前计划各打卡段均已提交。可先检查/补充「下一步迭代方向」，再一键创建接续计划。
+            </p>
+            <label
+              class="mt-4 flex cursor-pointer items-start gap-2 text-sm text-[#37403d]"
+            >
+              <input
+                v-model="continuationHintDontShowAgain"
+                type="checkbox"
+                class="mt-1"
+              />
+              <span>本计划不再提示</span>
+            </label>
+            <div class="mt-6 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                class="rounded-lg px-4 py-2 text-sm font-semibold text-[#61896f] hover:bg-emerald-50/60"
+                data-testid="plan-continuation-hint-close"
+                @click="continuationHintOpen = false"
+              >
+                稍后
+              </button>
+              <button
+                type="button"
+                class="rounded-lg bg-[#111813] px-4 py-2 text-sm font-bold text-white hover:bg-[#0d1410]"
+                data-testid="plan-continuation-hint-ok"
+                @click="acknowledgeContinuationHint()"
+              >
+                知道了
+              </button>
+            </div>
+          </div>
+        </Transition>
+      </div>
+    </Transition>
 
     <div class="mx-auto w-full max-w-6xl p-4 sm:p-6 lg:p-6">
       <nav
@@ -1088,6 +1372,30 @@ watch(
               {{ plan.parentPlan.goal }}
             </router-link>
           </p>
+          <div
+            v-if="
+              !isDraft &&
+              plan.childPlans &&
+              plan.childPlans.length > 0
+            "
+            class="mt-2 w-full text-[13px] leading-relaxed text-[#5a6f62]"
+            data-testid="plan-detail-child-plans"
+          >
+            <span class="font-medium text-[#3d5246]">后续计划</span>
+            <span class="text-[#7a8a82]">
+              （可多次从本计划创建；按创建顺序列出）
+            </span>
+            <ul class="mt-1.5 list-inside list-decimal space-y-1">
+              <li v-for="c in plan.childPlans" :key="c.id">
+                <router-link
+                  class="font-semibold text-[#0a8f4a] underline decoration-[#dbe6df] underline-offset-2"
+                  :to="{ name: 'plan-detail', params: { id: c.id } }"
+                >
+                  {{ c.goal }}
+                </router-link>
+              </li>
+            </ul>
+          </div>
           <span
             v-if="plan.status === 'active' && !isArchived && isPastPlanDeadline"
             class="inline-flex items-center rounded-full bg-orange-50 px-2.5 py-0.5 text-[11px] font-bold text-orange-900 ring-1 ring-orange-200/90"
@@ -1100,7 +1408,7 @@ watch(
             class="mt-2 w-full text-[13px] leading-relaxed text-[#5a6f62]"
             data-testid="plan-detail-phase-hint"
           >
-            当前在「执行」阶段：在下方打卡表中按各时间槽提交说明与证明；已逾期的计划截止日也仍可补记，状态与表中一致。
+            你现在处在执行阶段：按下方的打卡段逐项提交说明和证明。即使超过截止日也可以补记，我们会按真实提交情况展示状态。
           </p>
           <p
             v-if="isArchived"
@@ -1133,9 +1441,18 @@ watch(
           <div class="min-w-0 flex-1">
             <p class="text-sm font-semibold text-[#2a3832]">下一步迭代方向</p>
             <p class="mt-1 text-xs text-[#61896f]">
-              已全部提交打卡后，可用下方内容接续制定新计划；保存后不会影响计划正文。
+              全部打卡提交完成后，可以在这里写下下一阶段要做的事；保存后不会影响当前计划正文。
             </p>
           </div>
+          <button
+            v-if="trimmedNextStepDraft.length === 0"
+            type="button"
+            class="shrink-0 rounded-lg border border-[#dbe6df] bg-white px-3 py-2 text-xs font-semibold text-[#111813] hover:bg-[#f6faf7]"
+            data-testid="btn-expand-next-step"
+            @click="nextStepPanelExpanded = true"
+          >
+            写一下下一步要做什么
+          </button>
           <button
             v-if="showNextPlanQuickAction"
             type="button"
@@ -1143,30 +1460,43 @@ watch(
             data-testid="btn-quick-create-next-plan"
             @click="goCreateNextPlanFromContinuation"
           >
-            一键创建下一步计划
+            用它创建下一步计划
           </button>
         </div>
-        <textarea
-          v-model="nextStepDraft"
-          class="mt-4 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm leading-relaxed"
-          rows="4"
-          :maxlength="NEXT_STEP_MAX_LEN"
-          data-testid="plan-next-step-textarea"
-          placeholder="简述下一阶段要做什么（可为空）；填写并保存后即出现「一键创建」入口。"
-        />
-        <div class="mt-2 flex flex-wrap items-center justify-between gap-2">
-          <p class="text-[11px] text-[#8a978f]">
-            {{ trimmedNextStepDraft.length }}/{{ NEXT_STEP_MAX_LEN }}
-          </p>
-          <button
-            type="button"
-            class="rounded-lg border border-[#dbe6df] bg-[#f6faf7] px-3 py-1.5 text-xs font-semibold text-[#111813] hover:bg-[#eef3ef] disabled:opacity-50"
-            data-testid="btn-save-next-step"
-            :disabled="nextStepSaving"
-            @click="saveNextStepField"
-          >
-            {{ nextStepSaving ? "保存中…" : "保存" }}
-          </button>
+        <div v-if="nextStepPanelExpanded" class="mt-4">
+          <textarea
+            v-model="nextStepDraft"
+            class="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm leading-relaxed"
+            rows="4"
+            :maxlength="NEXT_STEP_MAX_LEN"
+            data-testid="plan-next-step-textarea"
+            placeholder="简单写下下一阶段要做什么（可选）。保存后会出现「创建下一步计划」入口。"
+          />
+          <div class="mt-2 flex flex-wrap items-center justify-between gap-2">
+            <p class="text-[11px] text-[#8a978f]">
+              {{ trimmedNextStepDraft.length }}/{{ NEXT_STEP_MAX_LEN }}
+            </p>
+            <div class="flex items-center gap-2">
+              <button
+                v-if="trimmedNextStepDraft.length === 0"
+                type="button"
+                class="rounded-lg px-3 py-1.5 text-xs font-semibold text-[#61896f] hover:bg-emerald-50/60"
+                data-testid="btn-collapse-next-step"
+                @click="nextStepPanelExpanded = false"
+              >
+                收起
+              </button>
+              <button
+                type="button"
+                class="rounded-lg border border-[#dbe6df] bg-[#f6faf7] px-3 py-1.5 text-xs font-semibold text-[#111813] hover:bg-[#eef3ef] disabled:opacity-50"
+                data-testid="btn-save-next-step"
+                :disabled="nextStepSaving"
+                @click="saveNextStepField"
+              >
+                {{ nextStepSaving ? "保存中…" : "保存" }}
+              </button>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -1184,7 +1514,11 @@ watch(
               }}
               ·
               <template v-if="!isArchived"
-                >可编辑计划文案；已定稿后在本表按槽提交完成证明（链接附件）。</template
+                >{{
+                  isTravelPlan
+                    ? "可编辑计划文案；执行阶段可勾选完成，并为每段添加旅行记录（文字/附件）。"
+                    : "可编辑计划文案；已定稿后在本表按槽提交完成证明（链接附件）。"
+                }}</template
               >
               <template v-else>已归档，打卡表为只读。</template>
               <template
@@ -1197,18 +1531,22 @@ watch(
             </p>
           </div>
           <p class="text-xs text-[#61896f]">
-            共 {{ checkinSchedule.slots.length }} 个时间槽
+            共 {{ checkinSchedule.slots.length }} 个打卡段
           </p>
         </div>
 
-        <div class="mt-4 hidden overflow-x-auto md:block">
+        <!-- 桌面端：通用表格 / 旅游时间轴 -->
+        <div
+          v-if="!isTravelPlan && !isGeneralPlan"
+          class="mt-4 hidden overflow-x-auto md:block"
+        >
           <table class="w-full min-w-[640px] text-left text-sm">
             <thead
               class="border-b border-slate-200 bg-[#f6faf7] text-xs font-semibold text-[#4a6358]"
             >
               <tr>
                 <th class="whitespace-nowrap px-3 py-3 font-semibold">
-                  时间槽
+                  打卡段
                 </th>
                 <th class="px-3 py-3 font-semibold">计划内容</th>
                 <th class="whitespace-nowrap px-3 py-3 font-semibold">状态</th>
@@ -1321,6 +1659,253 @@ watch(
           </table>
         </div>
 
+        <div
+          v-else-if="isTravelPlan"
+          class="mt-4 hidden md:block"
+          data-testid="travel-itinerary-timeline"
+        >
+          <ol class="relative ml-3 border-l border-slate-200/90">
+            <li
+              v-for="(slot, idx) in checkinSchedule.slots"
+              :key="`tl-${slot.slotKey}`"
+              class="relative pb-5 pl-6"
+              :class="[
+                scheduleRowClass(slot.slotKey),
+                scheduleRowLeftMarkClass(slot.slotKey),
+              ]"
+            >
+              <span
+                class="absolute -left-[10px] top-1.5 inline-flex h-5 w-5 items-center justify-center rounded-full ring-2 ring-white"
+                :class="
+                  slotSubmissions(slot.slotKey).length > 0
+                    ? 'bg-emerald-500'
+                    : isCurrentSlot(slot.slotKey)
+                      ? 'bg-emerald-200'
+                      : 'bg-slate-300'
+                "
+              >
+                <span
+                  v-if="slotSubmissions(slot.slotKey).length > 0"
+                  class="text-[11px] font-black text-white"
+                  aria-hidden="true"
+                  >✓</span
+                >
+              </span>
+
+              <div
+                class="rounded-2xl border border-slate-100 bg-white p-4 shadow-[0_12px_30px_-26px_rgba(12,72,48,0.22)]"
+              >
+                <div class="flex flex-wrap items-start justify-between gap-3">
+                  <div class="min-w-0">
+                    <p class="text-xs font-semibold tracking-[0.08em] text-[#61896f]">
+                      第 {{ idx + 1 }} 天 · {{ slot.slotKey }}
+                      <span
+                        v-if="slot.contentSource === 'edited'"
+                        class="ml-2 inline-flex rounded-full bg-[#f1f5f3] px-2 py-0.5 text-[10px] font-bold text-[#2a3832]"
+                      >
+                        已编辑
+                      </span>
+                    </p>
+                    <p
+                      class="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-[#111813]"
+                    >
+                      {{ slot.content }}
+                    </p>
+                    <div class="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                      <span
+                        class="inline-flex items-center rounded-full px-2.5 py-0.5 font-bold"
+                        :class="slotCheckinStatePillClass(slot.slotKey)"
+                        :data-testid="`schedule-slot-status-${slot.slotKey}`"
+                      >
+                        {{ slotCheckinStateLabel(slot.slotKey) }}
+                      </span>
+                      <button
+                        type="button"
+                        class="max-w-[26rem] truncate font-semibold underline decoration-[#dbe6df] underline-offset-2 transition hover:text-[#0a8f4a] hover:decoration-[#0a8f4a]/40"
+                        :class="
+                          slotSubmissions(slot.slotKey).length
+                            ? 'text-[#2a3832]'
+                            : 'pointer-events-none no-underline text-[#2a3832]/70'
+                        "
+                        data-testid="schedule-slot-submission-history"
+                        @click="openSubmissionHistory(slot.slotKey, slot.content)"
+                      >
+                        {{ slotSubmissionSummary(slot.slotKey) }}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="flex flex-wrap justify-end gap-2">
+                    <button
+                      v-if="canSubmitCheckin"
+                      type="button"
+                      class="rounded-xl border border-[#0a8f4a]/35 bg-emerald-50/90 px-3 py-2 text-xs font-bold text-[#0b5c34] hover:bg-emerald-100 disabled:opacity-50"
+                      :disabled="scheduleSaving || checkinSaving"
+                      data-testid="schedule-slot-travel-toggle"
+                      @click="toggleTravelSlotCompletion(slot.slotKey)"
+                    >
+                      {{
+                        slotSubmissions(slot.slotKey).length > 0
+                          ? "撤销完成"
+                          : "勾选完成"
+                      }}
+                    </button>
+                    <button
+                      v-if="canSubmitCheckin"
+                      type="button"
+                      class="rounded-xl border border-[#dbe6df] bg-white px-3 py-2 text-xs font-bold text-[#111813] hover:bg-[#f6f8f6] disabled:opacity-50"
+                      :disabled="scheduleSaving || checkinSaving"
+                      data-testid="schedule-slot-travel-add-record"
+                      @click="openTravelRecordDrawer(slot.slotKey, slot.content)"
+                    >
+                      添加记录
+                    </button>
+
+                    <!-- 测试与无样式降级兜底：保留可点击的编辑入口（视觉上隐藏，主入口在「更多」中） -->
+                    <button
+                      v-if="
+                        !isArchived && !slotHasPassedSubmission(slot.slotKey)
+                      "
+                      type="button"
+                      class="sr-only"
+                      :disabled="scheduleSaving"
+                      data-testid="schedule-slot-edit"
+                      @click="openScheduleEdit(slot.slotKey, slot.content)"
+                    >
+                      编辑
+                    </button>
+                    <UiMoreDropdown
+                      v-if="
+                        !isArchived && slotMoreActions(slot.slotKey).length > 0
+                      "
+                      :actions="slotMoreActions(slot.slotKey)"
+                      @action="
+                        (k) => {
+                          if (k === 'edit')
+                            openScheduleEdit(slot.slotKey, slot.content);
+                          else if (k === 'restore')
+                            restoreScheduleSlot(slot.slotKey);
+                          else if (k === 'withdrawAppeal')
+                            withdrawSlotAppeal(slot.slotKey);
+                        }
+                      "
+                    />
+                  </div>
+                </div>
+              </div>
+            </li>
+          </ol>
+        </div>
+
+        <!-- general：checkbox-only，桌面端走同一时间轴但仅支持文字备注 -->
+        <div
+          v-else
+          class="mt-4 hidden md:block"
+          data-testid="general-checkbox-timeline"
+        >
+          <ol class="relative ml-3 border-l border-slate-200/90">
+            <li
+              v-for="(slot, idx) in checkinSchedule.slots"
+              :key="`gl-${slot.slotKey}`"
+              class="relative pb-5 pl-6"
+              :class="[
+                scheduleRowClass(slot.slotKey),
+                scheduleRowLeftMarkClass(slot.slotKey),
+              ]"
+            >
+              <span
+                class="absolute -left-[10px] top-1.5 inline-flex h-5 w-5 items-center justify-center rounded-full ring-2 ring-white"
+                :class="
+                  slotSubmissions(slot.slotKey).length > 0
+                    ? 'bg-emerald-500'
+                    : isCurrentSlot(slot.slotKey)
+                      ? 'bg-emerald-200'
+                      : 'bg-slate-300'
+                "
+              >
+                <span
+                  v-if="slotSubmissions(slot.slotKey).length > 0"
+                  class="text-[11px] font-black text-white"
+                  aria-hidden="true"
+                  >✓</span
+                >
+              </span>
+
+              <div
+                class="rounded-2xl border border-slate-100 bg-white p-4 shadow-[0_12px_30px_-26px_rgba(12,72,48,0.22)]"
+              >
+                <div class="flex flex-wrap items-start justify-between gap-3">
+                  <div class="min-w-0">
+                    <p class="text-xs font-semibold tracking-[0.08em] text-[#61896f]">
+                      第 {{ idx + 1 }} 天 · {{ slot.slotKey }}
+                      <span
+                        v-if="slot.contentSource === 'edited'"
+                        class="ml-2 inline-flex rounded-full bg-[#f1f5f3] px-2 py-0.5 text-[10px] font-bold text-[#2a3832]"
+                      >
+                        已编辑
+                      </span>
+                    </p>
+                    <p
+                      class="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-[#111813]"
+                    >
+                      {{ slot.content }}
+                    </p>
+                    <div class="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                      <span
+                        class="inline-flex items-center rounded-full px-2.5 py-0.5 font-bold"
+                        :class="slotCheckinStatePillClass(slot.slotKey)"
+                        :data-testid="`schedule-slot-status-${slot.slotKey}`"
+                      >
+                        {{ slotCheckinStateLabel(slot.slotKey) }}
+                      </span>
+                      <button
+                        type="button"
+                        class="max-w-[26rem] truncate font-semibold underline decoration-[#dbe6df] underline-offset-2 transition hover:text-[#0a8f4a] hover:decoration-[#0a8f4a]/40"
+                        :class="
+                          slotSubmissions(slot.slotKey).length
+                            ? 'text-[#2a3832]'
+                            : 'pointer-events-none no-underline text-[#2a3832]/70'
+                        "
+                        data-testid="schedule-slot-submission-history"
+                        @click="openSubmissionHistory(slot.slotKey, slot.content)"
+                      >
+                        {{ slotSubmissionSummary(slot.slotKey) }}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="flex flex-wrap justify-end gap-2">
+                    <button
+                      v-if="canSubmitCheckin"
+                      type="button"
+                      class="rounded-xl border border-[#0a8f4a]/35 bg-emerald-50/90 px-3 py-2 text-xs font-bold text-[#0b5c34] hover:bg-emerald-100 disabled:opacity-50"
+                      :disabled="scheduleSaving || checkinSaving"
+                      data-testid="schedule-slot-general-toggle"
+                      @click="toggleTravelSlotCompletion(slot.slotKey)"
+                    >
+                      {{
+                        slotSubmissions(slot.slotKey).length > 0
+                          ? "撤销完成"
+                          : "勾选完成"
+                      }}
+                    </button>
+                    <button
+                      v-if="canSubmitCheckin"
+                      type="button"
+                      class="rounded-xl border border-[#dbe6df] bg-white px-3 py-2 text-xs font-bold text-[#111813] hover:bg-[#f6f8f6] disabled:opacity-50"
+                      :disabled="scheduleSaving || checkinSaving"
+                      data-testid="schedule-slot-general-add-note"
+                      @click="openGeneralNoteDrawer(slot.slotKey, slot.content)"
+                    >
+                      添加备注
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </li>
+          </ol>
+        </div>
+
         <div class="mt-4 grid gap-3 md:hidden">
           <article
             v-for="slot in checkinSchedule.slots"
@@ -1378,7 +1963,7 @@ watch(
               </div>
               <div class="flex flex-wrap gap-2">
                 <button
-                  v-if="canSubmitCheckin"
+                  v-if="canSubmitCheckin && !isTravelPlan"
                   type="button"
                   class="rounded-lg border border-[#0a8f4a]/35 bg-emerald-50/90 px-3 py-1.5 text-xs font-bold text-[#0b5c34] hover:bg-emerald-100 disabled:opacity-50"
                   :disabled="scheduleSaving || checkinSaving"
@@ -1386,6 +1971,30 @@ watch(
                   @click="openCheckinSubmit(slot.slotKey, slot.content)"
                 >
                   提交证明
+                </button>
+                <button
+                  v-if="canSubmitCheckin && isTravelPlan"
+                  type="button"
+                  class="rounded-lg border border-[#0a8f4a]/35 bg-emerald-50/90 px-3 py-1.5 text-xs font-bold text-[#0b5c34] hover:bg-emerald-100 disabled:opacity-50"
+                  :disabled="scheduleSaving || checkinSaving"
+                  data-testid="schedule-slot-travel-toggle-mobile"
+                  @click="toggleTravelSlotCompletion(slot.slotKey)"
+                >
+                  {{
+                    slotSubmissions(slot.slotKey).length > 0
+                      ? "撤销完成"
+                      : "勾选完成"
+                  }}
+                </button>
+                <button
+                  v-if="canSubmitCheckin && isTravelPlan"
+                  type="button"
+                  class="rounded-lg border border-[#dbe6df] bg-white px-3 py-1.5 text-xs font-bold text-[#111813] hover:bg-[#f6f8f6] disabled:opacity-50"
+                  :disabled="scheduleSaving || checkinSaving"
+                  data-testid="schedule-slot-travel-add-record-mobile"
+                  @click="openTravelRecordDrawer(slot.slotKey, slot.content)"
+                >
+                  添加记录
                 </button>
                 <button
                   v-if="!isArchived && !slotHasPassedSubmission(slot.slotKey)"
@@ -1492,7 +2101,7 @@ watch(
             <div>
               <h3 class="text-base font-bold">编辑打卡内容</h3>
               <p class="mt-1 text-xs text-[#61896f]">
-                时间槽：{{ scheduleEditSlotKey }}
+                打卡段：{{ scheduleEditSlotKey }}
               </p>
             </div>
             <button
@@ -1557,7 +2166,7 @@ watch(
               <p
                 class="mt-1 font-mono text-[11px] font-semibold text-[#61896f]"
               >
-                时间槽 {{ checkinSlotKey }}
+                打卡段 {{ checkinSlotKey }}
               </p>
             </div>
             <button
@@ -1743,7 +2352,7 @@ watch(
             </details>
 
             <section
-              v-if="checkinReview && !checkinReview.passed"
+              v-if="!isTravelPlan && checkinReview && !checkinReview.passed"
               class="mt-4 rounded-xl border border-amber-200/90 bg-amber-50/90 px-3 py-3 sm:px-4"
               data-testid="schedule-checkin-review-panel"
             >
@@ -1768,7 +2377,7 @@ watch(
             </section>
 
             <section
-              v-if="checkinReview && !checkinReview.passed"
+              v-if="!isTravelPlan && checkinReview && !checkinReview.passed"
               class="mt-3 rounded-xl border border-rose-200/90 bg-rose-50/80 px-3 py-3 sm:px-4"
               data-testid="schedule-checkin-appeal-panel"
             >
@@ -1858,7 +2467,7 @@ watch(
             v-model="publishForm.category"
             type="text"
             class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-            placeholder="如 study / work / fitness"
+            placeholder="如 study / travel / general"
           />
           <label class="mt-3 block text-sm font-medium">标签（逗号分隔）</label>
           <input
@@ -1908,7 +2517,6 @@ watch(
       <UiConfirmDialog
         v-model="confirmArchiveOpen"
         title="将计划移入归档？"
-        description="归档后将从「我的计划」列表中隐藏，且不能继续打卡或编辑排期；可随时在「归档」页或本页恢复执行。"
         confirm-text="确认归档"
         cancel-text="取消"
         :loading="archiveSubmitting"
@@ -1916,14 +2524,233 @@ watch(
         data-testid="confirm-archive-dialog"
         @confirm="submitArchivePlan"
         @cancel="confirmArchiveOpen = false"
-      />
+      >
+        <template #description>
+          <div
+            class="mt-2 space-y-1 text-sm text-stone-600"
+            data-testid="archive-explain"
+          >
+            <p>归档后会移出「我的计划」，进入「归档」。</p>
+            <p>归档后仅可查看，不能打卡/编辑/申诉。</p>
+            <p>需要继续时可随时「移回我的计划」。</p>
+          </div>
+        </template>
+      </UiConfirmDialog>
 
       <UiCheckinSubmissionDrawer
         v-model="submissionDrawerOpen"
         :slot-key="submissionDrawerSlotKey"
         :plan-text="submissionDrawerPlanText"
         :submissions="slotSubmissions(submissionDrawerSlotKey)"
-      />
+        :title="isTravelPlan ? '旅行记录' : undefined"
+        :slot-prefix-label="isTravelPlan ? '本段行程' : undefined"
+        :tip-text="
+          isTravelPlan
+            ? '可添加本段旅行的文字说明与附件（可选）；也可仅勾选完成。'
+            : undefined
+        "
+      >
+        <template v-if="isTravelPlan" #composer>
+          <section
+            class="rounded-2xl border border-slate-100 bg-white p-4 shadow-[0_10px_24px_-20px_rgba(12,72,48,0.2)]"
+            data-testid="travel-record-composer"
+          >
+            <div class="flex flex-wrap items-start justify-between gap-3">
+              <div class="min-w-0">
+                <p class="text-sm font-extrabold text-[#0f1f16]">添加记录</p>
+                <p class="mt-1 text-xs leading-relaxed text-[#61896f]">
+                  可选填文字说明、上传附件或添加链接（至少填一项）。
+                </p>
+              </div>
+              <button
+                type="button"
+                class="shrink-0 rounded-xl bg-[#111813] px-4 py-2 text-xs font-bold text-white hover:bg-[#0d1410] disabled:opacity-50"
+                :disabled="checkinSaving || checkinFileUploading"
+                data-testid="travel-record-submit"
+                @click="submitCheckin"
+              >
+                {{ checkinSaving ? "提交中…" : "提交" }}
+              </button>
+            </div>
+
+            <div class="mt-4">
+              <p class="text-xs font-bold text-[#2a3832]">上传附件</p>
+              <label
+                class="mt-2 flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed px-4 py-6 text-center transition"
+                :class="
+                  checkinDropActive
+                    ? 'border-[#0a8f4a] bg-emerald-50/70 ring-2 ring-[#0a8f4a]/25'
+                    : 'border-[#c5d9ce] bg-[#fbfcfb] hover:border-[#8fbc9f] hover:bg-[#f4f9f6]'
+                "
+                @dragenter.prevent="checkinDropActive = true"
+                @dragover.prevent="checkinDropActive = true"
+                @dragleave.prevent="checkinDropActive = false"
+                @drop.prevent="onCheckinDrop"
+              >
+                <span class="text-sm font-semibold text-[#1a3d2e]">
+                  {{
+                    checkinFileUploading
+                      ? checkinUploadProgress
+                        ? `正在上传 ${checkinUploadProgress}…`
+                        : "正在上传…"
+                      : "将文件拖到这里，或点击选择"
+                  }}
+                </span>
+                <span class="mt-1.5 text-xs text-[#61896f]">
+                  支持多文件；单文件不超过 15MB
+                </span>
+                <input
+                  type="file"
+                  class="sr-only"
+                  multiple
+                  accept="image/*"
+                  data-testid="travel-record-upload-input"
+                  :disabled="checkinFileUploading"
+                  @change="
+                    void onCheckinFilesPicked(
+                      ($event.target as HTMLInputElement).files,
+                    );
+                    ($event.target as HTMLInputElement).value = '';
+                  "
+                />
+              </label>
+
+              <ul
+                v-if="checkinUploadedFiles.length > 0"
+                class="mt-3 flex flex-wrap gap-2"
+                aria-label="已上传的附件"
+              >
+                <li
+                  v-for="(row, idx) in checkinUploadedFiles"
+                  :key="`travel-up-${idx}-${row.url}`"
+                  class="inline-flex max-w-full items-center gap-1 rounded-full border border-slate-200 bg-white py-1 pl-2.5 pr-1 text-xs font-medium text-[#2a3832] shadow-sm"
+                >
+                  <span
+                    class="max-w-[200px] truncate"
+                    :title="row.fileName || row.url"
+                    >{{ row.fileName || "附件" }}</span
+                  >
+                  <button
+                    type="button"
+                    class="rounded-full p-0.5 text-[#61896f] hover:bg-slate-100 hover:text-[#7b2f28]"
+                    :aria-label="`移除 ${row.fileName || '附件'}`"
+                    @click="removeCheckinUploaded(idx)"
+                  >
+                    ×
+                  </button>
+                </li>
+              </ul>
+            </div>
+
+            <div class="mt-4">
+              <label class="text-xs font-bold text-[#2a3832]" for="travel-record-note"
+                >文字说明</label
+              >
+              <textarea
+                id="travel-record-note"
+                v-model="checkinContent"
+                rows="3"
+                class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm leading-relaxed text-[#111813] placeholder:text-slate-400 focus:border-[#4d7a63] focus:outline-none focus:ring-1 focus:ring-[#4d7a63]/40"
+                placeholder="补充本段旅行的记录（可选）。"
+              />
+            </div>
+
+            <details
+              class="checkin-link-details mt-4 rounded-xl border border-slate-200/90 bg-[#fbfcfb]"
+            >
+              <summary
+                class="cursor-pointer list-none px-3 py-2.5 text-sm font-semibold text-[#2a3832] marker:content-none [&::-webkit-details-marker]:hidden"
+              >
+                <span class="inline-flex items-center gap-2">
+                  <span class="checkin-details-chevron text-[#61896f]">▸</span>
+                  添加链接
+                </span>
+              </summary>
+              <div class="border-t border-slate-100 px-3 pb-3 pt-1">
+                <p class="mb-2 text-xs text-[#61896f]">
+                  填写可访问的 https 链接；显示名称仅作展示。
+                </p>
+                <div class="space-y-2">
+                  <div
+                    v-for="(row, idx) in checkinManualLinks"
+                    :key="`travel-link-${idx}`"
+                    class="flex flex-col gap-2 sm:flex-row sm:items-center"
+                  >
+                    <input
+                      v-model="row.url"
+                      type="url"
+                      class="min-w-0 flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                      placeholder="https://…"
+                      inputmode="url"
+                    />
+                    <div class="flex shrink-0 items-center gap-2 sm:w-auto">
+                      <input
+                        v-model="row.fileName"
+                        type="text"
+                        class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm sm:w-36"
+                        placeholder="显示名（可选）"
+                      />
+                      <button
+                        v-if="checkinManualLinks.length > 1"
+                        type="button"
+                        class="rounded-lg px-2 py-1.5 text-xs font-semibold text-[#61896f] hover:bg-slate-100"
+                        @click="removeCheckinManualRow(idx)"
+                      >
+                        删行
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  class="mt-2 text-xs font-bold text-[#0f8b4e] hover:underline"
+                  @click="addCheckinManualLinkRow"
+                >
+                  + 再加一行链接
+                </button>
+              </div>
+            </details>
+          </section>
+        </template>
+
+        <template v-else-if="isGeneralPlan" #composer>
+          <section
+            class="rounded-2xl border border-slate-100 bg-white p-4 shadow-[0_10px_24px_-20px_rgba(12,72,48,0.2)]"
+            data-testid="general-note-composer"
+          >
+            <div class="flex flex-wrap items-start justify-between gap-3">
+              <div class="min-w-0">
+                <p class="text-sm font-extrabold text-[#0f1f16]">添加备注</p>
+                <p class="mt-1 text-xs leading-relaxed text-[#61896f]">
+                  可选写一句话（不支持附件/链接）；不影响完成状态。
+                </p>
+              </div>
+              <button
+                type="button"
+                class="shrink-0 rounded-xl bg-[#111813] px-4 py-2 text-xs font-bold text-white hover:bg-[#0d1410] disabled:opacity-50"
+                :disabled="checkinSaving"
+                data-testid="general-note-submit"
+                @click="submitGeneralNote"
+              >
+                {{ checkinSaving ? "提交中…" : "提交" }}
+              </button>
+            </div>
+
+            <div class="mt-4">
+              <label class="text-xs font-bold text-[#2a3832]" for="general-note">
+                备注
+              </label>
+              <textarea
+                id="general-note"
+                v-model="checkinContent"
+                rows="3"
+                class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm leading-relaxed text-[#111813] placeholder:text-slate-400 focus:border-[#4d7a63] focus:outline-none focus:ring-1 focus:ring-[#4d7a63]/40"
+                placeholder="例如：今天按时完成了最小行动。"
+              />
+            </div>
+          </section>
+        </template>
+      </UiCheckinSubmissionDrawer>
     </div>
   </div>
 </template>

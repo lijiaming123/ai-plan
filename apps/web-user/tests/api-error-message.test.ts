@@ -14,20 +14,20 @@ describe('api-error-message', () => {
     ).toBe(true);
   });
 
-  it('formatHttpApiUserMessage 应对数据库错误返回中文且不包含路径', () => {
+  it('formatHttpApiUserMessage 应对数据库错误返回用户可读中文且不暴露技术细节', () => {
     const zh = formatHttpApiUserMessage(
       500,
       "Invalid `prisma.plan.findMany()` invocation ... Can't reach database server at 'localhost:5432'",
     );
-    expect(zh).toContain('数据库');
-    expect(zh).not.toMatch(/prisma|localhost|5432/i);
+    expect(zh).toContain('服务暂时不可用');
+    expect(zh).not.toMatch(/prisma|localhost|5432|数据库/i);
   });
 
   it('formatHttpApiUserMessage 应对常见状态码返回固定中文', () => {
-    expect(formatHttpApiUserMessage(400, 'bad')).toBe('请求参数有误，请检查后重试。');
-    expect(formatHttpApiUserMessage(401, '')).toBe('登录已失效，请重新登录。');
+    expect(formatHttpApiUserMessage(400, 'bad')).toBe('提交的信息有点问题，请检查后再试。');
+    expect(formatHttpApiUserMessage(401, '')).toBe('登录状态已过期，请重新登录。');
     expect(formatHttpApiUserMessage(404, '')).toBe('请求的资源不存在。');
-    expect(formatHttpApiUserMessage(409, '')).toBe('资源状态已变更或发生冲突，请刷新后重试。');
+    expect(formatHttpApiUserMessage(409, '')).toBe('内容已更新或发生冲突，请刷新后重试。');
   });
 
   it('formatHttpApiUserMessage 应透传后端中文 message', () => {
@@ -36,7 +36,7 @@ describe('api-error-message', () => {
 
   it('formatApiErrorForUser 应解析历史 Request failed 文案', () => {
     expect(formatApiErrorForUser(new Error('Request failed: 400 - x'))).toBe(
-      '请求参数有误，请检查后重试。',
+      '提交的信息有点问题，请检查后再试。',
     );
   });
 

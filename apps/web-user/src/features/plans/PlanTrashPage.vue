@@ -54,7 +54,7 @@ async function loadDeletedPlans() {
     deletedPlans.value = plans.map(rowToCard);
   } catch (e) {
     errorToastMessage.value =
-      e instanceof Error ? e.message : "加载最近删除失败";
+      e instanceof Error ? e.message : "没能加载最近删除，请稍后再试";
     deletedPlans.value = [];
   } finally {
     listLoading.value = false;
@@ -75,7 +75,7 @@ async function onRestore(plan: Pick<DeletedPlanCard, "id">) {
     }, 3200);
   } catch (e) {
     errorToastMessage.value =
-      e instanceof Error ? e.message : "恢复计划失败";
+      e instanceof Error ? e.message : "没恢复成功，请稍后再试";
   }
 }
 

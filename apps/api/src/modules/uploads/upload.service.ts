@@ -29,6 +29,21 @@ const ALLOWED_MIMES = new Set(Object.keys(MIME_TO_EXT));
 export const STORED_FILE_RE =
   /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}\.(jpg|png|gif|webp|pdf|doc|docx|txt|md|csv)$/i;
 
+export function tryParseStoredFileName(rawUrlOrPath: string): string | null {
+  // 允许：相对路径 /files/<name>；或绝对 URL（只取 pathname）
+  let pathname = '';
+  try {
+    if (rawUrlOrPath.startsWith('/')) pathname = rawUrlOrPath;
+    else pathname = new URL(rawUrlOrPath).pathname;
+  } catch {
+    return null;
+  }
+  if (!pathname.startsWith('/files/')) return null;
+  const name = pathname.slice('/files/'.length).trim();
+  if (!STORED_FILE_RE.test(name)) return null;
+  return name;
+}
+
 export function getUploadRoot(): string {
   const env = process.env.UPLOAD_DIR?.trim();
   if (env) return resolve(env);

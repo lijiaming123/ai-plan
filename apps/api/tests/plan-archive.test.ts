@@ -92,9 +92,10 @@ describeDb("plan archive / unarchive", () => {
 
   it("POST archive 后：GET /plans 不含；GET /plans/archive 含；详情 status 为 archived", async () => {
     const token = await loginUserToken();
+    const goal = `archive-flow-${Date.now()}`;
     const planId = await createAndConfirmPlan({
       token,
-      goal: `archive-flow-${Date.now()}`,
+      goal,
     });
 
     const arc = await app.inject({
@@ -115,7 +116,7 @@ describeDb("plan archive / unarchive", () => {
 
     const archived = await app.inject({
       method: "GET",
-      url: "/plans/archive",
+      url: `/plans/archive?search=${encodeURIComponent(goal)}`,
       headers: { authorization: `Bearer ${token}` },
     });
     expect(archived.statusCode).toBe(200);

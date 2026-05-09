@@ -26,6 +26,8 @@ type PlanCard = {
   type: string;
   /** 封面改为无图视觉锚点；保留字段便于后续迁移真实数据 */
   image: string;
+  /** 执行中：今天应打卡但未提交（用于进度环红色提醒） */
+  todayMissing?: boolean;
 };
 
 const plans = ref<PlanCard[]>([]);
@@ -77,6 +79,7 @@ const TITLE_COLOR_CLASSES = [
   "text-indigo-700",
   "text-violet-700",
   "text-blue-700",
+  "text-teal-700",
   "text-orange-700",
   "text-rose-700",
   "text-amber-800",
@@ -88,6 +91,7 @@ const TYPE_TO_TITLE_COLOR: Record<
 > = {
   general: "text-slate-800",
   study: "text-sky-700",
+  travel: "text-teal-700",
   work: "text-indigo-700",
   exam: "text-violet-700",
   fitness: "text-orange-700",
@@ -146,6 +150,16 @@ function rowToCard(row: PlanListRow): PlanCard {
     type: row.type,
     goal: row.goal ?? "",
   });
+  const completed = row.completed === true;
+  const startIso = row.startDate ?? row.createdAt ?? row.deadline;
+  const startMs = utcDayMsFromIso(startIso);
+  const now = new Date();
+  const nowMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const notStarted = startMs != null && nowMs < startMs;
+  const timeProgress = computeTimeProgressPercent({
+    startIso: row.createdAt ?? row.deadline,
+    endIso: row.deadline,
+  });
   return {
     id: row.id,
     title: row.goal,
@@ -153,13 +167,32 @@ function rowToCard(row: PlanListRow): PlanCard {
     coverLine,
     deadline,
     image: "",
-    progress: computeTimeProgressPercent({
-      startIso: row.createdAt ?? row.deadline,
-      endIso: row.deadline,
-    }),
-    status: "执行中",
+    progress: completed ? 100 : timeProgress,
+    status: completed ? "已完成" : notStarted ? "未开始" : "执行中",
     type: row.type,
+    todayMissing: row.todayMissing === true,
   };
+}
+
+function ringStyle(plan: Pick<PlanCard, "progress" | "status" | "todayMissing">) {
+  const pct = Math.max(0, Math.min(100, plan.progress));
+  const danger = plan.status === "执行中" && plan.todayMissing === true;
+  const done = plan.status === "已完成";
+  const main = danger
+    ? "rgba(244, 63, 94, 0.95)"
+    : done
+      ? "rgba(16, 185, 129, 0.95)"
+      : "rgba(16, 185, 129, 0.95)";
+  const muted = danger
+    ? "rgba(244, 63, 94, 0.16)"
+    : done
+      ? "rgba(16, 185, 129, 0.14)"
+      : "rgba(16, 185, 129, 0.14)";
+  return {
+    "--p": `${pct}`,
+    "--ring-main": main,
+    "--ring-muted": muted,
+  } as Record<string, string>;
 }
 
 async function loadPlans() {
@@ -743,9 +776,7 @@ watch(
             <div class="plan-cover-inner flex items-center gap-4 px-5 py-4">
               <div
                 class="plan-ring-wrap shrink-0"
-                :style="{
-                  '--p': `${Math.max(0, Math.min(100, plan.progress))}`,
-                }"
+                :style="ringStyle(plan)"
               >
                 <div class="plan-ring" aria-hidden="true" />
                 <div class="plan-ring-text" aria-hidden="true">
@@ -810,10 +841,6 @@ watch(
                 class="flex flex-wrap items-center justify-between gap-2 text-xs font-semibold text-stone-500"
               >
                 <span class="inline-flex items-center gap-1.5">
-                  <span class="tabular-nums text-stone-800"
-                    >{{ plan.progress }}%</span
-                  >
-                  <span class="text-stone-400">·</span>
                   <span>{{ dueText(plan.deadline) }}</span>
                 </span>
                 <span
@@ -850,7 +877,7 @@ watch(
           <template v-if="!listLoading && plans.length === 0 && !searchText">
             <p class="text-lg font-semibold text-stone-800">从这里开始你的第一个计划</p>
             <p class="mt-2 max-w-md text-sm leading-relaxed text-stone-600">
-              定稿后的计划会出现在本页；在「新建计划」里填写目标与要求、生成并确认，即可在详情里按时间槽打卡。全程可随时回到草稿继续改。
+              定稿后的计划会出现在本页；在「新建计划」里填写目标与要求、生成并确认，即可在详情里按打卡段逐项打卡。全程可随时回到草稿继续改。
             </p>
           </template>
           <template v-else-if="searchText">
@@ -1234,8 +1261,8 @@ watch(
   background:
     conic-gradient(
       from 210deg,
-      rgba(16, 185, 129, 0.95) calc(var(--p, 0) * 1%),
-      rgba(16, 185, 129, 0.14) 0
+      var(--ring-main, rgba(16, 185, 129, 0.95)) calc(var(--p, 0) * 1%),
+      var(--ring-muted, rgba(16, 185, 129, 0.14)) 0
     ),
     radial-gradient(
       circle at 35% 35%,

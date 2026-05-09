@@ -383,7 +383,7 @@ function openScheduleSwap(slotKey: string, planVersion: number) {
   const slots = scheduleSlotsForVersion(planVersion);
   const firstOther = slots.find((s) => s.slotKey !== slotKey);
   if (!firstOther) {
-    showError("当前版本可交换的时间槽不足");
+    showError("当前版本可交换的打卡段不足");
     return;
   }
   scheduleSwapVersion.value = planVersion;
@@ -425,7 +425,7 @@ async function refreshDraftBundleOnly(capturedSeq: number) {
     };
   } catch (error) {
     if (capturedSeq !== loadDraftSeq) return;
-    showError(error instanceof Error ? error.message : "刷新草稿失败");
+    showError(error instanceof Error ? error.message : "没能刷新草稿，请稍后再试");
   }
 }
 
@@ -455,7 +455,7 @@ async function saveScheduleEdit() {
     }
     scheduleEditOpen.value = false;
   } catch (e) {
-    showError(e instanceof Error ? e.message : "保存失败");
+    showError(e instanceof Error ? e.message : "没保存成功，请稍后再试");
   } finally {
     scheduleSaving.value = false;
   }
@@ -483,7 +483,7 @@ async function restoreScheduleSlot(slotKey: string, planVersion: number) {
         };
     }
   } catch (e) {
-    showError(e instanceof Error ? e.message : "恢复失败");
+    showError(e instanceof Error ? e.message : "没恢复成功，请稍后再试");
   } finally {
     scheduleSaving.value = false;
   }
@@ -515,7 +515,7 @@ async function submitScheduleSwap() {
     }
     scheduleSwapOpen.value = false;
   } catch (e) {
-    showError(e instanceof Error ? e.message : "交换失败");
+    showError(e instanceof Error ? e.message : "没交换成功，请稍后再试");
   } finally {
     scheduleSwapping.value = false;
   }
@@ -1379,7 +1379,7 @@ onBeforeUnmount(() => {
                     </div>
                     <p class="text-[11px] font-semibold text-[#61896f]">
                       {{ ver.schedule.granularity === "day" ? "按天" : "按周" }}
-                      · 共 {{ ver.schedule.slots.length }} 个时间槽
+                      · 共 {{ ver.schedule.slots.length }} 个打卡段
                     </p>
                   </div>
                   <div
@@ -1391,7 +1391,7 @@ onBeforeUnmount(() => {
                       <div
                         class="grid grid-cols-[148px,minmax(260px,1fr),128px] items-center gap-3 border-b border-[#edf4f0] bg-[#f8fcfa] px-4 py-2 text-[11px] font-black tracking-[0.12em] text-[#4d6a5e]"
                       >
-                        <div>时间槽</div>
+                        <div>打卡段</div>
                         <div>内容</div>
                         <div class="text-right">操作</div>
                       </div>
@@ -1607,7 +1607,7 @@ onBeforeUnmount(() => {
                           ? "按天"
                           : "按周"
                       }}
-                      · 共 {{ selectedSnapshot.schedule.slots.length }} 个时间槽
+                      · 共 {{ selectedSnapshot.schedule.slots.length }} 个打卡段
                     </p>
                   </div>
                   <div
@@ -1619,7 +1619,7 @@ onBeforeUnmount(() => {
                       <div
                         class="grid grid-cols-[148px,minmax(260px,1fr),128px] items-center gap-3 border-b border-[#edf4f0] bg-[#f8fcfa] px-4 py-2 text-[11px] font-black tracking-[0.12em] text-[#4d6a5e]"
                       >
-                        <div>时间槽</div>
+                        <div>打卡段</div>
                         <div>内容</div>
                         <div class="text-right">操作</div>
                       </div>
@@ -1738,7 +1738,7 @@ onBeforeUnmount(() => {
                 编辑打卡内容
               </h2>
               <p class="mt-1 text-xs font-semibold text-[#61896f]">
-                版本 v{{ scheduleEditVersion ?? "—" }} · 时间槽：{{
+                版本 v{{ scheduleEditVersion ?? "—" }} · 打卡段：{{
                   scheduleEditSlotKey
                 }}
               </p>
@@ -1797,7 +1797,7 @@ onBeforeUnmount(() => {
                 交换打卡内容
               </h2>
               <p class="mt-1 text-xs font-semibold text-[#61896f]">
-                版本 v{{ scheduleSwapVersion ?? "—" }} · 仅交换内容，不改变时间槽
+                版本 v{{ scheduleSwapVersion ?? "—" }} · 仅交换内容，不改变打卡段顺序
               </p>
             </div>
             <button
@@ -1811,7 +1811,7 @@ onBeforeUnmount(() => {
           </div>
           <div class="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
             <label class="block text-xs font-semibold text-[#4d6a5e]">
-              当前时间槽
+              当前打卡段
               <select
                 v-model="scheduleSwapSlotKeyA"
                 class="mt-1.5 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
@@ -1826,7 +1826,7 @@ onBeforeUnmount(() => {
               </select>
             </label>
             <label class="block text-xs font-semibold text-[#4d6a5e]">
-              目标时间槽
+              目标打卡段
               <select
                 v-model="scheduleSwapSlotKeyB"
                 class="mt-1.5 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"

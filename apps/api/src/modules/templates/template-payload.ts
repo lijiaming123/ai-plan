@@ -16,7 +16,7 @@ export type TemplatePlanPayload = {
   startDateIso?: string;
 };
 
-const planTypes = ['general', 'study', 'work'] as const;
+const planTypes = ['general', 'study', 'work', 'travel'] as const;
 
 function isGranularityMode(v: unknown): v is GranularityMode {
   return v === 'smart' || v === 'deep' || v === 'rough';
@@ -39,7 +39,7 @@ export function parseTemplatePayload(
     return { ok: false, message: '模板 payload.deadline 必须是有效日期' };
   }
   if (typeof o.type !== 'string' || !planTypes.includes(o.type as (typeof planTypes)[number])) {
-    return { ok: false, message: '模板 payload.type 必须是 general / study / work' };
+    return { ok: false, message: '模板 payload.type 必须是 general / study / work / travel' };
   }
   const granularityMode = isGranularityMode(o.granularityMode) ? o.granularityMode : undefined;
   const startDateIso =

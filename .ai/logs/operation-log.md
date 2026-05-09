@@ -897,3 +897,159 @@
 - apps/api/tests/telemetry-daily-agg.test.ts
 - .ai/progress.md
 - .ai/logs/operation-log.md
+
+## 2026-05-09 15:23:46
+
+- 操作人：用户
+- 操作：用户提示
+- 提示词：「@ai-plan/.cursor/skills/using-superpowers/SKILL.md 请你 针对这个项目@web-user 的模版功能模块，制定一套可落地商用的计划，看看当前的模版有哪些遗漏的东西」
+- 内容：请求对 web-user 模板模块进行商用化计划制定与缺口盘点。
+- 状态：已接收
+- 相关文件：ai-plan/apps/web-user/src/features/templates/TemplatesPage.vue
+
+## 2026-05-09 15:27:30
+
+- 操作人：AI
+- 操作：文档创建
+- 提示词：响应用户「Implement the plan as specified」
+- 内容：在 `ai-plan/.ai/` 记忆目录落盘模板市场（公开 UGC）商用化的 PRD/架构/缺口与风险/里程碑文档，并拆解 Epic/Feature/Story（story-013～020），同时更新进度看板。
+- 状态：成功
+- 相关文件：
+  - ai-plan/.ai/specs/2026-05-09-web-user-template-market-ugc-prd.md
+  - ai-plan/.ai/specs/2026-05-09-web-user-template-market-ugc-arch.md
+  - ai-plan/.ai/specs/2026-05-09-web-user-template-market-ugc-gap-and-risk.md
+  - ai-plan/.ai/specs/2026-05-09-web-user-template-market-ugc-milestones.md
+  - ai-plan/.ai/epics/epic-web-user-template-market-ugc.md
+  - ai-plan/.ai/features/feature-template-governance-lifecycle.md
+  - ai-plan/.ai/features/feature-template-review-and-moderation.md
+  - ai-plan/.ai/features/feature-template-reporting.md
+  - ai-plan/.ai/features/feature-template-audit-telemetry.md
+  - ai-plan/.ai/features/feature-template-anti-abuse.md
+  - ai-plan/.ai/features/feature-template-versioning-and-preview.md
+  - ai-plan/.ai/stories/story-013-template-status-machine-and-pending-review.md
+  - ai-plan/.ai/stories/story-014-author-template-management.md
+  - ai-plan/.ai/stories/story-015-admin-review-queue-and-review-log.md
+  - ai-plan/.ai/stories/story-016-template-report-and-moderation.md
+  - ai-plan/.ai/stories/story-017-template-audit-and-telemetry.md
+  - ai-plan/.ai/stories/story-018-template-rate-limit-and-anti-abuse.md
+  - ai-plan/.ai/stories/story-019-template-versioning-and-apply-binding.md
+  - ai-plan/.ai/stories/story-020-template-detail-and-preview.md
+  - ai-plan/.ai/progress.md
+  - ai-plan/.ai/logs/operation-log.md
+
+## 2026-05-09 15:40:19
+
+- 操作人：AI
+- 操作：Story实施
+- 提示词：响应用户「按这个做」
+- 内容：实施 Story 013（风控命中才审核策略 v1）：在 `publishMarketTemplate` 中加入“最近 60 秒同一作者发布数≥2 则本次转 `pending_review`”的最小风控规则；发布为 `pending_review` 时不写 `publishedAt`；并补齐 API 回归测试覆盖“连续发布第 3 次进入 pending_review”。同时增强模板市场测试隔离：在 `tests/template-market.test.ts` 的 beforeAll 清理该用户残留模板，避免风控计数受历史数据影响。运行 `apps/api` 的 `vitest`（`tests/template-market.test.ts`）确认 6/6 通过。
+- 状态：成功
+- 相关文件：
+  - apps/api/src/modules/templates/market-template.service.ts
+  - apps/api/tests/template-market.test.ts
+  - ai-plan/.ai/logs/operation-log.md
+
+## 2026-05-09 15:49:36
+
+- 操作人：AI
+- 操作：Story实施
+- 提示词：响应用户「按这个做」
+- 内容：实施 Story 015（审核队列 + approve/reject + 审核记录）：新增管理端模板审核路由 `GET /admin/templates/review-queue`、`POST /admin/templates/:id/approve`、`POST /admin/templates/:id/reject`（均需 `templates:review` 权限）；扩展 Prisma：`MarketTemplate` 增加驳回字段（rejectedAt/rejectReasonCode/rejectNote），新增 `TemplateReviewLog` 记录审核动作；新增测试 `tests/admin-template-review.test.ts` 覆盖“待审入队 + approve 发布 + review log 写入”。由于当前环境迁移历史不一致，使用 `prisma db push` 同步库结构并重新生成 Prisma Client。验证：`npm test -- tests/admin-template-review.test.ts` 2/2 通过。补充说明：执行 `apps/api` 全量 `npm test` 时存在 3 个与本改动无关的超时测试（`checkin-reminder` / `plan-next-step-continuation` / `schedule-slot-appeal`），未在本 Story 范围内处理。
+- 状态：成功
+- 相关文件：
+  - apps/api/prisma/schema.prisma
+  - apps/api/src/modules/admin/admin-permissions.ts
+  - apps/api/src/modules/templates/admin-template-review.routes.ts
+  - apps/api/src/app.ts
+  - apps/api/tests/admin-template-review.test.ts
+  - ai-plan/.ai/logs/operation-log.md
+
+## 2026-05-09 16:00:25
+
+- 操作人：AI
+- 操作：Story实施
+- 提示词：响应用户「继续」
+- 内容：实施 Story 016/018：新增模板举报与处置闭环以及发布频控。新增 Prisma `TemplateReport`（open/resolved）并在用户端提供 `POST /templates/market/:id/report` 写入举报；管理端新增 `GET /admin/templates/reports` 查看举报列表（需 `templates:review`），新增 `POST /admin/templates/:id/moderate` 支持 `unpublish/ban` 处置并将 open 举报标记 resolved（需 `templates:moderate`）。同时新增轻量内存限流工具 `hitSimpleRateLimit`，在模板发布 `publishMarketTemplate` 加入“每用户每分钟最多 5 次发布”的基础频控（超限 429）。测试：新增 `tests/template-report.test.ts` 覆盖举报→列表→下架→公开市场不可见；新增 `tests/template-publish-rate-limit.test.ts` 覆盖发布触发 429；两者均通过。
+- 状态：成功
+- 相关文件：
+  - apps/api/prisma/schema.prisma
+  - apps/api/src/modules/admin/admin-permissions.ts
+  - apps/api/src/lib/simple-rate-limit.ts
+  - apps/api/src/modules/templates/template-report.routes.ts
+  - apps/api/src/modules/templates/admin-template-report.routes.ts
+  - apps/api/src/modules/templates/admin-template-moderation.routes.ts
+  - apps/api/src/modules/templates/market-template.service.ts
+  - apps/api/src/app.ts
+  - apps/api/tests/template-report.test.ts
+  - apps/api/tests/template-publish-rate-limit.test.ts
+  - ai-plan/.ai/logs/operation-log.md
+
+## 2026-05-09 16:03:40
+
+- 操作人：AI
+- 操作：测试执行
+- 提示词：响应用户「继续」
+- 内容：为避免模板域测试因并行执行共享同一 demo 用户而出现风控/限流串扰，调整模板相关测试用例使用“独立手机号用户”（通过 Prisma 创建 `User(phone,passwordHash)` 后用 `/auth/login` phone+password 登录获取 token）。验证：运行 `tests/template-market.test.ts tests/admin-template-review.test.ts tests/template-report.test.ts tests/template-publish-rate-limit.test.ts`，共 11/11 通过。
+- 状态：成功
+- 相关文件：
+  - apps/api/tests/template-market.test.ts
+  - apps/api/tests/admin-template-review.test.ts
+  - apps/api/tests/template-report.test.ts
+  - apps/api/tests/template-publish-rate-limit.test.ts
+  - ai-plan/.ai/logs/operation-log.md
+
+## 2026-05-09 16:12:21
+
+- 操作人：AI
+- 操作：Story实施
+- 提示词：响应用户「继续作者侧管理」
+- 内容：实施 Story 014（作者侧模板管理）。API：扩展 `listMyMarketTemplates(scope=created)` 支持返回作者所有状态模板（不再仅限 published），并在列表项补充 `status/rejectedAt/rejectReasonCode/rejectNote` 字段；新增作者接口 `POST /templates/market/:id/unpublish`（下架，status=unpublished，publishedAt=null）与 `PATCH /templates/market/:id`（编辑元信息后触发重新审核：status=pending_review 并清空驳回信息）。新增后端测试 `tests/template-author-manage.test.ts` 3/3 通过。前端：`MarketTemplateBrief` 增加可选审核字段；`TemplateMarketList` 增加 manageMode 与 编辑/下架事件；`TemplatesPage` 在“我的模板/我创建的”启用管理模式并提供编辑弹窗与下架操作；新增/更新 web-user 测试 `tests/template-market.test.ts`（4/4 通过）。\n
+- 状态：成功
+- 相关文件：
+  - apps/api/src/modules/templates/market-template.service.ts
+  - apps/api/src/modules/templates/template-author.routes.ts
+  - apps/api/src/app.ts
+  - apps/api/tests/template-author-manage.test.ts
+  - apps/web-user/src/lib/api-client.ts
+  - apps/web-user/src/features/templates/TemplateMarketList.vue
+  - apps/web-user/src/features/templates/TemplatesPage.vue
+  - apps/web-user/tests/template-market.test.ts
+  - ai-plan/.ai/logs/operation-log.md
+
+## 2026-05-09 16:01:17
+
+- 操作人：AI
+- 操作：文档创建
+- 提示词：响应用户「@ai-plan/.cursor/skills/using-superpowers/SKILL.md 请你针对这个项目 @web-user 的归档模块是否需要给出你的理解（不用强求需要，请你从上线时间成本，用户理解、使用成本等考虑），如果需要，请你制定一下可落地的商用计划。」
+- 内容：在 `ai-plan/.ai/specs/` 落盘「计划归档（Archive）M0（本周内上线）」规格文档，明确归档的产品语义（归档=移出我的计划进入归档、归档后只读、可随时移回）以及最小落地方案（归档前就地解释 + 成功后可操作引导 + 归档页折叠 FAQ），用于降低用户理解与误操作成本。
+- 状态：成功
+- 相关文件：
+  - ai-plan/.ai/specs/2026-05-09-web-user-plan-archive-m0-commercialization.md
+  - ai-plan/.ai/logs/operation-log.md
+
+## 2026-05-09 16:05:34
+
+- 操作人：AI
+- 操作：文档创建
+- 提示词：响应用户「继续」
+- 内容：在 `ai-plan/.ai/plans/` 落盘「计划归档（Archive）M0」实现计划：锁定改动文件（`PlanDetailPage.vue`、`ArchivePage.vue`）与测试文件（`tests/plan-detail-page.test.ts`、`tests/plan-archive-page.test.ts`），按 TDD 拆分为“归档确认弹窗三行说明/归档成功引导按钮/归档页折叠 FAQ/回归验证”四个任务，并给出可直接执行的命令与预期结果。
+- 状态：成功
+- 相关文件：
+  - ai-plan/.ai/plans/2026-05-09-plan-archive-m0-implementation-plan.md
+  - ai-plan/.ai/logs/operation-log.md
+
+## 2026-05-09 16:14:40
+
+- 操作人：AI
+- 操作：Story实施
+- 提示词：响应用户「继续」
+- 内容：按「计划归档（Archive）M0」实现计划落地前端交互：`UiConfirmDialog` 新增 description slot 以支持多行说明；`PlanDetailPage` 的归档确认弹窗增加三行语义说明（去向/只读限制/可恢复）并在归档成功 banner 增加“去归档看看”跳转；`ArchivePage` 新增“了解归档”折叠 FAQ（默认收起）。补齐并通过对应 Vitest 用例（plan-detail / archive page）。同时修复 `web-user` TypeScript typecheck 报错（template-market 测试中对 `wrapper.get()` 的错误用法）。回归：`apps/web-user` 全量 `vitest` 通过，`tsc --noEmit` 通过。
+- 状态：成功
+- 相关文件：
+  - ai-plan/apps/web-user/src/components/UiConfirmDialog.vue
+  - ai-plan/apps/web-user/src/features/plans/PlanDetailPage.vue
+  - ai-plan/apps/web-user/src/features/archive/ArchivePage.vue
+  - ai-plan/apps/web-user/tests/plan-detail-page.test.ts
+  - ai-plan/apps/web-user/tests/plan-archive-page.test.ts
+  - ai-plan/apps/web-user/tests/template-market.test.ts
+  - ai-plan/.ai/logs/operation-log.md

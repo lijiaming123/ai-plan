@@ -42,6 +42,27 @@ describe('telemetry event dictionary v1', () => {
     }
   });
 
+  it('checkin_submit should allow optional variant for funnel analytics', () => {
+    const res = validateAndSanitizeTelemetryEvent({
+      name: 'checkin_submit',
+      time: '2026-05-11T00:00:00.000Z',
+      properties: {
+        planId: 'p1',
+        slotKey: '2026-04-10',
+        variant: 'complete_checkbox',
+        extra: 'drop-me',
+      },
+    });
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.sanitized.properties).toEqual({
+        planId: 'p1',
+        slotKey: '2026-04-10',
+        variant: 'complete_checkbox',
+      });
+    }
+  });
+
   it('should accept newly added high-value frontend events', () => {
     const res = validateAndSanitizeTelemetryEvent({
       name: 'notification_open',

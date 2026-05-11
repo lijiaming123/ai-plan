@@ -30,6 +30,9 @@ describe('SettingsPage 用户中心', () => {
         userId: 'user_demo',
         email: 'a@b.c',
         role: 'user' as const,
+        planTier: 'basic',
+        aiQuota: null,
+        proExpiresAt: null,
       }),
     });
   });

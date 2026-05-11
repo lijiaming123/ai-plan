@@ -105,7 +105,7 @@ describe('TemplatesPage / TemplateMarketList', () => {
     await flushPromises();
 
     // 点击详情应打点并跳转
-    await wrapper2.get('[data-testid="btn-detail"]').trigger('click');
+    await wrapper2.get('[data-testid="market-card-hit-m1"]').trigger('click');
     await flushPromises();
     expect(trackEventMock).toHaveBeenCalledWith('template_detail_click', {
       properties: { templateId: 'm1', from: 'market_list' },

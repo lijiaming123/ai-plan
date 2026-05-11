@@ -42,33 +42,60 @@ const kpiCards = computed(() => {
   ];
 });
 
-/** 近 12 周趋势柱高（8%–100%）；无数据时用占位骨架 */
+const insightTrendWeeksAllZero = computed(() => {
+  const t = insights.value?.weeklyCheckinTrend;
+  if (!t?.length) return false;
+  return t.every((n) => n === 0);
+});
+
+/** 近 12 周趋势柱高（8%–100%）；未加载或无序列时用占位骨架；已加载但全 0 时用平条空态 */
 const sparkHeights = computed(() => {
   const trend = insights.value?.weeklyCheckinTrend;
-  if (!trend?.length || trend.every((n) => n === 0)) {
+  if (!trend?.length) {
     return [38, 52, 44, 68, 55, 72, 48, 61, 58, 49, 64, 56];
+  }
+  if (trend.every((n) => n === 0)) {
+    return trend.map(() => 12);
   }
   const max = Math.max(...trend, 1);
   return trend.map((v) => Math.round(8 + (v / max) * 84));
 });
 
-const trendCaption = computed(() =>
-  insights.value
-    ? "近 12 周打卡提交次数（旧 → 新，末列为当前周）"
-    : "占位骨架 · 接入后将展示完成率 / 打卡次数等序列",
-);
+const trendCaption = computed(() => {
+  if (!insights.value) {
+    return "占位骨架 · 接入后将展示完成率 / 打卡次数等序列";
+  }
+  if (insightTrendWeeksAllZero.value) {
+    return "近 12 周暂无打卡提交记录；在计划详情完成打卡后，这里会随周累计。";
+  }
+  return "近 12 周打卡提交次数（旧 → 新，末列为当前周）";
+});
 
-const trendFootnote = computed(() =>
-  insights.value
-    ? "柱高按各周提交次数相对缩放，可与 KPI 对照查看节奏。"
-    : "柱高仅为视觉占位，不代表当前账户数据",
-);
+const trendFootnote = computed(() => {
+  if (!insights.value) {
+    return "柱高仅为视觉占位，不代表当前账户数据";
+  }
+  if (insightTrendWeeksAllZero.value) {
+    return "当前各周计数均为 0，柱高仅作占位便于对齐布局。";
+  }
+  return "柱高按各周提交次数相对缩放，可与 KPI 对照查看节奏。";
+});
 
-const trendAria = computed(() =>
-  insights.value
-    ? "近十二周每周打卡提交次数柱状示意"
-    : "趋势占位图，非真实数据",
-);
+const trendAria = computed(() => {
+  if (!insights.value) {
+    return "趋势占位图，非真实数据";
+  }
+  if (insightTrendWeeksAllZero.value) {
+    return "近十二周暂无打卡提交，柱状图为空数据占位";
+  }
+  return "近十二周每周打卡提交次数柱状示意";
+});
+
+const trendBadgeLabel = computed(() => {
+  if (!insights.value) return "示例周视图";
+  if (insightTrendWeeksAllZero.value) return "暂无周数据";
+  return "12 周";
+});
 
 async function loadInsights() {
   if (!authState.token) {
@@ -245,7 +272,7 @@ onMounted(() => {
                 aria-hidden="true"
                 >show_chart</span
               >
-              {{ insights ? "12 周" : "示例周视图" }}
+              {{ trendBadgeLabel }}
             </span>
           </div>
           <div

@@ -5,7 +5,7 @@
  * - POST /auth/forgot-password：Body `{ email }`；演示环境不发送邮件，统一返回成功说明（防枚举）。
  * - POST /auth/admin/register：演示自助注册（需 ADMIN_OPEN_REGISTER=true），返回 `{ token }`。
  * - GET /auth/admin/me：需 admin JWT，返回 email / permissions。
- * - GET /auth/me：需 user 角色 JWT，回显 token 中的 sub/email/role（不做库表查询）。
+ * - GET /auth/me：需 user 角色 JWT；返回 sub/email/role，并附带库表 planTier 与本月 aiQuota 摘要（若有 User 行）。
  * - GET /admin/secret：需 admin 角色，健康/探活用途；与 admin.routes 下业务接口分离。
  */
 import type { FastifyInstance } from 'fastify';
@@ -19,6 +19,19 @@ import {
 } from './auth.service';
 import { createCaptchaSession, verifyCaptchaAnswer } from './captcha.service';
 import { normalizePhoneCN, sendOtp, verifyOtp } from './otp.service';
+import {
+  getAiQuotaStatus,
+  resolveEffectivePlanTier,
+} from '../billing/ai-quota.service';
+import { prisma } from '../../lib/prisma';
+
+async function appUserProExpiresAtIso(userId: string): Promise<string | null> {
+  const row = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { proExpiresAt: true },
+  });
+  return row?.proExpiresAt?.toISOString() ?? null;
+}
 
 export async function registerAuthRoutes(fastify: FastifyInstance) {
   /**
@@ -130,6 +143,9 @@ export async function registerAuthRoutes(fastify: FastifyInstance) {
     if (!result.ok) {
       return reply.code(result.code).send({ message: result.message });
     }
+    const planTier = await resolveEffectivePlanTier(result.userId);
+    const aiQuota = await getAiQuotaStatus(result.userId);
+    const proExpiresAt = await appUserProExpiresAtIso(result.userId);
     return {
       token: fastify.jwt.sign({
         sub: result.userId,
@@ -139,6 +155,15 @@ export async function registerAuthRoutes(fastify: FastifyInstance) {
       }),
       phone: result.phone,
       userId: result.userId,
+      planTier,
+      proExpiresAt,
+      aiQuota: aiQuota
+        ? {
+            used: aiQuota.used,
+            limit: aiQuota.limit,
+            yearMonth: aiQuota.yearMonth,
+          }
+        : null,
     };
   });
 
@@ -152,12 +177,24 @@ export async function registerAuthRoutes(fastify: FastifyInstance) {
     if (phone) {
       const appUser = await authenticateAppUserByPhonePassword(phone, password);
       if (appUser) {
+        const planTier = await resolveEffectivePlanTier(appUser.id);
+        const aiQuota = await getAiQuotaStatus(appUser.id);
+        const proExpiresAt = await appUserProExpiresAtIso(appUser.id);
         return {
           token: fastify.jwt.sign({
             sub: appUser.id,
             email: appUser.email,
             role: 'user',
           }),
+          planTier,
+          proExpiresAt,
+          aiQuota: aiQuota
+            ? {
+                used: aiQuota.used,
+                limit: aiQuota.limit,
+                yearMonth: aiQuota.yearMonth,
+              }
+            : null,
         };
       }
       return reply.code(401).send({ message: '手机号或密码错误' });
@@ -189,11 +226,23 @@ export async function registerAuthRoutes(fastify: FastifyInstance) {
       role: 'user' | 'admin';
       permissions?: string[];
     }>();
+    const planTier = await resolveEffectivePlanTier(payload.sub);
+    const aiQuota = await getAiQuotaStatus(payload.sub);
+    const proExpiresAt = await appUserProExpiresAtIso(payload.sub);
     return {
       userId: payload.sub,
       email: payload.email,
       role: payload.role,
       permissions: payload.permissions,
+      planTier,
+      proExpiresAt,
+      aiQuota: aiQuota
+        ? {
+            used: aiQuota.used,
+            limit: aiQuota.limit,
+            yearMonth: aiQuota.yearMonth,
+          }
+        : null,
     };
   });
 

@@ -17,7 +17,7 @@ import {
 import { trackEvent } from "../../lib/telemetry";
 import { renderMarkdownToHtml } from "../../lib/render-markdown";
 import { useCloseOnEscape } from "../../composables/useCloseOnEscape";
-import { authState } from "../../stores/auth";
+import { authState, refreshAuthBillingFromApi } from "../../stores/auth";
 
 type DraftBundle = NonNullable<PlanRecord["draft"]>;
 type DraftVersionSnapshot = DraftBundle["versions"][number];
@@ -797,7 +797,12 @@ async function submitRegenerate() {
         onError: (msg) => {
           if (seq !== loadDraftSeq || planId.value !== id) return;
           rollbackRegeneratePlaceholder(nextV);
-          showError(msg);
+          showError(
+            /次数|用尽|额度/i.test(msg)
+              ? `${msg} · 可在「设置」查看会员与额度`
+              : msg,
+          );
+          void refreshAuthBillingFromApi();
         },
       },
     );

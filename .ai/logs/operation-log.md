@@ -1084,3 +1084,27 @@
   - ai-plan/apps/web-user/tests/plan-archive-page.test.ts
   - ai-plan/apps/web-user/tests/template-market.test.ts
   - ai-plan/.ai/logs/operation-log.md
+
+## 2026-05-11 09:52:42
+
+- 操作人：AI
+- 操作：Story实施
+- 提示词：响应用户「继续执行」
+- 内容：按“概览商用基线”方向实施 web-user 概览页行动摘要：在热力图上方新增“今日待处理 / 已逾期 / 即将截止”三张摘要卡，复用现有 `listPlans` 返回数据推导 todayMissing、completed 与截止日期状态；新增 DashboardPage 组件测试并按 TDD 先确认失败后实现。验证：`npm exec -- vitest run tests/dashboard-page.test.ts -- --pool=forks --maxWorkers=1 --fileParallelism=false` 通过，5 个测试全部通过；`npx tsc -p tsconfig.json --noEmit` 通过；ReadLints 未发现新诊断。
+- 状态：成功
+- 相关文件：
+  - ai-plan/apps/web-user/src/features/dashboard/DashboardPage.vue
+  - ai-plan/apps/web-user/tests/dashboard-page.test.ts
+  - ai-plan/.ai/logs/operation-log.md
+
+## 2026-05-11 10:02:11
+
+- 操作人：AI
+- 操作：Story实施
+- 提示词：响应用户「继续执行」
+- 内容：继续增强 web-user 概览页行动摘要的商用可用性：三张摘要卡从静态展示改为可点击入口；当存在今日待处理/逾期/即将截止计划时直达第一条对应计划详情，无匹配数据时回退到 `/plans?status=in_progress`。新增测试断言今日待处理和已逾期卡片的跳转目标，并按 TDD 先确认失败后实现。验证：`npx vitest run tests/dashboard-page.test.ts --pool=forks --maxWorkers=1 --fileParallelism=false` 通过，5 个测试全部通过；`npx tsc -p tsconfig.json --noEmit` 通过；ReadLints 未发现新诊断。
+- 状态：成功
+- 相关文件：
+  - ai-plan/apps/web-user/src/features/dashboard/DashboardPage.vue
+  - ai-plan/apps/web-user/tests/dashboard-page.test.ts
+  - ai-plan/.ai/logs/operation-log.md

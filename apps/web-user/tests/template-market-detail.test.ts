@@ -70,7 +70,7 @@ describe('TemplateMarketDetailPage', () => {
     expect(getMarketTemplateDetail).toHaveBeenCalledWith({ id: 'm1', token: undefined });
     expect(wrapper.get('[data-testid="detail-title"]').text()).toContain('市场 A');
     expect(wrapper.get('[data-testid="preview-goal"]').text()).toContain('Beta');
-    expect(wrapper.get('[data-testid="preview-type"]').text()).toBe('study');
+    expect(wrapper.get('[data-testid="preview-type"]').text()).toBe('学习');
     // 未登录不应打点
     expect(trackEventMock).not.toHaveBeenCalledWith('template_detail_open', expect.anything());
     clearAuthToken();
@@ -186,6 +186,72 @@ describe('TemplateMarketDetailPage', () => {
         versionId: 'v1',
       },
     });
+    clearAuthToken();
+  });
+
+  it('预设路由应拉取 getPresetTemplateDetail 且套用走 applyPresetTemplate', async () => {
+    trackEventMock.mockReset();
+    clearAuthToken();
+    setAuthToken(demoJwt());
+
+    const getPresetTemplateDetail = vi.fn().mockResolvedValue({
+      id: 'pr1',
+      authorId: 'system',
+      authorName: '系统预设',
+      title: '预设 A',
+      summary: '摘要',
+      category: 'study',
+      tags: [],
+      likeCount: 0,
+      applicationCount: 0,
+      publishedAt: null,
+      preview: {
+        goal: 'G',
+        deadline: '2026-11-01T00:00:00.000Z',
+        requirementExcerpt: '需求正文',
+        type: 'study',
+        granularityMode: 'smart',
+        startDateIso: null,
+        versionId: 'preset:pr1',
+        version: 1,
+        payloadHash: 'preset:v1',
+      },
+    });
+    const getMarketTemplateDetail = vi.fn();
+    const applyPresetTemplate = vi.fn().mockResolvedValue({ planId: 'plan_from_preset' });
+
+    setApiClient({
+      ...createApiClient(),
+      getMarketTemplateDetail,
+      getPresetTemplateDetail,
+      applyPresetTemplate,
+      applyMarketTemplate: vi.fn(),
+    });
+
+    const router = createAppRouter(createMemoryHistory());
+    const push = vi.spyOn(router, 'push');
+    await router.push('/templates/presets/pr1');
+    await router.isReady();
+
+    const wrapper = mount(TemplateMarketDetailPage, { global: { plugins: [router] } });
+    await flushPromises();
+
+    expect(getPresetTemplateDetail).toHaveBeenCalledWith({ id: 'pr1', token: demoJwt() });
+    expect(getMarketTemplateDetail).not.toHaveBeenCalled();
+
+    await wrapper.get('[data-testid="detail-apply"]').trigger('click');
+    await flushPromises();
+
+    expect(applyPresetTemplate).toHaveBeenCalledWith({ id: 'pr1', token: demoJwt() });
+    expect(trackEventMock).toHaveBeenCalledWith('template_use', {
+      properties: {
+        templateId: 'pr1',
+        templateSource: 'preset',
+        planId: 'plan_from_preset',
+        versionId: 'preset:pr1',
+      },
+    });
+    expect(push).toHaveBeenCalledWith('/plans/plan_from_preset');
     clearAuthToken();
   });
 });

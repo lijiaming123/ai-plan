@@ -104,6 +104,21 @@ const primaryNavItems = [
   },
 ] as const;
 
+/** 部署方可将 VITE_FEATURE_ARCHIVE / VITE_FEATURE_INSIGHTS 设为 false 隐藏侧栏入口（默认可用）。 */
+const visiblePrimaryNavItems = computed(() =>
+  primaryNavItems.filter((item) => {
+    if (item.nav === "archive") {
+      const v = import.meta.env.VITE_FEATURE_ARCHIVE as string | undefined;
+      return v !== "false" && v !== "0";
+    }
+    if (item.nav === "insights") {
+      const v = import.meta.env.VITE_FEATURE_INSIGHTS as string | undefined;
+      return v !== "false" && v !== "0";
+    }
+    return true;
+  }),
+);
+
 function goUpgrade() {
   void router.push({ path: "/settings", query: { focus: "pro" } });
 }
@@ -213,7 +228,7 @@ if (typeof window !== "undefined") {
         </div>
         <nav class="ui-scrollbar flex flex-col gap-1 overflow-y-auto pr-0.5">
           <ElTooltip
-            v-for="item in primaryNavItems"
+            v-for="item in visiblePrimaryNavItems"
             :key="item.nav"
             :disabled="!shellSidebarCollapsed"
             :content="item.label"

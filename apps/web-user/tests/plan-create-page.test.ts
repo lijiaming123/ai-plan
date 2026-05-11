@@ -642,4 +642,23 @@ describe('PlanCreatePage', () => {
       }),
     );
   });
+
+  it('选择其它场景时应展示勾选打卡说明', async () => {
+    setAuthToken('token_123');
+    const router = createAppRouter(createMemoryHistory());
+    await router.push({ path: '/plans/new', query: { mode: 'basic' } });
+    await router.isReady();
+
+    const wrapper = mount(PlanCreatePage, {
+      global: { plugins: [router] },
+    });
+    await flushPromises();
+
+    await setPlanSelect(wrapper, 'field-plan-scenario', 'other');
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="plan-scenario-other-checkin-hint"]').exists()).toBe(true);
+    expect(wrapper.text()).toContain('勾选完成');
+    expect(wrapper.text()).toContain('不需要');
+  });
 });

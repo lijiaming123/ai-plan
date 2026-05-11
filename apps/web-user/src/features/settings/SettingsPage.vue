@@ -3,8 +3,12 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import PageSectionHeading from '../../components/PageSectionHeading.vue';
 import UserAvatarBadge from '../../components/UserAvatarBadge.vue';
-import { getApiClient } from '../../lib/api-client';
-import { authState, clearAuthToken, setAuthTier } from '../../stores/auth';
+import {
+  getApiClient,
+  HttpApiError,
+  type PlanAssistantProfilePatchInput,
+} from '../../lib/api-client';
+import { authState, clearAuthToken, setAuthBillingFromMe, setAuthTier } from '../../stores/auth';
 import { planListSearchQuery } from '../../stores/plan-search-query';
 import { persistUserPreferences, userPreferences } from '../../stores/user-preferences';
 import {
@@ -20,10 +24,132 @@ const proSection = ref<HTMLElement | null>(null);
 
 const tierLabel = computed(() => (authState.tier === 'pro' ? '专业版' : '基础版'));
 
+const aiQuotaLine = computed(() => {
+  const q = authState.aiQuota;
+  if (!q) return '';
+  const left = Math.max(0, q.limit - q.used);
+  return `本月智能生成：已用 ${q.used} / ${q.limit}，剩余 ${left} 次（账单月 ${q.yearMonth}，UTC）。`;
+});
+
+const proExpiresLine = computed(() => {
+  if (!authState.proExpiresAt) return '';
+  try {
+    const d = new Date(authState.proExpiresAt);
+    if (!Number.isFinite(d.getTime())) return '';
+    return `专业版权益当前设至：${d.toLocaleString('zh-CN', { timeZone: 'UTC' })}（UTC）。到期后自动按基础版额度执行，除非运营为你续期。`;
+  } catch {
+    return '';
+  }
+});
+
 const mePhone = ref('');
 const meRole = ref<'user' | 'admin' | null>(null);
 const displayNameModel = ref('');
 const meLoadError = ref(false);
+
+/** 计划助手结构化偏好（服务端持久化） */
+const paLoadError = ref(false);
+const paSaving = ref(false);
+const paPinning = ref(false);
+const paTone = ref<'unset' | 'concise' | 'detailed'>('unset');
+const paWeeklyHours = ref('');
+const paPreferMorning = ref(false);
+const paEvidence = ref<'unset' | 'low' | 'medium'>('unset');
+const paDefaultScenario = ref<'unset' | 'study' | 'work' | 'travel' | 'general'>('unset');
+const paPinnedNotes = ref<string[]>([]);
+const paPinText = ref('');
+
+function resetPlanAssistantFormFromProfile(p: {
+  tone: string | null;
+  weeklyHoursCap: number | null;
+  preferMorning: boolean | null;
+  evidenceTolerance: string | null;
+  defaultScenario: string | null;
+  pinnedNotes: string[];
+}) {
+  if (p.tone === 'concise' || p.tone === 'detailed') paTone.value = p.tone;
+  else paTone.value = 'unset';
+  paWeeklyHours.value =
+    p.weeklyHoursCap != null && p.weeklyHoursCap > 0 ? String(p.weeklyHoursCap) : '';
+  paPreferMorning.value = p.preferMorning === true;
+  if (p.evidenceTolerance === 'low' || p.evidenceTolerance === 'medium') {
+    paEvidence.value = p.evidenceTolerance;
+  } else {
+    paEvidence.value = 'unset';
+  }
+  if (
+    p.defaultScenario === 'study' ||
+    p.defaultScenario === 'work' ||
+    p.defaultScenario === 'travel' ||
+    p.defaultScenario === 'general'
+  ) {
+    paDefaultScenario.value = p.defaultScenario;
+  } else {
+    paDefaultScenario.value = 'unset';
+  }
+  paPinnedNotes.value = [...p.pinnedNotes];
+}
+
+async function loadPlanAssistantProfile() {
+  paLoadError.value = false;
+  if (!authState.token) return;
+  try {
+    const ctx = await getApiClient().getPlanAssistantContext({ token: authState.token });
+    resetPlanAssistantFormFromProfile(ctx.profile);
+  } catch (e) {
+    if (e instanceof HttpApiError && e.status === 404) return;
+    paLoadError.value = true;
+  }
+}
+
+async function savePlanAssistantProfile() {
+  if (!authState.token) return;
+  paSaving.value = true;
+  try {
+    const capRaw = paWeeklyHours.value.trim();
+    let weeklyHoursCap: number | null = null;
+    if (capRaw) {
+      const n = Number(capRaw);
+      if (!Number.isInteger(n) || n < 1 || n > 168) {
+        paSaving.value = false;
+        return;
+      }
+      weeklyHoursCap = n;
+    }
+    const body: PlanAssistantProfilePatchInput = {
+      token: authState.token,
+      tone: paTone.value === 'unset' ? null : paTone.value,
+      weeklyHoursCap,
+      preferMorning: paPreferMorning.value ? true : null,
+      evidenceTolerance: paEvidence.value === 'unset' ? null : paEvidence.value,
+      defaultScenario: paDefaultScenario.value === 'unset' ? null : paDefaultScenario.value,
+    };
+    const ctx = await getApiClient().patchPlanAssistantProfile(body);
+    resetPlanAssistantFormFromProfile(ctx.profile);
+  } catch {
+    paLoadError.value = true;
+  } finally {
+    paSaving.value = false;
+  }
+}
+
+async function pinPlanAssistantNote() {
+  const t = paPinText.value.trim();
+  if (!t || !authState.token) return;
+  paPinning.value = true;
+  try {
+    const ctx = await getApiClient().postPlanAssistantPinNote({
+      token: authState.token,
+      text: t,
+    });
+    paPinText.value = '';
+    resetPlanAssistantFormFromProfile(ctx.profile);
+  } catch {
+    paLoadError.value = true;
+  } finally {
+    paPinning.value = false;
+  }
+}
 
 const phoneForDisplay = computed(() => mePhone.value || authState.userPhone || '');
 
@@ -88,6 +214,7 @@ async function loadMe() {
     const me = await getApiClient().getAuthMe({ token: authState.token });
     mePhone.value = me.email;
     meRole.value = me.role;
+    setAuthBillingFromMe(me);
   } catch {
     meLoadError.value = true;
     mePhone.value = authState.userPhone;
@@ -98,6 +225,7 @@ async function loadMe() {
 onMounted(async () => {
   await loadMe();
   loadDisplayNameFromStorage();
+  await loadPlanAssistantProfile();
   if (route.query.focus === 'pro') {
     proSection.value?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
@@ -116,8 +244,10 @@ watch(
 watch(
   () => authState.token,
   async (token) => {
-    if (token) await loadMe();
-    else {
+    if (token) {
+      await loadMe();
+      await loadPlanAssistantProfile();
+    } else {
       mePhone.value = '';
       meRole.value = null;
     }
@@ -329,6 +459,130 @@ watch(
       </div>
 
       <section
+        class="settings-panel settings-panel--d3b relative mt-6 overflow-hidden rounded-[1.25rem] border border-emerald-200/55 bg-white/75 p-6 shadow-[0_18px_44px_-32px_rgba(15,90,50,0.22)] ring-1 ring-emerald-950/[0.04] backdrop-blur-sm sm:p-7"
+      >
+        <div class="flex items-center gap-2">
+          <span
+            class="flex size-9 items-center justify-center rounded-xl bg-emerald-500/12 text-[#0a8f4a] ring-1 ring-emerald-500/18"
+          >
+            <span class="material-symbols-outlined text-[22px]" aria-hidden="true">psychology</span>
+          </span>
+          <div>
+            <h2 class="text-base font-bold text-stone-900">计划助手记忆</h2>
+            <p class="text-xs text-[#7c8a84]">
+              偏好与「记住一句」会写入服务端；创建计划时自动注入近期执行摘要（非 RAG），不读取历史正文全文。
+            </p>
+          </div>
+        </div>
+        <p v-if="paLoadError" class="mt-3 text-xs font-medium text-amber-900">
+          无法同步计划助手配置，请稍后重试。
+        </p>
+        <div
+          v-else-if="authState.token"
+          class="mt-5 grid gap-4 text-sm text-[#2d3d36] sm:grid-cols-2"
+        >
+          <label class="block sm:col-span-2">
+            <span class="mb-1.5 block text-xs font-semibold text-[#5c6d62]">写作风格</span>
+            <select
+              v-model="paTone"
+              class="w-full max-w-md rounded-xl border border-emerald-950/10 bg-white/90 px-3 py-2.5 text-stone-900 outline-none focus:border-[#0a8f4a]/45 focus:ring-2 focus:ring-[#0a8f4a]/18"
+              data-testid="settings-pa-tone"
+            >
+              <option value="unset">不特别指定</option>
+              <option value="concise">简洁</option>
+              <option value="detailed">详细</option>
+            </select>
+          </label>
+          <label class="block">
+            <span class="mb-1.5 block text-xs font-semibold text-[#5c6d62]">每周可投入上限（小时，1–168）</span>
+            <input
+              v-model="paWeeklyHours"
+              type="number"
+              min="1"
+              max="168"
+              placeholder="留空表示不写入"
+              class="w-full rounded-xl border border-emerald-950/10 bg-white/90 px-3 py-2.5 text-stone-900 outline-none focus:border-[#0a8f4a]/45 focus:ring-2 focus:ring-[#0a8f4a]/18"
+              data-testid="settings-pa-weekly-hours"
+            />
+          </label>
+          <label class="flex items-center gap-2 self-end pb-2">
+            <input
+              v-model="paPreferMorning"
+              type="checkbox"
+              class="size-4 rounded border-stone-300 text-[#0a8f4a] focus:ring-[#0a8f4a]/30"
+              data-testid="settings-pa-prefer-morning"
+            />
+            <span class="text-sm font-medium">尽量安排早晨时段</span>
+          </label>
+          <label class="block">
+            <span class="mb-1.5 block text-xs font-semibold text-[#5c6d62]">打卡证据偏好</span>
+            <select
+              v-model="paEvidence"
+              class="w-full rounded-xl border border-emerald-950/10 bg-white/90 px-3 py-2.5 text-stone-900 outline-none focus:border-[#0a8f4a]/45 focus:ring-2 focus:ring-[#0a8f4a]/18"
+              data-testid="settings-pa-evidence"
+            >
+              <option value="unset">不特别指定</option>
+              <option value="low">轻量</option>
+              <option value="medium">适中</option>
+            </select>
+          </label>
+          <label class="block">
+            <span class="mb-1.5 block text-xs font-semibold text-[#5c6d62]">创建页默认场景</span>
+            <select
+              v-model="paDefaultScenario"
+              class="w-full rounded-xl border border-emerald-950/10 bg-white/90 px-3 py-2.5 text-stone-900 outline-none focus:border-[#0a8f4a]/45 focus:ring-2 focus:ring-[#0a8f4a]/18"
+              data-testid="settings-pa-default-scenario"
+            >
+              <option value="unset">不默认</option>
+              <option value="study">学习备考</option>
+              <option value="work">工作项目</option>
+              <option value="travel">旅行行程</option>
+              <option value="general">通用/习惯</option>
+            </select>
+          </label>
+          <div class="sm:col-span-2">
+            <p class="mb-1.5 text-xs font-semibold text-[#5c6d62]">已记住的短句（最多 5 条）</p>
+            <ul v-if="paPinnedNotes.length" class="mb-2 space-y-1 rounded-xl border border-stone-200/80 bg-stone-50/60 px-3 py-2 text-xs text-stone-800">
+              <li v-for="(n, i) in paPinnedNotes" :key="`${i}-${n}`" class="leading-snug">· {{ n }}</li>
+            </ul>
+            <p v-else class="mb-2 text-xs text-[#8a9a92]">暂无；在下方输入后点「记住一句」。</p>
+            <div class="flex flex-col gap-2 sm:flex-row sm:items-end">
+              <input
+                v-model="paPinText"
+                type="text"
+                maxlength="200"
+                placeholder="例如：我对咖啡因敏感，早晨不要安排咖啡相关任务"
+                class="min-w-0 flex-1 rounded-xl border border-emerald-950/10 bg-white/90 px-3 py-2.5 text-sm text-stone-900 outline-none focus:border-[#0a8f4a]/45 focus:ring-2 focus:ring-[#0a8f4a]/18"
+                data-testid="settings-pa-pin-input"
+                @keydown.enter.prevent="pinPlanAssistantNote"
+              />
+              <button
+                type="button"
+                class="shrink-0 rounded-xl border border-emerald-300/80 bg-emerald-50 px-4 py-2.5 text-sm font-bold text-emerald-950 transition hover:bg-emerald-100/80 disabled:opacity-50"
+                data-testid="settings-pa-pin-submit"
+                :disabled="paPinning || !paPinText.trim()"
+                @click="pinPlanAssistantNote"
+              >
+                {{ paPinning ? '保存中…' : '记住一句' }}
+              </button>
+            </div>
+          </div>
+          <div class="sm:col-span-2">
+            <button
+              type="button"
+              class="inline-flex items-center gap-2 rounded-xl bg-gradient-to-b from-[#34d399] to-[#0a8f4a] px-5 py-2.5 text-sm font-bold text-white shadow-md shadow-emerald-600/20 transition hover:brightness-105 disabled:opacity-50"
+              data-testid="settings-pa-save"
+              :disabled="paSaving"
+              @click="savePlanAssistantProfile"
+            >
+              {{ paSaving ? '保存中…' : '保存偏好' }}
+            </button>
+          </div>
+        </div>
+        <p v-else class="mt-4 text-sm text-[#7c8a84]">登录后可配置计划助手记忆。</p>
+      </section>
+
+      <section
         ref="proSection"
         class="settings-panel settings-panel--d4 relative mt-6 overflow-hidden rounded-[1.25rem] border border-amber-200/50 bg-gradient-to-br from-amber-50/40 via-white/80 to-emerald-50/30 p-6 shadow-[0_20px_48px_-36px_rgba(120,90,20,0.2)] ring-1 ring-white/90 backdrop-blur-sm sm:p-7"
       >
@@ -346,7 +600,23 @@ watch(
             <h2 class="text-base font-bold text-stone-900">会员</h2>
             <p class="mt-2 text-sm leading-relaxed text-[#5a6b62]">
               当前为 <span class="font-bold text-stone-800">{{ tierLabel }}</span
-              >。专业版将开放更深智能能力与提醒策略；下方为本地演示。
+              >。专业版含更高月度智能生成额度与进阶计划助手；支付与自动续费接入前，升级请联系运营或在管理端开通。
+            </p>
+            <p
+              v-if="aiQuotaLine"
+              class="mt-2 text-sm font-medium leading-relaxed text-stone-800"
+              data-testid="settings-ai-quota"
+            >
+              {{ aiQuotaLine }}
+            </p>
+            <p
+              v-if="proExpiresLine"
+              class="mt-1 text-xs leading-relaxed text-[#5a6b62]"
+            >
+              {{ proExpiresLine }}
+            </p>
+            <p class="mt-3 text-xs leading-relaxed text-[#7c8a84]">
+              自动续费、退款与发票规则以实际上线时的用户协议与收银台说明为准；内测阶段请以订单或合同约定为准。
             </p>
             <div class="mt-5 flex flex-wrap gap-3">
               <button
@@ -413,6 +683,9 @@ watch(
 }
 .settings-panel--d3 {
   animation-delay: 0.2s;
+}
+.settings-panel--d3b {
+  animation-delay: 0.23s;
 }
 .settings-panel--d4 {
   animation-delay: 0.26s;

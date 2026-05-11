@@ -398,10 +398,85 @@ model User {
   id           String   @id @default(cuid())
   phone        String   @unique
   passwordHash String?
+  /// 计费档位：basic 免费额度；pro 专业版高封顶（与 JWT 无关，以库表为准）
+  planTier     String   @default("basic")
+  /// Pro 权益到期时间（UTC）；null 表示不设期限。到期后 resolveEffectivePlanTier 视为 basic，直至运营调整 planTier。
+  proExpiresAt DateTime?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
+  monthlyAiUsages        UserMonthlyAiUsage[]
+  billingOrders          BillingOrder[]
+  billingSubs            BillingSubscription[]
+  planAssistantProfile   UserPlanAssistantProfile?
+
   @@index([phone])
+}
+
+/// ToC 计划助手结构化「记忆」：偏好 + 显式 pin；完成度由服务端摘要注入，不默认 RAG
+model UserPlanAssistantProfile {
+  userId              String   @id
+  /// concise | detailed
+  tone                String?
+  language            String?  @default("zh")
+  weeklyHoursCap      Int?
+  preferMorning       Boolean?
+  /// low | medium
+  evidenceTolerance   String?
+  /// study | work | travel | general
+  defaultScenario     String?
+  /// 最多 5 条短句（JSON string[]），用户点「记住」写入
+  pinnedNotes         Json     @default("[]")
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+/// 预留：支付平台订单与 Webhook 幂等、对账（人工开通阶段可不写入）
+model BillingOrder {
+  id          String   @id @default(cuid())
+  userId      String
+  provider    String
+  externalId  String?  @unique
+  status      String
+  amountMinor Int?
+  currency    String?  @default("CNY")
+  meta        Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)])
+}
+
+/// 预留：订阅周期与续费状态（接 Stripe/微信等到期回调时写入）
+model BillingSubscription {
+  id               String    @id @default(cuid())
+  userId           String
+  provider         String
+  externalId       String?   @unique
+  status           String    @default("active")
+  currentPeriodEnd DateTime?
+  meta             Json?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+/// 按 UTC 自然月统计的「计划类 AI 生成」次数（与 /plans/assistant、流式与再生成等扣次点对齐）
+model UserMonthlyAiUsage {
+  id        String   @id @default(cuid())
+  userId    String
+  /// UTC 年月，格式 YYYY-MM
+  yearMonth String
+  count     Int      @default(0)
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, yearMonth])
+  @@index([userId])
 }
 
 /// 短信验证码请求（哈希存储，支持登录/注册/找回等用途）

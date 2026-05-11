@@ -10,6 +10,8 @@ export type ProAgentInput = {
   cycle: string;
   granularityMode?: 'smart' | 'deep' | 'rough';
   message?: string; // chat mode
+  /** 计划助手「画像 + 完成度摘要」等短上下文；在首条 user 消息前拼接，不进 RAG */
+  memoryPrefix?: string;
 };
 
 export type ScheduleGranularity = 'day' | 'week';

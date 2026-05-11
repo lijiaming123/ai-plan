@@ -26,16 +26,31 @@ export type OtpSendResponse =
     }
   | { message: string; cooldownSeconds?: number };
 
+export type AiQuotaSnapshot = {
+  used: number;
+  limit: number;
+  yearMonth: string;
+};
+
+export type PlanTierApi = "basic" | "pro";
+
 export type OtpVerifyResponse = {
   token: string;
   phone: string;
   userId: string;
+  planTier?: PlanTierApi;
+  proExpiresAt?: string | null;
+  aiQuota?: AiQuotaSnapshot | null;
 };
 
 export type AuthMeResponse = {
   userId: string;
   email: string;
   role: "user" | "admin";
+  permissions?: string[];
+  planTier?: PlanTierApi;
+  proExpiresAt?: string | null;
+  aiQuota?: AiQuotaSnapshot | null;
 };
 
 export type PlanHeatmapDay = {
@@ -57,6 +72,34 @@ export type UserInsightsResponse = {
   avgProgressPercent: number;
   weeklyCheckinTrend: number[];
   weekRangeLabel: string;
+};
+
+/** GET /me/plan-assistant-context、PATCH /me/plan-assistant-profile */
+export type PlanAssistantProfileApi = {
+  tone: string | null;
+  language: string | null;
+  weeklyHoursCap: number | null;
+  preferMorning: boolean | null;
+  evidenceTolerance: string | null;
+  defaultScenario: string | null;
+  pinnedNotes: string[];
+};
+
+export type PlanAssistantContextResponse = {
+  profile: PlanAssistantProfileApi;
+  completionSummary: string;
+  quotaHint: AiQuotaSnapshot | null;
+};
+
+export type PlanAssistantProfilePatchInput = {
+  token: string;
+  tone?: "concise" | "detailed" | null;
+  language?: "zh" | null;
+  weeklyHoursCap?: number | null;
+  preferMorning?: boolean | null;
+  evidenceTolerance?: "low" | "medium" | null;
+  defaultScenario?: "study" | "work" | "travel" | "general" | null;
+  pinnedNotes?: string[];
 };
 
 export type CreatePlanInput = {
@@ -194,6 +237,9 @@ export type ParsePlanFileResult = {
   text: string;
 };
 
+/** 列表卡片多段进度环：每段对应 schedule 中一个 slot 的语义色 */
+export type CheckinListSegment = "done" | "missed" | "upcoming";
+
 /** GET /plans 列表项（仅已定稿 Plan；生成中数据在 PlanGenerationDraft 表，不经列表暴露） */
 export type PlanListRow = {
   id: string;
@@ -209,6 +255,10 @@ export type PlanListRow = {
   completed?: boolean;
   /** 执行中：今天应打卡但未提交（用于列表页红色提醒） */
   todayMissing?: boolean;
+  /** 有打卡表时：各 slot 按顺序的完成态（用于多段环） */
+  checkinSegments?: CheckinListSegment[];
+  /** 与 checkinSegments 同步：已提交段数 / 总段数 ×100 */
+  checkinProgressPercent?: number;
 };
 
 export type DeletedPlanListRow = {
@@ -447,7 +497,12 @@ export type CaptchaSessionResponse = {
 
 export type ApiClient = {
   /** 用户端传 `phone`；管理端传 `email`。 */
-  login(input: LoginInput): Promise<{ token: string }>;
+  login(input: LoginInput): Promise<{
+    token: string;
+    planTier?: PlanTierApi;
+    proExpiresAt?: string | null;
+    aiQuota?: AiQuotaSnapshot | null;
+  }>;
   forgotPassword(input: { email: string }): Promise<ForgotPasswordResponse>;
   getCaptcha(): Promise<CaptchaSessionResponse>;
   sendOtp(input: {
@@ -469,6 +524,16 @@ export type ApiClient = {
     year?: number;
   }): Promise<PlanHeatmapResponse>;
   getUserInsights(input: { token: string }): Promise<UserInsightsResponse>;
+  getPlanAssistantContext(input: {
+    token: string;
+  }): Promise<PlanAssistantContextResponse>;
+  patchPlanAssistantProfile(
+    input: PlanAssistantProfilePatchInput,
+  ): Promise<PlanAssistantContextResponse>;
+  postPlanAssistantPinNote(input: {
+    token: string;
+    text: string;
+  }): Promise<PlanAssistantContextResponse>;
   listNotifications(input: {
     token: string;
     limit?: number;
@@ -684,6 +749,8 @@ export type ApiClient = {
     token: string;
   }): Promise<{ planId: string }>;
   getMarketTemplateDetail(input: { id: string; token?: string }): Promise<MarketTemplateDetail>;
+  /** GET /templates/presets/:id，返回结构与 MarketTemplateDetail 对齐 */
+  getPresetTemplateDetail(input: { id: string; token?: string }): Promise<MarketTemplateDetail>;
   /** multipart 单文件，字段名 `file`；返回可写入提交的公开 URL */
   uploadUserFile(input: {
     token: string;
@@ -842,6 +909,36 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
           Authorization: `Bearer ${input.token}`,
         },
       });
+    },
+    getPlanAssistantContext(input) {
+      return request<PlanAssistantContextResponse>("/me/plan-assistant-context", {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${input.token}`,
+        },
+      });
+    },
+    patchPlanAssistantProfile(input) {
+      const { token, ...body } = input;
+      return request<PlanAssistantContextResponse>("/me/plan-assistant-profile", {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(body),
+      });
+    },
+    postPlanAssistantPinNote(input) {
+      return request<PlanAssistantContextResponse>(
+        "/me/plan-assistant-profile/pin-note",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${input.token}`,
+          },
+          body: JSON.stringify({ text: input.text }),
+        },
+      );
     },
     listNotifications(input) {
       const p = new URLSearchParams();
@@ -1390,6 +1487,14 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
       const headers: Record<string, string> = {};
       if (input.token) headers.Authorization = `Bearer ${input.token}`;
       return request<MarketTemplateDetail>(`/templates/market/${encodeURIComponent(input.id)}`, {
+        method: "GET",
+        headers,
+      });
+    },
+    getPresetTemplateDetail(input) {
+      const headers: Record<string, string> = {};
+      if (input.token) headers.Authorization = `Bearer ${input.token}`;
+      return request<MarketTemplateDetail>(`/templates/presets/${encodeURIComponent(input.id)}`, {
         method: "GET",
         headers,
       });

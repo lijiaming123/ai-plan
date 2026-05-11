@@ -2,6 +2,7 @@ export const ADMIN_PERMISSIONS = [
   'analytics:read',
   'analytics:export',
   'users:read',
+  'users:write',
   'audit:read',
   'rbac:manage',
   'templates:review',

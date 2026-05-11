@@ -281,7 +281,7 @@ async function applyMarket(id: string) {
   }
 }
 
-type TemplateDetailFrom = 'market_list' | 'my_created' | 'my_favorited' | 'my_liked';
+type TemplateDetailFrom = 'market_list' | 'my_created' | 'my_favorited' | 'my_liked' | 'preset_list';
 
 function openMarketDetail(id: string, from: TemplateDetailFrom) {
   trackEvent('template_detail_click', {
@@ -291,6 +291,16 @@ function openMarketDetail(id: string, from: TemplateDetailFrom) {
     },
   });
   void router.push(`/templates/market/${encodeURIComponent(id)}`);
+}
+
+function openPresetDetail(id: string) {
+  trackEvent('template_detail_click', {
+    properties: {
+      templateId: id,
+      from: 'preset_list',
+    },
+  });
+  void router.push(`/templates/presets/${encodeURIComponent(id)}`);
 }
 
 function setMarketSort(value: 'likes' | 'new') {
@@ -450,15 +460,11 @@ const myScopeOptions: MyScope[] = ['created', 'favorited', 'liked'];
 </script>
 
 <template>
-  <div
-    class="relative flex h-full min-h-0 w-full flex-col overflow-hidden font-plan text-stone-800"
-  >
-    <UiErrorToast :message="errorToastMessage" @close="errorToastMessage = ''" />
-
-    <div class="shrink-0 space-y-4">
+  <div class="flex h-full min-h-0 w-full flex-col font-plan text-stone-800">
+    <div class="shrink-0 space-y-4 sm:space-y-5">
     <div
       v-if="publishBanner"
-      class="rounded-2xl border border-emerald-200/80 bg-emerald-50/95 px-4 py-3 text-sm font-medium text-emerald-950"
+      class="rounded-2xl border border-emerald-200/70 bg-emerald-50/70 px-4 py-3 text-sm font-semibold text-emerald-950 ring-1 ring-white/70"
       data-testid="published-banner"
     >
       <span class="material-symbols-outlined mr-1.5 inline-block align-middle text-[#0a8f4a]" aria-hidden="true"
@@ -474,12 +480,12 @@ const myScopeOptions: MyScope[] = ['created', 'favorited', 'liked'];
       </button>
     </div>
 
-    <header class="mb-4 flex flex-col gap-4 sm:mb-5 lg:flex-row lg:items-start lg:justify-between">
+    <header class="mb-6 flex flex-col gap-4 sm:mb-8 lg:flex-row lg:items-start lg:justify-between">
       <PageSectionHeading class="min-w-0 lg:max-w-[min(100%,28rem)]" kicker="模板与复用" title="模板">
         <p>套用系统预设或社区模板；在「我的模板」查看已发布、收藏与点赞。</p>
       </PageSectionHeading>
       <div
-        class="flex w-full shrink-0 rounded-2xl border border-stone-200/80 bg-stone-50/90 p-1 shadow-sm sm:w-auto"
+        class="flex w-full shrink-0 rounded-3xl border border-stone-200/80 bg-white/60 p-1 ring-1 ring-white/70 shadow-sm backdrop-blur-sm sm:w-auto"
         role="tablist"
         aria-label="模板视图"
       >
@@ -519,15 +525,17 @@ const myScopeOptions: MyScope[] = ['created', 'favorited', 'liked'];
     </header>
     </div>
 
+    <UiErrorToast :message="errorToastMessage" @close="errorToastMessage = ''" />
+
     <div class="ui-scrollbar min-h-0 flex-1 overflow-y-auto pr-1 pb-2">
     <div
-      class="sticky top-0 z-20 -mx-1 mb-6 rounded-2xl border border-[#e6ebe8] bg-white/92 p-2 shadow-sm backdrop-blur sm:mx-0"
+      class="sticky top-0 z-20 -mx-1 mb-6 rounded-3xl border border-stone-200/80 bg-white/60 p-4 ring-1 ring-white/70 shadow-sm backdrop-blur-sm sm:mx-0"
       data-testid="template-filter-bar"
     >
       <div class="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-      <label class="group relative min-w-0 flex-1">
+      <div class="relative min-w-0 flex-1">
         <span
-          class="material-symbols-outlined pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#a8b5ae] group-focus-within:text-[#0a8f4a]"
+          class="material-symbols-outlined pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[18px] text-stone-400"
           aria-hidden="true"
           >search</span
         >
@@ -535,26 +543,36 @@ const myScopeOptions: MyScope[] = ['created', 'favorited', 'liked'];
           v-model="searchQ"
           type="search"
           placeholder="搜索标题或摘要…"
-          class="w-full rounded-xl border border-transparent bg-stone-50/80 py-2 pl-10 pr-3 text-sm text-stone-900 outline-none transition placeholder:text-[#9ca8a3] focus:border-emerald-200 focus:bg-white focus:ring-2 focus:ring-emerald-100"
+          class="h-10 w-full rounded-2xl border border-stone-200/80 bg-white/80 pl-10 pr-10 text-sm font-medium text-stone-800 ring-1 ring-white/70 outline-none transition placeholder:text-stone-400 focus:border-emerald-300/80 focus:ring-2 focus:ring-emerald-200/50"
           data-testid="template-search"
         />
-      </label>
+        <button
+          v-if="searchQ.trim()"
+          type="button"
+          class="absolute right-2 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-xl bg-white/70 text-stone-600 ring-1 ring-stone-200/70 transition hover:bg-white hover:text-stone-900"
+          aria-label="清空搜索"
+          data-testid="template-search-clear"
+          @click="searchQ = ''"
+        >
+          <span class="material-symbols-outlined text-[18px]" aria-hidden="true">close</span>
+        </button>
+      </div>
       <select
         v-model="filterCategory"
-        class="w-full rounded-xl border border-transparent bg-stone-50/80 px-3 py-2 text-sm outline-none focus:border-emerald-200 focus:bg-white focus:ring-2 focus:ring-emerald-100 sm:w-36"
+        class="h-10 w-full rounded-2xl border border-stone-200/80 bg-white/80 px-3 text-sm font-semibold text-stone-700 ring-1 ring-white/70 outline-none transition focus:border-emerald-300/80 focus:ring-2 focus:ring-emerald-200/50 sm:w-40"
         data-testid="template-category"
       >
         <option v-for="c in CATEGORY_OPTIONS" :key="c" :value="c">
           {{ categoryLabel[c] ?? c }}
         </option>
       </select>
-      <label class="relative w-full sm:w-40">
+      <label class="relative w-full sm:w-44">
         <input
           v-model="filterTag"
           list="template-tag-options"
           type="text"
           placeholder="标签"
-          class="w-full rounded-xl border border-transparent bg-stone-50/80 px-3 py-2 text-sm outline-none focus:border-emerald-200 focus:bg-white focus:ring-2 focus:ring-emerald-100"
+          class="h-10 w-full rounded-2xl border border-stone-200/80 bg-white/80 px-3 text-sm font-medium text-stone-800 ring-1 ring-white/70 outline-none transition placeholder:text-stone-400 focus:border-emerald-300/80 focus:ring-2 focus:ring-emerald-200/50"
           data-testid="template-tag"
         />
         <datalist id="template-tag-options">
@@ -565,7 +583,7 @@ const myScopeOptions: MyScope[] = ['created', 'favorited', 'liked'];
       <button
         v-if="hasFilters"
         type="button"
-        class="inline-flex items-center justify-center gap-1.5 rounded-xl bg-stone-900/6 px-3 py-2 text-sm font-semibold text-stone-700 ring-1 ring-white/70 transition hover:bg-stone-900/10 sm:ml-auto"
+        class="inline-flex h-10 items-center justify-center gap-1.5 rounded-2xl border border-stone-200/80 bg-white/70 px-3 text-sm font-semibold text-stone-800 ring-1 ring-white/70 transition hover:bg-white sm:ml-auto"
         data-testid="template-clear-filters"
         @click="clearFilters"
       >
@@ -574,7 +592,7 @@ const myScopeOptions: MyScope[] = ['created', 'favorited', 'liked'];
       </button>
       </div>
 
-      <div class="mt-2 flex flex-wrap items-center gap-2">
+      <div class="mt-3 flex flex-wrap items-center gap-2 border-t border-stone-200/60 pt-3">
         <span class="text-xs font-semibold text-stone-500">热门标签</span>
         <button
           v-for="t in HOT_TAGS"
@@ -594,10 +612,10 @@ const myScopeOptions: MyScope[] = ['created', 'favorited', 'liked'];
     <div v-show="mainTab === 'mine'" class="space-y-5">
       <div
         v-if="!loggedIn"
-        class="rounded-2xl border border-dashed border-[#d0d8d3] bg-white/80 px-6 py-12 text-center"
+        class="flex min-h-[240px] flex-col items-center justify-center rounded-3xl border border-dashed border-stone-300/90 bg-white/60 px-8 py-12 text-center"
       >
-        <p class="text-lg font-bold text-stone-900">登录后查看你的模板</p>
-        <p class="mt-1 text-sm text-[#7c8a84]">创建、收藏与点赞的社区模板会显示在这里。</p>
+        <p class="text-lg font-semibold text-stone-800">登录后查看你的模板</p>
+        <p class="mt-2 text-sm leading-relaxed text-stone-600">创建、收藏与点赞的社区模板会显示在这里。</p>
         <div class="mt-5 flex flex-wrap items-center justify-center gap-2">
           <button
             type="button"
@@ -622,7 +640,7 @@ const myScopeOptions: MyScope[] = ['created', 'favorited', 'liked'];
 
       <template v-else>
         <div
-          class="flex flex-wrap gap-2 rounded-2xl border border-stone-200/80 bg-stone-50/80 p-1.5 shadow-[0_1px_0_rgba(255,255,255,0.9)_inset]"
+          class="flex flex-wrap gap-2 rounded-3xl border border-stone-200/80 bg-white/60 p-1 ring-1 ring-white/70 shadow-sm backdrop-blur-sm"
           role="tablist"
           aria-label="我的模板范围"
         >
@@ -645,7 +663,7 @@ const myScopeOptions: MyScope[] = ['created', 'favorited', 'liked'];
 
         <div class="flex flex-wrap items-baseline justify-between gap-2">
           <h2 class="text-lg font-bold text-stone-900">我的社区模板</h2>
-          <span class="text-sm text-[#7c8a84]">共 {{ myTotal }} 个 · {{ pageLabel }}</span>
+          <span class="text-sm font-medium text-stone-600">共 {{ myTotal }} 个 · {{ pageLabel }}</span>
         </div>
 
         <TemplateMarketList
@@ -667,7 +685,7 @@ const myScopeOptions: MyScope[] = ['created', 'favorited', 'liked'];
         >
           <template #empty>
             <p class="font-semibold">{{ hasFilters ? '没有符合当前筛选的模板' : '这里还没有模板' }}</p>
-            <p class="mt-1 text-xs text-[#7c8a84]">
+            <p class="mt-1 text-xs text-stone-600">
               {{ hasFilters ? '你可以清空筛选，或切换排序再试一次。' : '去模板市场发现更多社区模板。' }}
             </p>
             <div class="mt-4 flex flex-wrap items-center justify-center gap-2">
@@ -768,7 +786,7 @@ const myScopeOptions: MyScope[] = ['created', 'favorited', 'liked'];
         <div class="flex items-center justify-end gap-2" aria-label="分页">
           <button
             type="button"
-            class="rounded-xl bg-white/70 px-3 py-2 text-sm font-semibold text-stone-700 ring-1 ring-stone-200/70 transition hover:bg-white disabled:opacity-50"
+            class="rounded-2xl border border-stone-200/80 bg-white/70 px-3 py-2 text-sm font-bold text-stone-800 ring-1 ring-white/70 transition hover:bg-white disabled:opacity-50"
             data-testid="page-prev"
             :disabled="!canPrev || loadingMy"
             @click="prevPage"
@@ -778,7 +796,7 @@ const myScopeOptions: MyScope[] = ['created', 'favorited', 'liked'];
           <span class="text-sm font-semibold text-stone-500">{{ pageLabel }}</span>
           <button
             type="button"
-            class="rounded-xl bg-white/70 px-3 py-2 text-sm font-semibold text-stone-700 ring-1 ring-stone-200/70 transition hover:bg-white disabled:opacity-50"
+            class="rounded-2xl border border-stone-200/80 bg-white/70 px-3 py-2 text-sm font-bold text-stone-800 ring-1 ring-white/70 transition hover:bg-white disabled:opacity-50"
             data-testid="page-next"
             :disabled="!canNext || loadingMy"
             @click="nextPage"
@@ -795,13 +813,20 @@ const myScopeOptions: MyScope[] = ['created', 'favorited', 'liked'];
         <div class="mb-3 flex flex-wrap items-baseline justify-between gap-2">
           <h2 class="text-lg font-bold text-stone-900">系统预设</h2>
         </div>
-        <p v-if="loadingPresets" class="flex items-center gap-2 text-sm text-[#5d6a64]">
-          <span class="material-symbols-outlined animate-pulse text-[#0a8f4a]" aria-hidden="true">hourglass_top</span>
-          加载中…
-        </p>
+        <div
+          v-if="loadingPresets"
+          class="flex min-h-[200px] flex-col items-center justify-center gap-2 text-stone-500"
+          data-testid="preset-grid"
+        >
+          <span
+            class="inline-block h-8 w-8 animate-spin rounded-full border-2 border-emerald-200 border-t-emerald-600"
+            aria-hidden="true"
+          />
+          <span class="text-sm font-medium">加载预设中…</span>
+        </div>
         <div
           v-else-if="presets.length === 0"
-          class="rounded-2xl border border-dashed border-[#d0d8d3] bg-white/80 px-6 py-12 text-center text-sm text-[#7c8a84]"
+          class="rounded-3xl border border-dashed border-stone-300/90 bg-white/60 px-6 py-12 text-center text-sm text-stone-600"
           data-testid="preset-grid"
         >
           暂无系统预设，请稍后再试。
@@ -810,33 +835,52 @@ const myScopeOptions: MyScope[] = ['created', 'favorited', 'liked'];
           <li
             v-for="p in presets"
             :key="p.id"
-            class="flex flex-col rounded-2xl border border-[#e6ebe8] bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+            class="flex flex-col overflow-hidden rounded-3xl border border-stone-200/80 bg-white/90 shadow-sm ring-1 ring-white/50 transition hover:-translate-y-0.5 hover:shadow-md"
+            :data-testid="`preset-card-${p.id}`"
           >
-            <span
-              class="mb-2 inline-flex w-fit items-center gap-0.5 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide text-emerald-900 ring-1 ring-emerald-200/70"
-            >
-              <span class="material-symbols-outlined text-[14px]" aria-hidden="true">verified</span>
-              预设
-            </span>
-            <p class="text-base font-bold text-stone-900">{{ p.title }}</p>
-            <p class="mt-1 line-clamp-3 text-sm leading-relaxed text-[#5d6a64]">{{ p.summary }}</p>
-            <div class="mt-3 flex flex-wrap gap-1.5">
-              <span
-                v-for="t in p.tags"
-                :key="t"
-                class="rounded-full bg-stone-100 px-2 py-0.5 text-xs font-medium text-stone-600"
-                >{{ t }}</span
-              >
-            </div>
             <button
               type="button"
-              class="mt-4 inline-flex w-fit items-center gap-1 rounded-full bg-[#0a8f4a] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-[#088a42]"
-              data-testid="preset-apply"
-              @click="applyPreset(p.id)"
+              class="group/preset-hit flex w-full flex-col p-5 text-left outline-none transition hover:bg-stone-50/60 focus-visible:bg-stone-50/80 focus-visible:ring-2 focus-visible:ring-emerald-200/80 focus-visible:ring-offset-2 focus-visible:ring-offset-white"
+              :data-testid="`preset-card-hit-${p.id}`"
+              :aria-label="`查看预设「${p.title}」详情`"
+              @click="openPresetDetail(p.id)"
             >
-              <span class="material-symbols-outlined text-[18px]" aria-hidden="true">bolt</span>
-              {{ loggedIn ? '套用预设' : '登录后套用' }}
+              <span
+                class="mb-2 inline-flex w-fit items-center gap-0.5 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide text-emerald-900 ring-1 ring-emerald-200/70"
+              >
+                <span class="material-symbols-outlined text-[14px]" aria-hidden="true">verified</span>
+                预设
+              </span>
+              <p class="line-clamp-2 text-base font-bold text-stone-900 group-hover/preset-hit:text-emerald-950">
+                {{ p.title }}
+              </p>
+              <p class="mt-1 line-clamp-3 text-sm leading-relaxed text-stone-600">{{ p.summary }}</p>
+              <div class="mt-3 flex flex-wrap gap-1.5">
+                <span
+                  class="inline-flex items-center gap-1 rounded-full bg-emerald-50/90 px-2 py-0.5 text-xs font-semibold text-emerald-900 ring-1 ring-emerald-200/60"
+                >
+                  <span class="material-symbols-outlined text-[14px]" aria-hidden="true">label</span>
+                  {{ categoryLabel[p.category] ?? p.category }}
+                </span>
+                <span
+                  v-for="t in p.tags"
+                  :key="t"
+                  class="rounded-full bg-stone-100 px-2 py-0.5 text-xs font-medium text-stone-600"
+                  >{{ t }}</span
+                >
+              </div>
             </button>
+            <div class="border-t border-stone-100 bg-stone-50/50 px-5 py-4" @click.stop>
+              <button
+                type="button"
+                class="inline-flex w-fit items-center gap-1 rounded-full bg-[#0a8f4a] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-[#088a42]"
+                data-testid="preset-apply"
+                @click="applyPreset(p.id)"
+              >
+                <span class="material-symbols-outlined text-[18px]" aria-hidden="true">bolt</span>
+                {{ loggedIn ? '套用预设' : '登录后套用' }}
+              </button>
+            </div>
           </li>
         </ul>
       </section>
@@ -844,7 +888,7 @@ const myScopeOptions: MyScope[] = ['created', 'favorited', 'liked'];
       <section>
         <div class="mb-3 flex flex-wrap items-baseline justify-between gap-2">
           <h2 class="text-lg font-bold text-stone-900">用户模板</h2>
-          <span class="text-sm text-[#7c8a84]">共 {{ marketTotal }} 个 · {{ pageLabel }}</span>
+          <span class="text-sm font-medium text-stone-600">共 {{ marketTotal }} 个 · {{ pageLabel }}</span>
         </div>
         <TemplateMarketList
           :items="marketItems"
@@ -861,7 +905,7 @@ const myScopeOptions: MyScope[] = ['created', 'favorited', 'liked'];
         >
           <template #empty>
             <p class="font-semibold">{{ hasFilters ? '没有符合当前筛选的模板' : '暂时没有社区模板' }}</p>
-            <p class="mt-1 text-xs text-[#7c8a84]">
+            <p class="mt-1 text-xs text-stone-600">
               {{ hasFilters ? '建议清空分类/标签，或切换排序再试一次。' : '你可以先套用系统预设，稍后再来看看社区更新。' }}
             </p>
             <div class="mt-4 flex flex-wrap items-center justify-center gap-2">
@@ -900,7 +944,7 @@ const myScopeOptions: MyScope[] = ['created', 'favorited', 'liked'];
         <div class="flex items-center justify-end gap-2" aria-label="分页">
           <button
             type="button"
-            class="rounded-xl bg-white/70 px-3 py-2 text-sm font-semibold text-stone-700 ring-1 ring-stone-200/70 transition hover:bg-white disabled:opacity-50"
+            class="rounded-2xl border border-stone-200/80 bg-white/70 px-3 py-2 text-sm font-bold text-stone-800 ring-1 ring-white/70 transition hover:bg-white disabled:opacity-50"
             data-testid="page-prev"
             :disabled="!canPrev || loadingMarket"
             @click="prevPage"
@@ -910,7 +954,7 @@ const myScopeOptions: MyScope[] = ['created', 'favorited', 'liked'];
           <span class="text-sm font-semibold text-stone-500">{{ pageLabel }}</span>
           <button
             type="button"
-            class="rounded-xl bg-white/70 px-3 py-2 text-sm font-semibold text-stone-700 ring-1 ring-stone-200/70 transition hover:bg-white disabled:opacity-50"
+            class="rounded-2xl border border-stone-200/80 bg-white/70 px-3 py-2 text-sm font-bold text-stone-800 ring-1 ring-white/70 transition hover:bg-white disabled:opacity-50"
             data-testid="page-next"
             :disabled="!canNext || loadingMarket"
             @click="nextPage"

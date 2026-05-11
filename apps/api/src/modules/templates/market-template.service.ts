@@ -17,6 +17,9 @@ import { createGeneratedPlan } from '../plans/plan.service';
 import { parseTemplatePayload, templatePayloadToCreateInput } from './template-payload';
 import { hitSimpleRateLimit } from '../../lib/simple-rate-limit';
 
+/** 模板详情接口中「计划需求」正文长度上限，避免极端大包拖垮响应 */
+const TEMPLATE_DETAIL_REQUIREMENT_MAX_CHARS = 120_000;
+
 const AUTHOR_LABELS: Record<string, string> = {
   user_demo: '演示用户',
   admin_demo: '管理员',
@@ -337,10 +340,16 @@ export async function getMarketTemplatePublic(id: string) {
     // 历史数据异常：公开详情按 500 处理（调用方可转为 message）
     throw new Error(parsed.message);
   }
+  /** 详情页展示完整需求正文；列表仍仅用 summary 等字段 */
+  const requirement = parsed.data.requirement;
+  const requirementExcerpt =
+    requirement.length > TEMPLATE_DETAIL_REQUIREMENT_MAX_CHARS
+      ? requirement.slice(0, TEMPLATE_DETAIL_REQUIREMENT_MAX_CHARS)
+      : requirement;
   const preview = {
     goal: parsed.data.goal,
     deadline: parsed.data.deadline,
-    requirementExcerpt: parsed.data.requirement.slice(0, 160),
+    requirementExcerpt,
     type: parsed.data.type,
     granularityMode: parsed.data.granularityMode ?? null,
     startDateIso: parsed.data.startDateIso ?? null,

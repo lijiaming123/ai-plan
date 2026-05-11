@@ -6,7 +6,7 @@ import UiErrorToast from '../../components/UiErrorToast.vue';
 import { useAuthCaptcha } from '../../composables/useAuthCaptcha';
 import { getApiClient, HttpApiError } from '../../lib/api-client';
 import { trackEvent } from '../../lib/telemetry';
-import { setAuthTier, setAuthToken, setUserPhone } from '../../stores/auth';
+import { setAuthBillingFromMe, setAuthToken, setUserPhone } from '../../stores/auth';
 
 const router = useRouter();
 
@@ -144,7 +144,7 @@ async function verifyAndEnter() {
     });
     setAuthToken(r.token);
     setUserPhone(r.phone);
-    setAuthTier('basic');
+    setAuthBillingFromMe(r);
     trackEvent('auth_login', { properties: { method: 'otp_reset_password', purpose: 'reset' } });
     await router.push('/plans');
   } catch (e) {

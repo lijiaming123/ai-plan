@@ -4,7 +4,11 @@ import { useRoute, useRouter } from "vue-router";
 import PageSectionHeading from "../../components/PageSectionHeading.vue";
 import UiErrorToast from "../../components/UiErrorToast.vue";
 import UiConfirmDialog from "../../components/UiConfirmDialog.vue";
-import { getApiClient, type PlanListRow } from "../../lib/api-client";
+import {
+  getApiClient,
+  type CheckinListSegment,
+  type PlanListRow,
+} from "../../lib/api-client";
 import { buildPlanCardDisplayTexts } from "../../lib/plan-list-card-text";
 import { useCloseOnEscape } from "../../composables/useCloseOnEscape";
 import { authState } from "../../stores/auth";
@@ -26,8 +30,10 @@ type PlanCard = {
   type: string;
   /** 封面改为无图视觉锚点；保留字段便于后续迁移真实数据 */
   image: string;
-  /** 执行中：今天应打卡但未提交（用于进度环红色提醒） */
+  /** 执行中：今天应打卡但未提交（用于轻量提醒；与「已过截止」分开） */
   todayMissing?: boolean;
+  /** 有打卡表时：各段状态（绿/红/未开始） */
+  checkinSegments?: CheckinListSegment[];
 };
 
 const plans = ref<PlanCard[]>([]);
@@ -142,7 +148,7 @@ function computeTimeProgressPercent(params: { startIso: string; endIso: string; 
   return Math.max(0, Math.min(100, pct));
 }
 
-/** 列表仅展示已定稿计划；进度采用“时间推进”估算（后续可替换为按槽完成度）。 */
+/** 列表仅展示已定稿计划；有打卡段时用槽位完成度，否则用时间推进估算。 */
 function rowToCard(row: PlanListRow): PlanCard {
   const deadline = deadlineDayFromIso(row.deadline);
   const { description, coverLine } = buildPlanCardDisplayTexts({
@@ -160,6 +166,12 @@ function rowToCard(row: PlanListRow): PlanCard {
     startIso: row.createdAt ?? row.deadline,
     endIso: row.deadline,
   });
+  const slotProgress =
+    typeof row.checkinProgressPercent === "number" &&
+    Array.isArray(row.checkinSegments) &&
+    row.checkinSegments.length > 0
+      ? row.checkinProgressPercent
+      : null;
   return {
     id: row.id,
     title: row.goal,
@@ -167,32 +179,72 @@ function rowToCard(row: PlanListRow): PlanCard {
     coverLine,
     deadline,
     image: "",
-    progress: completed ? 100 : timeProgress,
+    progress: completed ? 100 : slotProgress ?? timeProgress,
     status: completed ? "已完成" : notStarted ? "未开始" : "执行中",
     type: row.type,
     todayMissing: row.todayMissing === true,
+    checkinSegments: row.checkinSegments,
   };
 }
 
-function ringStyle(plan: Pick<PlanCard, "progress" | "status" | "todayMissing">) {
+function ringStyle(
+  plan: Pick<PlanCard, "progress" | "status" | "todayMissing" | "deadline">,
+) {
   const pct = Math.max(0, Math.min(100, plan.progress));
-  const danger = plan.status === "执行中" && plan.todayMissing === true;
   const done = plan.status === "已完成";
-  const main = danger
-    ? "rgba(244, 63, 94, 0.95)"
-    : done
-      ? "rgba(16, 185, 129, 0.95)"
-      : "rgba(16, 185, 129, 0.95)";
-  const muted = danger
-    ? "rgba(244, 63, 94, 0.16)"
-    : done
-      ? "rgba(16, 185, 129, 0.14)"
-      : "rgba(16, 185, 129, 0.14)";
+  const inProgress = plan.status === "执行中";
+  const dd = daysDiffFromToday(plan.deadline);
+  const overdueActive = inProgress && dd !== null && dd < 0;
+  const todayNudge =
+    inProgress && plan.todayMissing === true && !overdueActive;
+
+  let main: string;
+  let muted: string;
+  if (done) {
+    main = "rgba(16, 185, 129, 0.95)";
+    muted = "rgba(16, 185, 129, 0.14)";
+  } else if (overdueActive) {
+    main = "rgba(244, 63, 94, 0.95)";
+    muted = "rgba(244, 63, 94, 0.16)";
+  } else if (todayNudge) {
+    main = "rgba(245, 158, 11, 0.92)";
+    muted = "rgba(245, 158, 11, 0.2)";
+  } else {
+    main = "rgba(16, 185, 129, 0.95)";
+    muted = "rgba(16, 185, 129, 0.14)";
+  }
   return {
     "--p": `${pct}`,
     "--ring-main": main,
     "--ring-muted": muted,
   } as Record<string, string>;
+}
+
+function segmentRingStyle(
+  segments: CheckinListSegment[],
+): Record<string, string> {
+  const n = segments.length;
+  const colorFor = (s: CheckinListSegment) => {
+    if (s === "done") return "rgba(16, 185, 129, 0.95)";
+    if (s === "missed") return "rgba(244, 63, 94, 0.9)";
+    return "rgba(229, 231, 235, 0.35)";
+  };
+  const parts: string[] = [];
+  for (let i = 0; i < n; i++) {
+    const a0 = (i / n) * 100;
+    const a1 = ((i + 1) / n) * 100;
+    parts.push(`${colorFor(segments[i]!)} ${a0}% ${a1}%`);
+  }
+  return {
+    "--ring-segments": `conic-gradient(from 210deg, ${parts.join(", ")})`,
+  };
+}
+
+function ringWrapStyle(plan: PlanCard) {
+  if (plan.checkinSegments?.length) {
+    return segmentRingStyle(plan.checkinSegments);
+  }
+  return ringStyle(plan);
 }
 
 async function loadPlans() {
@@ -455,6 +507,16 @@ function relativeText(deadline: string): string {
   if (dd > 0) return `还剩 ${dd} 天`;
   if (dd < 0) return `已逾期 ${Math.abs(dd)} 天`;
   return "今天截止";
+}
+
+/** 已完成：不再展示「已逾期」——避免与「目标已达成」语义冲突 */
+function deadlineRelativeText(plan: PlanCard): string {
+  if (plan.status === "已完成") return "";
+  return relativeText(plan.deadline);
+}
+
+function isOverdueRelativeText(text: string): boolean {
+  return text.startsWith("已逾期");
 }
 
 watch(
@@ -776,7 +838,7 @@ watch(
             <div class="plan-cover-inner flex items-center gap-4 px-5 py-4">
               <div
                 class="plan-ring-wrap shrink-0"
-                :style="ringStyle(plan)"
+                :style="ringWrapStyle(plan)"
               >
                 <div class="plan-ring" aria-hidden="true" />
                 <div class="plan-ring-text" aria-hidden="true">
@@ -792,18 +854,18 @@ watch(
                 >
                   {{ dueText(plan.deadline) }}
                   <span
-                    v-if="relativeText(plan.deadline)"
+                    v-if="deadlineRelativeText(plan)"
                     class="text-stone-900/35"
                     >·</span
                   >
                   <span
                     class="plan-cover-rel"
                     :class="
-                      relativeText(plan.deadline).startsWith('已逾期')
+                      isOverdueRelativeText(deadlineRelativeText(plan))
                         ? 'plan-cover-rel--overdue'
                         : ''
                     "
-                    >{{ relativeText(plan.deadline) }}</span
+                    >{{ deadlineRelativeText(plan) }}</span
                   >
                 </p>
                 <div class="mt-2 flex items-center gap-2">
@@ -844,15 +906,15 @@ watch(
                   <span>{{ dueText(plan.deadline) }}</span>
                 </span>
                 <span
-                  v-if="relativeText(plan.deadline)"
+                  v-if="deadlineRelativeText(plan)"
                   class="tabular-nums"
                   :class="
-                    relativeText(plan.deadline).startsWith('已逾期')
+                    isOverdueRelativeText(deadlineRelativeText(plan))
                       ? 'text-rose-700'
                       : 'text-stone-600'
                   "
                 >
-                  {{ relativeText(plan.deadline) }}
+                  {{ deadlineRelativeText(plan) }}
                 </span>
               </div>
             </div>
@@ -1259,10 +1321,13 @@ watch(
   inset: 0;
   border-radius: 9999px;
   background:
-    conic-gradient(
-      from 210deg,
-      var(--ring-main, rgba(16, 185, 129, 0.95)) calc(var(--p, 0) * 1%),
-      var(--ring-muted, rgba(16, 185, 129, 0.14)) 0
+    var(
+      --ring-segments,
+      conic-gradient(
+        from 210deg,
+        var(--ring-main, rgba(16, 185, 129, 0.95)) calc(var(--p, 0) * 1%),
+        var(--ring-muted, rgba(16, 185, 129, 0.14)) 0
+      )
     ),
     radial-gradient(
       circle at 35% 35%,

@@ -8,7 +8,7 @@ import {
 } from "../../lib/api-client";
 import { useAuthCaptcha } from "../../composables/useAuthCaptcha";
 import { trackEvent } from "../../lib/telemetry";
-import { setAuthTier, setAuthToken, setUserPhone } from "../../stores/auth";
+import { setAuthBillingFromMe, setAuthToken, setUserPhone } from "../../stores/auth";
 import AuthBackground from "./AuthBackground.vue";
 import UiErrorToast from "../../components/UiErrorToast.vue";
 
@@ -228,7 +228,7 @@ async function verifyWithOtp() {
     });
     setAuthToken(r.token);
     setUserPhone(r.phone);
-    setAuthTier("basic");
+    setAuthBillingFromMe(r);
     trackEvent("auth_login", {
       properties: { method: "otp", purpose: purpose.value },
     });
@@ -253,7 +253,7 @@ async function loginWithPassword() {
     });
     setAuthToken(r.token);
     setUserPhone(form.phone.trim());
-    setAuthTier("basic");
+    setAuthBillingFromMe(r);
     trackEvent("auth_login", { properties: { method: "password" } });
     await router.push("/plans");
   } catch (e) {

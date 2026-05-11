@@ -177,6 +177,86 @@ function formatDayKey(date: Date) {
   return `${y}-${m}-${d}`;
 }
 
+/** 自然日 YYYY-MM-DD 上加减天数，用正午解析减少时区边界抖动 */
+function addDaysYmd(ymd: string, deltaDays: number): string {
+  const base = ymd.slice(0, 10);
+  const d = toDateOnly(`${base}T12:00:00`);
+  d.setDate(d.getDate() + deltaDays);
+  return formatDayKey(d);
+}
+
+export type CheckinListSegment = "done" | "missed" | "upcoming";
+
+function extractOrderedSlotKeysFromSchedule(schedule: unknown): string[] {
+  if (!schedule || typeof schedule !== "object") return [];
+  const slots = (schedule as { slots?: unknown }).slots;
+  if (!Array.isArray(slots)) return [];
+  const keys: string[] = [];
+  for (const item of slots) {
+    if (
+      item &&
+      typeof item === "object" &&
+      typeof (item as { slotKey?: unknown }).slotKey === "string"
+    ) {
+      const k = String((item as { slotKey: string }).slotKey).trim();
+      if (k) keys.push(k);
+    }
+  }
+  return keys;
+}
+
+/**
+ * 列表卡片多段环：按 schedule.slots 顺序，结合今日与提交态得到每段颜色语义。
+ * - done：已提交
+ * - missed：该段日历上已应完成但未提交
+ * - upcoming：尚未到达该段
+ */
+export function buildCheckinListSegments(params: {
+  todayKey: string;
+  granularity: "day" | "week";
+  startDateYmd: string;
+  slotKeysInOrder: string[];
+  submittedSlotKeys: Set<string>;
+}): CheckinListSegment[] {
+  const {
+    todayKey,
+    granularity,
+    startDateYmd,
+    slotKeysInOrder,
+    submittedSlotKeys,
+  } = params;
+  const startYmd = startDateYmd.slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(startYmd)) return [];
+
+  const parseWeekIndex = (sk: string): number => {
+    const m = /^W(\d+)$/i.exec(sk.trim());
+    if (!m) return NaN;
+    const n = Number(m[1]);
+    return Number.isFinite(n) && n >= 1 ? n : NaN;
+  };
+
+  return slotKeysInOrder.map((rawKey) => {
+    const slotKey = rawKey.trim();
+    const submitted = submittedSlotKeys.has(slotKey);
+
+    if (granularity === "week") {
+      const k = parseWeekIndex(slotKey);
+      if (!Number.isFinite(k)) return "upcoming";
+      const weekStart = addDaysYmd(startYmd, (k - 1) * 7);
+      const weekEnd = addDaysYmd(startYmd, (k - 1) * 7 + 6);
+      if (todayKey < weekStart) return "upcoming";
+      if (submitted) return "done";
+      if (todayKey > weekEnd) return "missed";
+      return "missed";
+    }
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(slotKey)) return "upcoming";
+    if (todayKey < slotKey) return "upcoming";
+    if (submitted) return "done";
+    return "missed";
+  });
+}
+
 /**
  * 打卡表粒度决策（用于 schedule，不影响 stages/tasks 的 timeSlot 规则）。
  *
@@ -525,8 +605,10 @@ function mapPlanListRow(row: {
   completed?: boolean;
   startDateIso?: string | null;
   todayMissing?: boolean;
+  checkinSegments?: CheckinListSegment[];
+  checkinProgressPercent?: number;
 }) {
-  return {
+  const base = {
     id: row.id,
     goal: row.goal,
     deadline: row.deadline.toISOString(),
@@ -538,6 +620,18 @@ function mapPlanListRow(row: {
     startDate: row.startDateIso ?? null,
     todayMissing: row.todayMissing === true,
   };
+  if (
+    row.checkinSegments &&
+    row.checkinSegments.length > 0 &&
+    typeof row.checkinProgressPercent === "number"
+  ) {
+    return {
+      ...base,
+      checkinSegments: row.checkinSegments,
+      checkinProgressPercent: row.checkinProgressPercent,
+    };
+  }
+  return base;
 }
 
 export type PlanListSort = "created_desc" | "deadline_asc";
@@ -570,7 +664,8 @@ export async function listPlansForUser(
       COALESCE(jsonb_array_length(pv.schedule->'slots'), 0) AS "slotCount",
       COALESCE(COUNT(DISTINCT s."slotKey"), 0) AS "submittedCount",
       pv.schedule->>'granularity' AS "granularity",
-      pv.schedule->'meta'->>'startDate' AS "startDateIso"
+      pv.schedule->'meta'->>'startDate' AS "startDateIso",
+      pv.schedule AS "schedule"
     FROM "Plan" p
     LEFT JOIN "PlanVersion" pv
       ON pv."planId" = p.id
@@ -589,6 +684,7 @@ export async function listPlansForUser(
     submittedCount: number;
     granularity: string | null;
     startDateIso: string | null;
+    schedule: unknown | null;
   }>;
   const byId = new Map<
     string,
@@ -597,6 +693,7 @@ export async function listPlansForUser(
       submittedCount: number;
       granularity: string | null;
       startDateIso: string | null;
+      schedule: unknown | null;
     }
   >();
   for (const r of stats)
@@ -605,7 +702,31 @@ export async function listPlansForUser(
       submittedCount: r.submittedCount,
       granularity: r.granularity,
       startDateIso: r.startDateIso,
+      schedule: r.schedule,
     });
+
+  const openSlotRows = (await prisma.$queryRawUnsafe(
+    `
+    SELECT DISTINCT s."planId" AS "planId", s."slotKey" AS "slotKey"
+    FROM "PlanScheduleSlotSubmission" s
+    WHERE s."planId" = ANY($1::text[])
+      AND s."userId" = $2
+      AND s."closedAt" IS NULL
+    `,
+    ids,
+    userId,
+  )) as Array<{ planId: string; slotKey: string }>;
+  const submittedSlotsByPlan = new Map<string, Set<string>>();
+  for (const r of openSlotRows) {
+    const sk = String(r.slotKey ?? "").trim();
+    if (!sk) continue;
+    let set = submittedSlotsByPlan.get(r.planId);
+    if (!set) {
+      set = new Set<string>();
+      submittedSlotsByPlan.set(r.planId, set);
+    }
+    set.add(sk);
+  }
 
   const tz = getDefaultTimeZone();
   const todayKey = ymdInTimeZone(new Date(), tz);
@@ -696,7 +817,39 @@ export async function listPlansForUser(
       }
     }
 
-    return mapPlanListRow({ ...row, completed, startDateIso, todayMissing });
+    const slotKeys = extractOrderedSlotKeysFromSchedule(st?.schedule);
+    let checkinSegments: CheckinListSegment[] | undefined;
+    let checkinProgressPercent: number | undefined;
+    if (slotKeys.length > 0) {
+      const granularity =
+        (st?.granularity ?? "day").toLowerCase() === "week" ? "week" : "day";
+      const startYmd = (startDateIso ?? row.createdAt.toISOString()).slice(
+        0,
+        10,
+      );
+      const submittedSet = submittedSlotsByPlan.get(row.id) ?? new Set();
+      const segs = buildCheckinListSegments({
+        todayKey,
+        granularity,
+        startDateYmd: startYmd,
+        slotKeysInOrder: slotKeys,
+        submittedSlotKeys: submittedSet,
+      });
+      if (segs.length > 0) {
+        checkinSegments = segs;
+        const doneN = segs.filter((x) => x === "done").length;
+        checkinProgressPercent = Math.round((100 * doneN) / segs.length);
+      }
+    }
+
+    return mapPlanListRow({
+      ...row,
+      completed,
+      startDateIso,
+      todayMissing,
+      checkinSegments,
+      checkinProgressPercent,
+    });
   });
 }
 

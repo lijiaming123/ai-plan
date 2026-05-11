@@ -734,6 +734,16 @@ async function toggleTravelSlotCompletion(slotKey: string) {
       if (plan.value) plan.value = { ...plan.value, scheduleSlotSubmissions: cur };
       okBanner.value = "已标记完成";
     }
+    const pt = (plan.value?.type ?? "").toLowerCase();
+    if (pt === "travel" || pt === "general") {
+      trackEvent("checkin_submit", {
+        properties: {
+          planId: planId.value,
+          slotKey,
+          variant: done ? "undo_checkbox" : "complete_checkbox",
+        },
+      });
+    }
     window.setTimeout(() => {
       okBanner.value = "";
     }, 3000);
@@ -775,6 +785,13 @@ async function submitGeneralNote() {
     const cur = { ...(plan.value?.scheduleSlotSubmissions ?? {}) };
     cur[slot] = [submission, ...(cur[slot] ?? [])];
     if (plan.value) plan.value = { ...plan.value, scheduleSlotSubmissions: cur };
+    trackEvent("checkin_submit", {
+      properties: {
+        planId: planId.value,
+        slotKey: slot,
+        variant: "general_note",
+      },
+    });
     okBanner.value = "已保存备注";
     window.setTimeout(() => (okBanner.value = ""), 3000);
     checkinContent.value = "";
@@ -978,6 +995,7 @@ async function submitCheckin() {
       properties: {
         planId: planId.value,
         slotKey: slot,
+        variant: isTravelPlan.value ? "travel_record" : "proof",
       },
     });
     clearCheckinDraftForSlot(slot);
@@ -1517,7 +1535,9 @@ watch(
                 >{{
                   isTravelPlan
                     ? "可编辑计划文案；执行阶段可勾选完成，并为每段添加旅行记录（文字/附件）。"
-                    : "可编辑计划文案；已定稿后在本表按槽提交完成证明（链接附件）。"
+                    : isGeneralPlan
+                      ? "可编辑计划文案；执行阶段按槽勾选完成，并可写一句文字备注（不支持附件）。"
+                      : "可编辑计划文案；已定稿后在本表按槽提交完成证明（链接附件）。"
                 }}</template
               >
               <template v-else>已归档，打卡表为只读。</template>
@@ -1963,7 +1983,9 @@ watch(
               </div>
               <div class="flex flex-wrap gap-2">
                 <button
-                  v-if="canSubmitCheckin && !isTravelPlan"
+                  v-if="
+                    canSubmitCheckin && !isTravelPlan && !isGeneralPlan
+                  "
                   type="button"
                   class="rounded-lg border border-[#0a8f4a]/35 bg-emerald-50/90 px-3 py-1.5 text-xs font-bold text-[#0b5c34] hover:bg-emerald-100 disabled:opacity-50"
                   :disabled="scheduleSaving || checkinSaving"
@@ -1971,6 +1993,30 @@ watch(
                   @click="openCheckinSubmit(slot.slotKey, slot.content)"
                 >
                   提交证明
+                </button>
+                <button
+                  v-if="canSubmitCheckin && isGeneralPlan"
+                  type="button"
+                  class="rounded-lg border border-[#0a8f4a]/35 bg-emerald-50/90 px-3 py-1.5 text-xs font-bold text-[#0b5c34] hover:bg-emerald-100 disabled:opacity-50"
+                  :disabled="scheduleSaving || checkinSaving"
+                  data-testid="schedule-slot-general-toggle-mobile"
+                  @click="toggleTravelSlotCompletion(slot.slotKey)"
+                >
+                  {{
+                    slotSubmissions(slot.slotKey).length > 0
+                      ? "撤销完成"
+                      : "勾选完成"
+                  }}
+                </button>
+                <button
+                  v-if="canSubmitCheckin && isGeneralPlan"
+                  type="button"
+                  class="rounded-lg border border-[#dbe6df] bg-white px-3 py-1.5 text-xs font-bold text-[#111813] hover:bg-[#f6f8f6] disabled:opacity-50"
+                  :disabled="scheduleSaving || checkinSaving"
+                  data-testid="schedule-slot-general-add-note-mobile"
+                  @click="openGeneralNoteDrawer(slot.slotKey, slot.content)"
+                >
+                  添加备注
                 </button>
                 <button
                   v-if="canSubmitCheckin && isTravelPlan"

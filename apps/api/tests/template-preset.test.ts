@@ -47,6 +47,27 @@ describe('template presets', () => {
     expect(body.items.length).toBeGreaterThan(0);
   });
 
+  it('GET /templates/presets/:id 应返回公开详情（与市场对齐字段）', async () => {
+    const res = await app.inject({ method: 'GET', url: `/templates/presets/${presetId}` });
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body) as {
+      authorName: string;
+      preview: { goal: string; requirementExcerpt: string; versionId: string };
+    };
+    expect(body.authorName).toBe('系统预设');
+    expect(body.preview.goal.length).toBeGreaterThan(0);
+    expect(body.preview.requirementExcerpt.length).toBeGreaterThan(0);
+    expect(body.preview.versionId).toMatch(/^preset:/);
+  });
+
+  it('GET /templates/presets/:id 对不存在 id 应 404', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/templates/presets/clearly-missing-preset-id-xyz',
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
   it('未登录套用预设应 401', async () => {
     const res = await app.inject({
       method: 'POST',

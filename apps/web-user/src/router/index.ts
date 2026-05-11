@@ -73,6 +73,7 @@ export function createAppRouter(history: RouterHistory = createWebHistory()) {
     'plan-detail',
     'templates',
     'template-market-detail',
+    'template-preset-detail',
     'notifications',
     'task-submit',
   ]);
@@ -85,6 +86,11 @@ export function createAppRouter(history: RouterHistory = createWebHistory()) {
       {
         path: '/templates/market/:id',
         name: 'template-market-detail',
+        component: TemplateMarketDetailPage,
+      },
+      {
+        path: '/templates/presets/:id',
+        name: 'template-preset-detail',
         component: TemplateMarketDetailPage,
       },
       {

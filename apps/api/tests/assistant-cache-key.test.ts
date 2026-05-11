@@ -24,6 +24,28 @@ describe("buildPlanAssistantCacheKey", () => {
     expect(a).toBe(b);
   });
 
+  it("memoryPrefix 变化应生成不同 key", () => {
+    const a = buildPlanAssistantCacheKey({
+      mode: "draft",
+      goal: "g",
+      requirement: "r",
+      startDate: "2026-04-10",
+      endDate: "2026-05-10",
+      cycle: "1m",
+      memoryPrefix: "m1",
+    });
+    const b = buildPlanAssistantCacheKey({
+      mode: "draft",
+      goal: "g",
+      requirement: "r",
+      startDate: "2026-04-10",
+      endDate: "2026-05-10",
+      cycle: "1m",
+      memoryPrefix: "m2",
+    });
+    expect(a).not.toBe(b);
+  });
+
   it("任一关键字段变化应生成不同 key", () => {
     const a = buildPlanAssistantCacheKey({
       mode: "chat",

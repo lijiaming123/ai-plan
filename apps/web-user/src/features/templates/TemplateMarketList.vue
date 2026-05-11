@@ -21,6 +21,22 @@ function statusTone(status: string | undefined) {
   return 'bg-stone-100 text-stone-800 ring-stone-200/70';
 }
 
+/** 与「我的计划」等模块一致：分类 slug → 中文展示 */
+const CATEGORY_LABEL: Record<string, string> = {
+  general: '通用',
+  study: '学习',
+  travel: '旅游',
+  work: '工作',
+  exam: '考试',
+  fitness: '运动',
+  other: '其他',
+};
+
+function categoryLabel(slug: string) {
+  const k = String(slug ?? '').trim().toLowerCase();
+  return CATEGORY_LABEL[k] ?? slug;
+}
+
 withDefaults(
   defineProps<{
     items: MarketTemplateBrief[];
@@ -55,7 +71,7 @@ const emit = defineEmits<{
   <div class="space-y-4">
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div
-        class="inline-flex rounded-2xl border border-stone-200/80 bg-stone-50/80 p-1 shadow-[0_1px_0_rgba(255,255,255,0.9)_inset]"
+        class="inline-flex rounded-2xl border border-stone-200/80 bg-white/70 p-1 ring-1 ring-white/70 shadow-sm"
         role="group"
         aria-label="排序"
       >
@@ -90,14 +106,21 @@ const emit = defineEmits<{
       </div>
     </div>
 
-    <p v-if="loading" class="flex items-center gap-2 text-sm text-[#5d6a64]" data-testid="market-loading">
-      <span class="material-symbols-outlined animate-pulse text-[#0a8f4a]" aria-hidden="true">hourglass_top</span>
-      加载中…
-    </p>
+    <div
+      v-if="loading"
+      class="flex min-h-[200px] flex-col items-center justify-center gap-2 text-stone-500"
+      data-testid="market-loading"
+    >
+      <span
+        class="inline-block h-8 w-8 animate-spin rounded-full border-2 border-emerald-200 border-t-emerald-600"
+        aria-hidden="true"
+      />
+      <span class="text-sm font-medium">加载模板中…</span>
+    </div>
 
     <div
       v-else-if="items.length === 0"
-      class="rounded-2xl border border-dashed border-[#d0d8d3] bg-white/90 px-6 py-12 text-center text-sm text-[#7c8a84]"
+      class="rounded-3xl border border-dashed border-stone-300/90 bg-white/60 px-6 py-12 text-center text-sm text-stone-600"
       data-testid="market-grid"
     >
       <span class="material-symbols-outlined mb-2 block text-4xl text-[#b8c9c0]" aria-hidden="true">layers_clear</span>
@@ -106,57 +129,67 @@ const emit = defineEmits<{
       </slot>
     </div>
 
-    <ul v-else class="grid gap-4 sm:grid-cols-2" data-testid="market-grid">
+    <ul v-else class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3" data-testid="market-grid">
       <li
         v-for="item in items"
         :key="item.id"
-        class="flex flex-col rounded-2xl border border-[#e6ebe8] bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+        class="flex flex-col overflow-hidden rounded-3xl border border-stone-200/80 bg-white/90 shadow-sm ring-1 ring-white/50 transition hover:-translate-y-0.5 hover:shadow-md"
         :data-testid="`market-card-${item.id}`"
       >
-        <p class="text-base font-bold leading-snug text-stone-900">{{ item.title }}</p>
-        <p class="mt-1.5 line-clamp-2 text-sm leading-relaxed text-[#5d6a64]">{{ item.summary }}</p>
-        <div class="mt-3 flex flex-wrap items-center gap-2 text-xs text-[#7c8a84]">
-          <span
-            class="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 font-semibold text-emerald-900 ring-1 ring-emerald-200/70"
-          >
-            <span class="material-symbols-outlined text-[14px]" aria-hidden="true">label</span>
-            {{ item.category }}
-          </span>
-          <span>{{ item.authorName }}</span>
-          <span class="text-[#c5d0c9]">·</span>
-          <span data-testid="like-count" class="inline-flex items-center gap-0.5 font-medium text-stone-600">
-            <span class="material-symbols-outlined text-[14px] text-rose-500/90" aria-hidden="true">favorite</span>
-            {{ item.likeCount }}
-          </span>
-          <template v-if="manageMode">
-            <span class="text-[#c5d0c9]">·</span>
-            <span
-              class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-semibold ring-1"
-              :class="statusTone(item.status)"
-              data-testid="template-status"
-            >
-              <span class="material-symbols-outlined text-[14px]" aria-hidden="true">policy</span>
-              {{ statusLabel(item.status) }}
-            </span>
-            <span
-              v-if="(item.status ?? '').toLowerCase() === 'rejected' && (item.rejectReasonCode || item.rejectNote)"
-              class="inline-flex items-center gap-1 text-rose-700"
-              data-testid="template-reject-hint"
-              :title="`${item.rejectReasonCode ?? ''}${item.rejectNote ? `：${item.rejectNote}` : ''}`"
-            >
-              <span class="material-symbols-outlined text-[14px]" aria-hidden="true">info</span>
-              查看原因
-            </span>
-          </template>
-        </div>
-        <p
-          v-if="manageMode && (item.status ?? '').toLowerCase() === 'rejected' && (item.rejectReasonCode || item.rejectNote)"
-          class="mt-2 rounded-xl bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-900 ring-1 ring-rose-200/70"
-          data-testid="template-reject-reason"
+        <button
+          type="button"
+          class="group/card-hit flex w-full flex-col p-5 text-left outline-none transition hover:bg-stone-50/60 focus-visible:bg-stone-50/80 focus-visible:ring-2 focus-visible:ring-emerald-200/80 focus-visible:ring-offset-2 focus-visible:ring-offset-white"
+          :data-testid="`market-card-hit-${item.id}`"
+          :aria-label="`查看模板「${item.title}」详情`"
+          @click="emit('openDetail', item.id)"
         >
-          驳回原因：{{ item.rejectReasonCode ?? 'unknown' }}{{ item.rejectNote ? ` · ${item.rejectNote}` : '' }}
-        </p>
-        <div class="mt-4 flex flex-wrap gap-2 border-t border-stone-100 pt-4">
+          <p class="line-clamp-2 text-base font-bold leading-snug text-stone-900 group-hover/card-hit:text-emerald-950">
+            {{ item.title }}
+          </p>
+          <p class="mt-1.5 line-clamp-3 text-sm leading-relaxed text-stone-600">{{ item.summary }}</p>
+          <div class="mt-3 flex flex-wrap items-center gap-2 text-xs text-stone-500">
+            <span
+              class="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 font-semibold text-emerald-900 ring-1 ring-emerald-200/70"
+            >
+              <span class="material-symbols-outlined text-[14px]" aria-hidden="true">label</span>
+              {{ categoryLabel(item.category) }}
+            </span>
+            <span>{{ item.authorName }}</span>
+            <span class="text-stone-300">·</span>
+            <span data-testid="like-count" class="inline-flex items-center gap-0.5 font-medium text-stone-600">
+              <span class="material-symbols-outlined text-[14px] text-rose-500/90" aria-hidden="true">favorite</span>
+              {{ item.likeCount }}
+            </span>
+            <template v-if="manageMode">
+              <span class="text-stone-300">·</span>
+              <span
+                class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-semibold ring-1"
+                :class="statusTone(item.status)"
+                data-testid="template-status"
+              >
+                <span class="material-symbols-outlined text-[14px]" aria-hidden="true">policy</span>
+                {{ statusLabel(item.status) }}
+              </span>
+              <span
+                v-if="(item.status ?? '').toLowerCase() === 'rejected' && (item.rejectReasonCode || item.rejectNote)"
+                class="inline-flex items-center gap-1 text-rose-700"
+                data-testid="template-reject-hint"
+                :title="`${item.rejectReasonCode ?? ''}${item.rejectNote ? `：${item.rejectNote}` : ''}`"
+              >
+                <span class="material-symbols-outlined text-[14px]" aria-hidden="true">info</span>
+                查看原因
+              </span>
+            </template>
+          </div>
+          <p
+            v-if="manageMode && (item.status ?? '').toLowerCase() === 'rejected' && (item.rejectReasonCode || item.rejectNote)"
+            class="mt-2 rounded-xl bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-900 ring-1 ring-rose-200/70"
+            data-testid="template-reject-reason"
+          >
+            驳回原因：{{ item.rejectReasonCode ?? 'unknown' }}{{ item.rejectNote ? ` · ${item.rejectNote}` : '' }}
+          </p>
+        </button>
+        <div class="flex flex-wrap gap-2 border-t border-stone-100 bg-stone-50/50 px-5 py-4" @click.stop>
           <button
             type="button"
             class="inline-flex items-center gap-1 rounded-full bg-[#0a8f4a] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-[#088a42]"
@@ -165,15 +198,6 @@ const emit = defineEmits<{
           >
             <span class="material-symbols-outlined text-[18px]" aria-hidden="true">bolt</span>
             {{ loggedIn ? '套用' : '登录后套用' }}
-          </button>
-          <button
-            type="button"
-            class="inline-flex items-center gap-1 rounded-full border border-stone-200 bg-white px-3.5 py-2 text-sm font-semibold text-stone-800 transition hover:border-emerald-200 hover:bg-emerald-50/50"
-            data-testid="btn-detail"
-            @click="emit('openDetail', item.id)"
-          >
-            <span class="material-symbols-outlined text-[18px]" aria-hidden="true">open_in_new</span>
-            详情
           </button>
           <button
             v-if="manageMode && loggedIn"

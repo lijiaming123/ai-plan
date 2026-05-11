@@ -53,7 +53,7 @@ const EVENT_PROPERTY_ALLOWLIST: Record<TelemetryEventName, Set<string>> = {
   plan_create: new Set(['planId', 'type']),
   plan_publish: new Set(['planId']),
   dashboard_view: new Set(['route']),
-  checkin_submit: new Set(['planId', 'slotKey']),
+  checkin_submit: new Set(['planId', 'slotKey', 'variant']),
   page_view: new Set(['route']),
   notification_open: new Set(['notificationId', 'type', 'from']),
   draft_regenerate: new Set(['planId', 'version', 'mode']),

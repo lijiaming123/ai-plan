@@ -254,6 +254,13 @@ describe('PlanDetailPage schedule', () => {
     expect(wrapper.find('[data-testid="schedule-slot-general-toggle"]').exists()).toBe(true);
     expect(wrapper.find('[data-testid="schedule-slot-general-add-note"]').exists()).toBe(true);
 
+    expect(wrapper.text()).toContain('勾选完成');
+    expect(wrapper.text()).toContain('不支持附件');
+
+    expect(wrapper.find('[data-testid="schedule-slot-general-toggle-mobile"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="schedule-slot-general-add-note-mobile"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="schedule-slot-checkin-mobile"]').exists()).toBe(false);
+
     expect(wrapper.find('[data-testid="schedule-slot-checkin"]').exists()).toBe(false);
   });
 
@@ -456,6 +463,7 @@ describe('PlanDetailPage schedule', () => {
       properties: {
         planId: 'plan_1',
         slotKey: '2026-04-10',
+        variant: 'proof',
       },
     });
   });

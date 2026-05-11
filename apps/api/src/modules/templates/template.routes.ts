@@ -6,7 +6,7 @@
  * 具体校验与分页见 market-template.service 内 Zod schema（packages/shared）。
  */
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { applyPresetTemplate, listPresets } from './preset-template.service';
+import { applyPresetTemplate, getPresetTemplatePublic, listPresets } from './preset-template.service';
 import {
   applyMarketTemplate,
   favoriteMarketTemplate,
@@ -38,6 +38,15 @@ export async function registerTemplateRoutes(fastify: FastifyInstance) {
     const q = request.query as { category?: string };
     const items = await listPresets(q.category?.trim() || undefined);
     return reply.send({ items });
+  });
+
+  fastify.get('/templates/presets/:id', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const row = await getPresetTemplatePublic(id);
+    if (!row) {
+      return reply.code(404).send({ message: 'preset not found' });
+    }
+    return reply.send(row);
   });
 
   fastify.post(

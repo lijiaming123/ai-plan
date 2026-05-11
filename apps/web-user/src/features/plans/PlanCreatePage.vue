@@ -4,13 +4,14 @@ import { useRoute, useRouter } from "vue-router";
 import {
   getApiBaseURL,
   getApiClient,
+  HttpApiError,
   type PlanAssistantResult,
 } from "../../lib/api-client";
 import { renderMarkdownToHtml } from "../../lib/render-markdown";
 import { consumePlanAssistantStream } from "../../lib/plan-assistant-stream";
 import { storeDraftStreamPayload } from "../../lib/plan-assistant-stream";
 import { trackEvent } from "../../lib/telemetry";
-import { authState } from "../../stores/auth";
+import { authState, refreshAuthBillingFromApi } from "../../stores/auth";
 import UiErrorToast from "../../components/UiErrorToast.vue";
 import UiSunriseSelect from "../../components/UiSunriseSelect.vue";
 
@@ -87,6 +88,9 @@ function calcDurationDays(startDate: string, endDate: string) {
 }
 
 const today = formatDate(new Date());
+/** 已从服务端拉取计划助手上下文（偏好 + 摘要注入由后端完成） */
+const planAssistantMemoryLoaded = ref(false);
+const planAssistantMemoryDismissed = ref(false);
 const isSubmitting = ref(false);
 const showUpgradeHint = ref(false);
 const planTierMode = ref<PlanMode>("basic");
@@ -297,6 +301,7 @@ const travelTransportChipOptions = [
 ] as const;
 
 const isTravelScenario = computed(() => form.planScenario === "travel");
+const isOtherScenario = computed(() => form.planScenario === "other");
 
 function normalizeCommaSeparatedTags(input: string): string[] {
   return input
@@ -477,9 +482,22 @@ function showErrorToast(message: string) {
 }
 
 function extractErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof HttpApiError) {
+    if (error.status === 429) {
+      return `${error.message} · 可在「设置」查看本月额度与会员说明`;
+    }
+    return error.message || fallback;
+  }
   if (error instanceof Error && error.message) return error.message;
   return fallback;
 }
+
+const aiQuotaSummaryText = computed(() => {
+  const q = authState.aiQuota;
+  if (!q || !authState.token) return "";
+  const left = Math.max(0, q.limit - q.used);
+  return `本月智能生成剩余 ${left} / ${q.limit} 次（${q.yearMonth}，UTC）`;
+});
 
 /**
  * 落库/创建计划用的「可执行正文」：优先助手产出的初稿/优化版（proPendingContent），
@@ -648,6 +666,37 @@ async function hydrateContinuationFromRoute() {
   }
 }
 
+/** 创建页进入：拉取助手上下文，并按画像填充默认场景/周投入（不覆盖续航或用户已选项） */
+async function loadPlanAssistantUserContext() {
+  planAssistantMemoryLoaded.value = false;
+  if (!authState.token) return;
+  try {
+    const ctx = await getApiClient().getPlanAssistantContext({
+      token: authState.token,
+    });
+    planAssistantMemoryLoaded.value = true;
+    const hadContinuation = Boolean(route.query.continuationFrom);
+    if (!hadContinuation && !form.planScenario) {
+      const ds = ctx.profile.defaultScenario;
+      if (ds === "study") form.planScenario = "study";
+      else if (ds === "travel") form.planScenario = "travel";
+      else if (ds === "work" || ds === "general") form.planScenario = "other";
+    }
+    const cap = ctx.profile.weeklyHoursCap;
+    if (
+      cap != null &&
+      cap > 0 &&
+      form.timeInvestment === "none" &&
+      !hadContinuation
+    ) {
+      form.timeInvestment = "custom";
+      form.timeInvestmentCustomHours = String(cap);
+    }
+  } catch {
+    planAssistantMemoryLoaded.value = false;
+  }
+}
+
 function validateForm() {
   errors.planScenario = form.planScenario ? "" : "请选择计划场景";
   errors.goal = form.goal.trim() ? "" : "请输入计划名称";
@@ -737,9 +786,16 @@ async function handleSubmit() {
         content: "我已经先帮你生成并优化了一版计划。接下来你可以直接点击「立即生成计划」。",
       });
     } catch (e) {
-      showErrorToast(
-        extractErrorMessage(e, "智能生成暂时用不了，我先用基础方式帮你继续创建。"),
-      );
+      if (e instanceof HttpApiError && e.status === 429) {
+        showErrorToast(
+          extractErrorMessage(e, "本月智能生成次数已用尽。"),
+        );
+        void refreshAuthBillingFromApi();
+      } else {
+        showErrorToast(
+          extractErrorMessage(e, "智能生成暂时用不了，我先用基础方式帮你继续创建。"),
+        );
+      }
     }
   }
 
@@ -921,6 +977,7 @@ async function handleGenerateAiDraft() {
 
     // 非测试环境优先走流式（像 ChatGPT 一样逐字输出）；测试环境仍走非流式 mock，避免复杂的 stream mocking
     let response: PlanAssistantResult | null = null;
+    let streamHardFailed = false;
     if (!isTest && authState.token) {
       const streamAssistantId = `chat-draft-stream-${Date.now()}`;
       streamDraftMsgId = streamAssistantId;
@@ -976,11 +1033,32 @@ async function handleGenerateAiDraft() {
               };
             }
           },
-          onError: () => {
-            /* 错误由下方非流式降级处理，不在此处弹 Toast，避免误报 */
+          onError: (msg) => {
+            streamHardFailed = true;
+            showErrorToast(
+              /次数|用尽|额度/i.test(msg)
+                ? `${msg} · 可在「设置」查看会员说明`
+                : msg,
+            );
+            void refreshAuthBillingFromApi();
+            const msgEl = chatMessages.value.find(
+              (m) => m.id === streamAssistantId,
+            );
+            if (msgEl) {
+              msgEl.content =
+                /次数|用尽|额度/i.test(msg) && authState.token
+                  ? "本月智能生成次数已用尽或暂时不可用。请前往「设置」查看额度。"
+                  : msg;
+            }
           },
         },
       );
+    }
+
+    if (streamHardFailed) {
+      isAiThinking.value = false;
+      assistantDraftStreamMessageId.value = null;
+      return;
     }
 
     if (!response) {
@@ -1037,7 +1115,15 @@ async function handleGenerateAiDraft() {
         content: body || response.reply,
       });
     }
+    void refreshAuthBillingFromApi();
   } catch (error) {
+    if (error instanceof HttpApiError && error.status === 429) {
+      showErrorToast(extractErrorMessage(error, "本月智能生成次数已用尽。"));
+      void refreshAuthBillingFromApi();
+      isAiThinking.value = false;
+      assistantDraftStreamMessageId.value = null;
+      return;
+    }
     const draft = buildAiDraftContent();
     proPendingContent.value = draft;
     proPendingSchedule.value = null;
@@ -1170,21 +1256,29 @@ async function handleChatSend() {
       content: body || response.reply,
     });
   } catch (error) {
-    const mergedRequirement = form.requirement.trim()
-      ? `${form.requirement.trim()}\n\n用户补充：${content}`
-      : content;
-    showErrorToast(
-      extractErrorMessage(error, "对话暂时用不了，但我已经先把你的补充整理进草稿里了。"),
-    );
-    applyChatAssistantResult({
-      reply: "对话暂时用不了，但我已经先把你的补充整理进草稿里了。",
-      suggestedContent: mergedRequirement,
-    });
-    chatMessages.value.push({
-      id: `chat-ai-fallback-${Date.now()}`,
-      role: "assistant",
-      content: mergedRequirement,
-    });
+    if (error instanceof HttpApiError && error.status === 429) {
+      showErrorToast(extractErrorMessage(error, "本月智能生成次数已用尽。"));
+      void refreshAuthBillingFromApi();
+    } else {
+      const mergedRequirement = form.requirement.trim()
+        ? `${form.requirement.trim()}\n\n用户补充：${content}`
+        : content;
+      showErrorToast(
+        extractErrorMessage(
+          error,
+          "对话暂时用不了，但我已经先把你的补充整理进草稿里了。",
+        ),
+      );
+      applyChatAssistantResult({
+        reply: "对话暂时用不了，但我已经先把你的补充整理进草稿里了。",
+        suggestedContent: mergedRequirement,
+      });
+      chatMessages.value.push({
+        id: `chat-ai-fallback-${Date.now()}`,
+        role: "assistant",
+        content: mergedRequirement,
+      });
+    }
   } finally {
     isAiThinking.value = false;
   }
@@ -1365,9 +1459,11 @@ watch(
   },
 );
 
-onMounted(() => {
+onMounted(async () => {
   syncModeFromRoute();
-  void hydrateContinuationFromRoute();
+  await hydrateContinuationFromRoute();
+  void refreshAuthBillingFromApi();
+  await loadPlanAssistantUserContext();
 });
 watch(
   () => route.query.mode,
@@ -1441,6 +1537,40 @@ watch(
         </div>
       </div>
     </header>
+
+    <div
+      v-if="aiQuotaSummaryText"
+      class="relative z-40 border-b border-amber-200/70 bg-amber-50/90 px-3 py-1.5 text-center text-[11px] font-medium text-amber-950 sm:text-xs"
+      data-testid="ai-quota-banner"
+    >
+      <span>{{ aiQuotaSummaryText }}</span>
+      <router-link
+        to="/settings?focus=pro"
+        class="ml-1.5 font-bold text-[#0f8b4e] underline underline-offset-2"
+        >会员与额度</router-link
+      >
+    </div>
+
+    <div
+      v-if="planAssistantMemoryLoaded && !planAssistantMemoryDismissed"
+      class="relative z-40 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 border-b border-emerald-200/75 bg-emerald-50/90 px-3 py-1.5 text-center text-[11px] font-medium text-emerald-950 sm:text-xs"
+      data-testid="plan-assistant-memory-banner"
+    >
+      <span>已加载你在「设置」中的计划助手偏好；生成时服务端会注入近期执行摘要（不含历史正文全文）。</span>
+      <router-link
+        to="/settings"
+        class="font-bold text-[#0f8b4e] underline underline-offset-2"
+        >去设置</router-link
+      >
+      <button
+        type="button"
+        class="rounded-md px-1.5 py-0.5 text-[11px] font-bold text-emerald-800/90 underline decoration-emerald-400/80 underline-offset-2 hover:bg-emerald-100/60"
+        data-testid="plan-assistant-memory-dismiss"
+        @click="planAssistantMemoryDismissed = true"
+      >
+        关闭
+      </button>
+    </div>
 
     <div
       class="plan-create-scroll ui-scrollbar relative z-10 min-h-0 flex-1 overflow-y-auto overflow-x-hidden"
@@ -1565,6 +1695,14 @@ watch(
                     {{ errors.planScenario }}
                   </p>
     </label>
+
+                <p
+                  v-if="isOtherScenario"
+                  class="text-xs leading-relaxed text-[#5f6d66] md:col-span-2"
+                  data-testid="plan-scenario-other-checkin-hint"
+                >
+                  「其它」计划定稿后按天<strong class="font-semibold text-[#4d7a63]">勾选完成</strong>即可打卡，可在每个打卡段写一句文字备注；<strong class="font-semibold">不需要</strong>上传附件作为打卡材料。
+                </p>
 
                 <label class="flex min-w-0 flex-col">
                   <p class="field-label">
@@ -2189,6 +2327,14 @@ watch(
                       {{ errors.planScenario }}
                     </p>
                   </label>
+
+                  <p
+                    v-if="isOtherScenario"
+                    class="text-xs leading-relaxed text-[#5f6d66] md:col-span-2"
+                    data-testid="plan-scenario-other-checkin-hint-pro"
+                  >
+                    「其它」计划定稿后按天<strong class="font-semibold text-[#4d7a63]">勾选完成</strong>即可打卡，可在每个打卡段写一句文字备注；<strong class="font-semibold">不需要</strong>上传附件作为打卡材料。
+                  </p>
 
                   <label class="flex min-w-0 flex-col">
                     <p class="field-label">

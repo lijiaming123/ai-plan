@@ -22,25 +22,96 @@ const route = useRoute();
 const router = useRouter();
 const proSection = ref<HTMLElement | null>(null);
 
-const tierLabel = computed(() => (authState.tier === 'pro' ? '专业版' : '基础版'));
+const enableDemoTier = import.meta.env.VITE_ENABLE_DEMO_TIER_TOGGLE === 'true';
+const renewUrl = String(import.meta.env.VITE_PRO_RENEW_URL ?? '').trim();
+const helpProUrl = String(import.meta.env.VITE_PRO_HELP_ANCHOR ?? '/help#pro-tier').trim();
+
+const tierBadgeLabel = computed(() => {
+  if (authState.tier === 'pro') {
+    return authState.subscriptionSource === 'trial' ? '专业版（试用）' : '专业版';
+  }
+  return '基础版';
+});
+
+/** trial_eligible | active | expired */
+const membershipKind = computed(() => {
+  if (authState.tier === 'pro') return 'active';
+  if (authState.proTrialUsed) return 'expired';
+  return 'trial_eligible';
+});
+
+const priceYuan = computed(() => {
+  const cents = authState.priceCents > 0 ? authState.priceCents : 1900;
+  return (cents / 100).toFixed(0);
+});
 
 const aiQuotaLine = computed(() => {
   const q = authState.aiQuota;
   if (!q) return '';
   const left = Math.max(0, q.limit - q.used);
-  return `本月智能生成：已用 ${q.used} / ${q.limit}，剩余 ${left} 次（账单月 ${q.yearMonth}，UTC）。`;
+  return `本月智能生成：已用 ${q.used} / ${q.limit}，剩余 ${left} 次（账单月 ${q.yearMonth}）。`;
 });
 
-const proExpiresLine = computed(() => {
-  if (!authState.proExpiresAt) return '';
+function formatExpiresDate(iso: string): string {
   try {
-    const d = new Date(authState.proExpiresAt);
+    const d = new Date(iso);
     if (!Number.isFinite(d.getTime())) return '';
-    return `专业版权益当前设至：${d.toLocaleString('zh-CN', { timeZone: 'UTC' })}（UTC）。到期后自动按基础版额度执行，除非运营为你续期。`;
+    return d.toLocaleDateString('zh-CN', {
+      timeZone: 'Asia/Shanghai',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
   } catch {
     return '';
   }
-});
+}
+
+function daysUntilExpires(iso: string): number {
+  try {
+    const end = new Date(iso).getTime();
+    if (!Number.isFinite(end)) return 0;
+    return Math.max(0, Math.ceil((end - Date.now()) / (24 * 60 * 60 * 1000)));
+  } catch {
+    return 0;
+  }
+}
+
+const expiresDateText = computed(() =>
+  authState.proExpiresAt ? formatExpiresDate(authState.proExpiresAt) : '',
+);
+
+const expiresDaysLeft = computed(() =>
+  authState.proExpiresAt ? daysUntilExpires(authState.proExpiresAt) : 0,
+);
+
+const trialLoading = ref(false);
+const trialError = ref('');
+
+async function startProTrialAction() {
+  if (!authState.token) return;
+  trialError.value = '';
+  trialLoading.value = true;
+  try {
+    const me = await getApiClient().startProTrial({ token: authState.token });
+    setAuthBillingFromMe(me);
+  } catch (e) {
+    trialError.value =
+      e instanceof Error ? e.message : '无法开通试用，请稍后再试';
+  } finally {
+    trialLoading.value = false;
+  }
+}
+
+function openRenewLink() {
+  if (renewUrl) {
+    window.open(renewUrl, '_blank', 'noopener,noreferrer');
+  }
+}
+
+function upgradeDemo() {
+  setAuthTier('pro');
+}
 
 const mePhone = ref('');
 const meRole = ref<'user' | 'admin' | null>(null);
@@ -199,10 +270,6 @@ function logout() {
   void router.push('/auth/login');
 }
 
-function upgradeDemo() {
-  setAuthTier('pro');
-}
-
 async function loadMe() {
   meLoadError.value = false;
   if (!authState.token) {
@@ -281,7 +348,9 @@ watch(
           <span class="material-symbols-outlined text-xl text-[#0a8f4a]" aria-hidden="true">verified_user</span>
           <div class="text-left">
             <p class="text-[10px] font-bold uppercase tracking-wider text-[#7c8a84]">当前方案</p>
-            <p class="text-sm font-bold text-stone-900">{{ tierLabel }}</p>
+            <p class="text-sm font-bold text-stone-900" data-testid="settings-tier-badge">
+              {{ tierBadgeLabel }}
+            </p>
           </div>
         </div>
       </header>
@@ -585,6 +654,7 @@ watch(
       <section
         ref="proSection"
         class="settings-panel settings-panel--d4 relative mt-6 overflow-hidden rounded-[1.25rem] border border-amber-200/50 bg-gradient-to-br from-amber-50/40 via-white/80 to-emerald-50/30 p-6 shadow-[0_20px_48px_-36px_rgba(120,90,20,0.2)] ring-1 ring-white/90 backdrop-blur-sm sm:p-7"
+        data-testid="settings-membership"
       >
         <div
           class="pointer-events-none absolute -left-8 bottom-0 h-32 w-32 rounded-full bg-emerald-400/10 blur-2xl"
@@ -598,10 +668,43 @@ watch(
           </span>
           <div class="min-w-0 flex-1">
             <h2 class="text-base font-bold text-stone-900">会员</h2>
-            <p class="mt-2 text-sm leading-relaxed text-[#5a6b62]">
-              当前为 <span class="font-bold text-stone-800">{{ tierLabel }}</span
-              >。专业版含更高月度智能生成额度与进阶计划助手；支付与自动续费接入前，升级请联系运营或在管理端开通。
+            <p
+              class="mt-2 text-sm leading-relaxed text-[#5a6b62]"
+              data-testid="settings-membership-price"
+            >
+              专业版
+              <span class="font-bold text-stone-800">¥{{ priceYuan }}/月</span>，含更高月度智能生成额度与进阶计划助手。
             </p>
+
+            <template v-if="membershipKind === 'trial_eligible'">
+              <p class="mt-2 text-sm leading-relaxed text-[#5a6b62]">
+                新用户可 <span class="font-bold text-stone-800">免费试用 7 天</span>（每人一次），无需付款。
+              </p>
+            </template>
+            <template v-else-if="membershipKind === 'active'">
+              <p class="mt-2 text-sm leading-relaxed text-[#5a6b62]">
+                <template v-if="authState.subscriptionSource === 'trial'">
+                  你正在使用 <span class="font-bold text-stone-800">专业版（试用）</span>。
+                </template>
+                <template v-else>
+                  你正在使用 <span class="font-bold text-stone-800">专业版</span>。
+                </template>
+              </p>
+              <p
+                v-if="expiresDateText"
+                class="mt-1 text-sm font-medium text-stone-800"
+                data-testid="settings-membership-expires"
+              >
+                到期时间：{{ expiresDateText }}（剩余 {{ expiresDaysLeft }} 天）
+              </p>
+            </template>
+            <template v-else>
+              <p class="mt-2 text-sm leading-relaxed text-[#5a6b62]">
+                专业版已到期。续费 <span class="font-bold text-stone-800">¥{{ priceYuan }}/月</span> 可继续使用。
+              </p>
+              <p class="mt-1 text-xs text-[#7c8a84]">7 天试用已使用，无法再次开通。</p>
+            </template>
+
             <p
               v-if="aiQuotaLine"
               class="mt-2 text-sm font-medium leading-relaxed text-stone-800"
@@ -610,29 +713,56 @@ watch(
               {{ aiQuotaLine }}
             </p>
             <p
-              v-if="proExpiresLine"
-              class="mt-1 text-xs leading-relaxed text-[#5a6b62]"
+              class="mt-3 text-xs leading-relaxed text-[#7c8a84]"
+              data-testid="settings-membership-renew-hint"
             >
-              {{ proExpiresLine }}
+              按月计费，暂不支持自动扣款。付款后凭注册手机号联系开通，通常 24 小时内生效。
             </p>
-            <p class="mt-3 text-xs leading-relaxed text-[#7c8a84]">
-              自动续费、退款与发票规则以实际上线时的用户协议与收银台说明为准；内测阶段请以订单或合同约定为准。
-            </p>
+            <p v-if="trialError" class="mt-2 text-xs font-medium text-rose-800">{{ trialError }}</p>
+
             <div class="mt-5 flex flex-wrap gap-3">
               <button
-                v-if="authState.tier !== 'pro'"
+                v-if="membershipKind === 'trial_eligible'"
+                type="button"
+                class="inline-flex items-center gap-2 rounded-xl bg-gradient-to-b from-[#34d399] to-[#0a8f4a] px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-emerald-600/25 transition hover:brightness-105 disabled:opacity-60"
+                data-testid="settings-start-trial"
+                :disabled="trialLoading || !authState.token"
+                @click="startProTrialAction"
+              >
+                <span class="material-symbols-outlined text-[20px]" aria-hidden="true">timer</span>
+                {{ trialLoading ? '开通中…' : '开始 7 天免费试用' }}
+              </button>
+              <button
+                v-if="membershipKind === 'active' || membershipKind === 'expired'"
                 type="button"
                 class="inline-flex items-center gap-2 rounded-xl bg-gradient-to-b from-[#34d399] to-[#0a8f4a] px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-emerald-600/25 transition hover:brightness-105"
+                data-testid="settings-renew-pro"
+                @click="openRenewLink"
+              >
+                <span class="material-symbols-outlined text-[20px]" aria-hidden="true">payments</span>
+                {{
+                  membershipKind === 'active' && authState.subscriptionSource === 'trial'
+                    ? '试用结束后续费（¥' + priceYuan + '/月）'
+                    : '续费专业版（¥' + priceYuan + '/月）'
+                }}
+              </button>
+              <router-link
+                :to="helpProUrl"
+                class="inline-flex items-center gap-2 rounded-xl border border-emerald-200/70 bg-white px-4 py-2.5 text-sm font-bold text-emerald-950 shadow-sm transition hover:border-[#0a8f4a]/40"
+                data-testid="settings-pro-benefits-link"
+              >
+                <span class="material-symbols-outlined text-[20px] text-[#0a8f4a]" aria-hidden="true">info</span>
+                查看专业版权益
+              </router-link>
+              <button
+                v-if="enableDemoTier && authState.tier !== 'pro'"
+                type="button"
+                class="inline-flex items-center gap-2 rounded-xl border border-amber-300/80 bg-amber-50 px-4 py-2.5 text-sm font-bold text-amber-950 transition hover:bg-amber-100/80"
                 data-testid="settings-upgrade-demo"
                 @click="upgradeDemo"
               >
-                <span class="material-symbols-outlined text-[20px]" aria-hidden="true">rocket_launch</span>
-                模拟开通专业版（仅本机）
+                模拟开通专业版（仅演示）
               </button>
-              <p v-else class="inline-flex items-center gap-2 text-sm font-bold text-[#0a8f4a]">
-                <span class="material-symbols-outlined" aria-hidden="true">check_circle</span>
-                你当前已是专业版（演示状态）
-              </p>
             </div>
           </div>
         </div>

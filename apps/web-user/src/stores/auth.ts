@@ -1,5 +1,5 @@
 import { reactive } from 'vue';
-import type { AiQuotaSnapshot, AuthMeResponse } from '../lib/api-client';
+import type { AiQuotaSnapshot, AuthMeResponse, SubscriptionSourceApi } from '../lib/api-client';
 import { getApiClient } from '../lib/api-client';
 
 const storageKey = 'ai-plan-token';
@@ -40,6 +40,10 @@ export const authState = reactive({
   aiQuota: null as AiQuotaSnapshot | null,
   /** Pro 权益到期（ISO）；null 为不设期限 */
   proExpiresAt: null as string | null,
+  proTrialUsed: false,
+  subscriptionSource: 'none' as SubscriptionSourceApi,
+  billingCycle: 'monthly' as const,
+  priceCents: 1900,
 });
 
 export function setAuthToken(token: string) {
@@ -76,15 +80,46 @@ export function setAuthTier(tier: UserTier) {
   localStorage.setItem(tierStorageKey, tier);
 }
 
-/** 同步登录/GET /auth/me 返回的档位与配额；仅在有 aiQuota（User 表账号）时覆盖 tier，避免演示 JWT 覆盖本地「模拟专业版」 */
-export function setAuthBillingFromMe(me: Pick<AuthMeResponse, 'planTier' | 'aiQuota' | 'proExpiresAt'>) {
+/** 同步登录/GET /auth/me 返回的档位与订阅信息 */
+export function setAuthBillingFromMe(
+  me: Pick<
+    AuthMeResponse,
+    | 'planTier'
+    | 'aiQuota'
+    | 'proExpiresAt'
+    | 'proTrialUsed'
+    | 'subscriptionSource'
+    | 'billingCycle'
+    | 'priceCents'
+  >,
+) {
   authState.aiQuota = me.aiQuota ?? null;
   authState.proExpiresAt =
     typeof me.proExpiresAt === 'string' && me.proExpiresAt ? me.proExpiresAt : null;
+  authState.proTrialUsed = me.proTrialUsed === true;
   if (
-    me.aiQuota != null &&
-    (me.planTier === 'pro' || me.planTier === 'basic')
+    me.subscriptionSource === 'none' ||
+    me.subscriptionSource === 'trial' ||
+    me.subscriptionSource === 'paid'
   ) {
+    authState.subscriptionSource = me.subscriptionSource;
+  } else if (me.planTier === 'pro') {
+    authState.subscriptionSource = 'paid';
+  } else {
+    authState.subscriptionSource = 'none';
+  }
+  if (me.billingCycle === 'monthly') {
+    authState.billingCycle = 'monthly';
+  }
+  if (typeof me.priceCents === 'number' && me.priceCents > 0) {
+    authState.priceCents = me.priceCents;
+  }
+  const hasAppUser =
+    me.aiQuota != null ||
+    me.proTrialUsed != null ||
+    me.planTier === 'pro' ||
+    me.planTier === 'basic';
+  if (hasAppUser && (me.planTier === 'pro' || me.planTier === 'basic')) {
     setAuthTier(me.planTier);
   }
 }
@@ -106,6 +141,9 @@ export function clearAuthToken() {
   authState.userId = '';
   authState.aiQuota = null;
   authState.proExpiresAt = null;
+  authState.proTrialUsed = false;
+  authState.subscriptionSource = 'none';
+  authState.priceCents = 1900;
   localStorage.removeItem(storageKey);
   localStorage.removeItem(tierStorageKey);
   localStorage.removeItem(emailStorageKey);

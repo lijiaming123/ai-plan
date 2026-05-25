@@ -19,19 +19,8 @@ import {
 } from './auth.service';
 import { createCaptchaSession, verifyCaptchaAnswer } from './captcha.service';
 import { normalizePhoneCN, sendOtp, verifyOtp } from './otp.service';
-import {
-  getAiQuotaStatus,
-  resolveEffectivePlanTier,
-} from '../billing/ai-quota.service';
-import { prisma } from '../../lib/prisma';
-
-async function appUserProExpiresAtIso(userId: string): Promise<string | null> {
-  const row = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { proExpiresAt: true },
-  });
-  return row?.proExpiresAt?.toISOString() ?? null;
-}
+import { getAuthBillingPayload } from '../billing/auth-billing';
+import { startProTrial } from '../billing/pro-trial.service';
 
 export async function registerAuthRoutes(fastify: FastifyInstance) {
   /**
@@ -143,9 +132,7 @@ export async function registerAuthRoutes(fastify: FastifyInstance) {
     if (!result.ok) {
       return reply.code(result.code).send({ message: result.message });
     }
-    const planTier = await resolveEffectivePlanTier(result.userId);
-    const aiQuota = await getAiQuotaStatus(result.userId);
-    const proExpiresAt = await appUserProExpiresAtIso(result.userId);
+    const billing = await getAuthBillingPayload(result.userId);
     return {
       token: fastify.jwt.sign({
         sub: result.userId,
@@ -155,15 +142,7 @@ export async function registerAuthRoutes(fastify: FastifyInstance) {
       }),
       phone: result.phone,
       userId: result.userId,
-      planTier,
-      proExpiresAt,
-      aiQuota: aiQuota
-        ? {
-            used: aiQuota.used,
-            limit: aiQuota.limit,
-            yearMonth: aiQuota.yearMonth,
-          }
-        : null,
+      ...billing,
     };
   });
 
@@ -177,24 +156,14 @@ export async function registerAuthRoutes(fastify: FastifyInstance) {
     if (phone) {
       const appUser = await authenticateAppUserByPhonePassword(phone, password);
       if (appUser) {
-        const planTier = await resolveEffectivePlanTier(appUser.id);
-        const aiQuota = await getAiQuotaStatus(appUser.id);
-        const proExpiresAt = await appUserProExpiresAtIso(appUser.id);
+        const billing = await getAuthBillingPayload(appUser.id);
         return {
           token: fastify.jwt.sign({
             sub: appUser.id,
             email: appUser.email,
             role: 'user',
           }),
-          planTier,
-          proExpiresAt,
-          aiQuota: aiQuota
-            ? {
-                used: aiQuota.used,
-                limit: aiQuota.limit,
-                yearMonth: aiQuota.yearMonth,
-              }
-            : null,
+          ...billing,
         };
       }
       return reply.code(401).send({ message: '手机号或密码错误' });
@@ -226,25 +195,29 @@ export async function registerAuthRoutes(fastify: FastifyInstance) {
       role: 'user' | 'admin';
       permissions?: string[];
     }>();
-    const planTier = await resolveEffectivePlanTier(payload.sub);
-    const aiQuota = await getAiQuotaStatus(payload.sub);
-    const proExpiresAt = await appUserProExpiresAtIso(payload.sub);
+    const billing = await getAuthBillingPayload(payload.sub);
     return {
       userId: payload.sub,
       email: payload.email,
       role: payload.role,
       permissions: payload.permissions,
-      planTier,
-      proExpiresAt,
-      aiQuota: aiQuota
-        ? {
-            used: aiQuota.used,
-            limit: aiQuota.limit,
-            yearMonth: aiQuota.yearMonth,
-          }
-        : null,
+      ...billing,
     };
   });
+
+  fastify.post(
+    '/auth/start-pro-trial',
+    { preHandler: fastify.requireRole('user') },
+    async (request, reply) => {
+      const payload = await request.jwtVerify<{ sub: string }>();
+      const result = await startProTrial(payload.sub);
+      if (!result.ok) {
+        return reply.code(result.code).send({ message: result.message });
+      }
+      const { ok: _ok, ...billing } = result;
+      return billing;
+    },
+  );
 
   fastify.get('/admin/secret', { preHandler: fastify.requireRole('admin') }, async () => {
     return { ok: true };

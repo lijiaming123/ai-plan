@@ -402,6 +402,10 @@ model User {
   planTier     String   @default("basic")
   /// Pro 权益到期时间（UTC）；null 表示不设期限。到期后 resolveEffectivePlanTier 视为 basic，直至运营调整 planTier。
   proExpiresAt DateTime?
+  /// 非空表示已使用过 7 天试用（不可再次自助开通）
+  proTrialUsedAt DateTime?
+  /// 当前/最近一次 Pro 来源：trial | paid；basic 或过期后可为 null
+  proSubscriptionSource String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 

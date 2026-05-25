@@ -19,6 +19,8 @@ export async function patchAppUserPlanTier(input: {
     data: {
       planTier: input.planTier,
       proExpiresAt: input.proExpiresAt,
+      proSubscriptionSource:
+        input.planTier === "pro" ? "paid" : null,
     },
   });
   return { ok: true };

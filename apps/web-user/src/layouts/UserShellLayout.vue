@@ -24,9 +24,14 @@ const activeNav = computed(() =>
 
 const showPlanSearch = computed(() => route.name === "plan-overview");
 
-const tierLabel = computed(() =>
-  authState.tier === "pro" ? "专业版" : "基础版",
-);
+const tierLabel = computed(() => {
+  if (authState.tier === "pro") {
+    return authState.subscriptionSource === "trial"
+      ? "专业版（试用）"
+      : "专业版";
+  }
+  return "基础版";
+});
 
 const displayPhone = computed(() => authState.userPhone || "未登录手机号");
 

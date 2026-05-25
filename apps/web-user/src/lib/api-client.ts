@@ -43,6 +43,8 @@ export type OtpVerifyResponse = {
   aiQuota?: AiQuotaSnapshot | null;
 };
 
+export type SubscriptionSourceApi = "none" | "trial" | "paid";
+
 export type AuthMeResponse = {
   userId: string;
   email: string;
@@ -50,6 +52,10 @@ export type AuthMeResponse = {
   permissions?: string[];
   planTier?: PlanTierApi;
   proExpiresAt?: string | null;
+  proTrialUsed?: boolean;
+  subscriptionSource?: SubscriptionSourceApi;
+  billingCycle?: "monthly";
+  priceCents?: number;
   aiQuota?: AiQuotaSnapshot | null;
 };
 
@@ -519,6 +525,7 @@ export type ApiClient = {
     passwordConfirm?: string;
   }): Promise<OtpVerifyResponse>;
   getAuthMe(input: { token: string }): Promise<AuthMeResponse>;
+  startProTrial(input: { token: string }): Promise<AuthMeResponse>;
   getPlanHeatmap(input: {
     token: string;
     year?: number;
@@ -885,6 +892,14 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
     getAuthMe(input) {
       return request<AuthMeResponse>("/auth/me", {
         method: "GET",
+        headers: {
+          Authorization: `Bearer ${input.token}`,
+        },
+      });
+    },
+    startProTrial(input) {
+      return request<AuthMeResponse>("/auth/start-pro-trial", {
+        method: "POST",
         headers: {
           Authorization: `Bearer ${input.token}`,
         },

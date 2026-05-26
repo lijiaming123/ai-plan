@@ -34,6 +34,10 @@ export const adminPermissionMeta: Record<
     label: '用户查看',
     description: '访问业务用户列表与用户详情画像。',
   },
+  'users:write': {
+    label: '用户运营',
+    description: '调整会员档位、续期专业版等写操作。',
+  },
   'audit:read': {
     label: '审计查看',
     description: '查看治理相关的审计记录与合规留痕。',

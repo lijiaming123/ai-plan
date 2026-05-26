@@ -8,7 +8,7 @@ import type { FastifyInstance } from 'fastify';
 import { prisma } from '../../lib/prisma';
 import { aggregateTelemetryForUtcDay } from '../telemetry/telemetry-daily-agg.service';
 import { writeAuditLog } from './audit-log.service';
-import { patchAppUserPlanTier } from './admin-user-plan-tier.service';
+import { patchAppUserPlanTier, renewAppUserProMonth } from './admin-user-plan-tier.service';
 import { getAdminUserDetail, listAdminUsers } from './admin-users.service';
 
 export async function registerAdminRoutes(fastify: FastifyInstance) {
@@ -129,6 +129,40 @@ export async function registerAdminRoutes(fastify: FastifyInstance) {
         request,
       });
       return { ok: true };
+    },
+  );
+
+  /** 运营一键续期专业版 1 个自然月（¥19/月人工履约） */
+  fastify.post(
+    '/admin/users/:userId/renew-pro-month',
+    { preHandler: fastify.requirePermission('users:write') },
+    async (request, reply) => {
+      const { userId } = request.params as { userId: string };
+      const actor = await request.jwtVerify<{ sub: string; email: string }>();
+      const res = await renewAppUserProMonth(userId);
+      if (!res.ok) {
+        return reply.code(404).send({ message: res.message });
+      }
+      await writeAuditLog({
+        actorId: actor.sub,
+        actorEmail: actor.email,
+        action: 'user.plan_tier',
+        targetType: 'User',
+        targetId: userId,
+        summary: 'renew_pro_month',
+        meta: {
+          planTier: res.planTier,
+          proExpiresAt: res.proExpiresAt.toISOString(),
+          proSubscriptionSource: res.proSubscriptionSource,
+        },
+        request,
+      });
+      return {
+        ok: true,
+        planTier: res.planTier,
+        proExpiresAt: res.proExpiresAt.toISOString(),
+        proSubscriptionSource: res.proSubscriptionSource,
+      };
     },
   );
 

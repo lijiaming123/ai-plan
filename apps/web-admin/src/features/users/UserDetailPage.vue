@@ -3,7 +3,8 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { getAdminApiClient } from '../../lib/api-client';
 import type { AdminUserDetail } from '../../lib/api-client';
-import { adminAuthState } from '../../stores/auth';
+import { adminAuthState, adminProfile } from '../../stores/auth';
+import { showToast } from '../../stores/toast';
 
 function formatDateTime(value: string | null) {
   if (!value) return '暂无记录';
@@ -16,6 +17,19 @@ function formatDateTime(value: string | null) {
     hour: '2-digit',
     minute: '2-digit',
     hour12: false,
+    timeZone: 'Asia/Shanghai',
+  }).format(date);
+}
+
+function formatDateOnly(value: string | null) {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    timeZone: 'Asia/Shanghai',
   }).format(date);
 }
 
@@ -24,6 +38,37 @@ const detail = ref<AdminUserDetail | null>(null);
 const error = ref('');
 const notFound = ref(false);
 const loading = ref(true);
+const renewLoading = ref(false);
+
+const canWriteUsers = computed(() => adminProfile.permissions.includes('users:write'));
+
+const isAppAccount = computed(
+  () => Boolean(detail.value?.phone || detail.value?.planTier),
+);
+
+const tierDisplay = computed(() => {
+  const tier = detail.value?.planTier;
+  if (tier === 'pro') {
+    if (detail.value?.proSubscriptionSource === 'trial') return '专业版（试用）';
+    return '专业版';
+  }
+  if (tier === 'basic') return '基础版';
+  return '—';
+});
+
+const subscriptionSourceLabel = computed(() => {
+  const src = detail.value?.proSubscriptionSource;
+  if (src === 'trial') return '试用';
+  if (src === 'paid') return '付费';
+  return '—';
+});
+
+const proExpired = computed(() => {
+  const exp = detail.value?.proExpiresAt;
+  if (!exp) return false;
+  const t = new Date(exp).getTime();
+  return Number.isFinite(t) && t <= Date.now();
+});
 
 const totalSubmissions = computed(
   () => (detail.value?.checkinSubmissionCount ?? 0) + (detail.value?.taskSubmissionCount ?? 0),
@@ -54,6 +99,28 @@ async function load(userId: string) {
     error.value = err instanceof Error ? err.message : '加载用户详情失败。';
   } finally {
     loading.value = false;
+  }
+}
+
+async function renewProMonth() {
+  if (!detail.value || renewLoading.value || !canWriteUsers.value) return;
+  renewLoading.value = true;
+  try {
+    const res = await getAdminApiClient().renewProMonth(
+      adminAuthState.token,
+      detail.value.userId,
+    );
+    detail.value = {
+      ...detail.value,
+      planTier: res.planTier,
+      proExpiresAt: res.proExpiresAt,
+      proSubscriptionSource: res.proSubscriptionSource,
+    };
+    showToast(`已续期至 ${formatDateOnly(res.proExpiresAt)}`, 'success', 2600);
+  } catch (err) {
+    showToast(err instanceof Error ? err.message : '续期失败', 'error', 2600);
+  } finally {
+    renewLoading.value = false;
   }
 }
 
@@ -136,6 +203,50 @@ watch(
         </article>
       </div>
 
+      <section v-if="isAppAccount" class="detail-card membership-card" data-testid="admin-user-membership">
+        <div class="membership-card__head">
+          <h2 class="detail-card__title">会员与续期</h2>
+          <p class="small-print">¥19/月 · 自然月续期 · 人工履约后点此延长 1 个月</p>
+        </div>
+        <ul class="stat-list">
+          <li v-if="detail.phone">
+            <span>手机号</span>
+            <strong class="mono">{{ detail.phone }}</strong>
+          </li>
+          <li>
+            <span>当前方案</span>
+            <strong data-testid="admin-user-tier">{{ tierDisplay }}</strong>
+          </li>
+          <li>
+            <span>来源</span>
+            <strong>{{ subscriptionSourceLabel }}</strong>
+          </li>
+          <li>
+            <span>专业版到期</span>
+            <strong data-testid="admin-user-pro-expires">
+              {{ formatDateOnly(detail.proExpiresAt ?? null) }}
+              <template v-if="detail.proExpiresAt && proExpired">（已过期）</template>
+            </strong>
+          </li>
+          <li>
+            <span>已用 7 天试用</span>
+            <strong>{{ detail.proTrialUsed ? '是' : '否' }}</strong>
+          </li>
+        </ul>
+        <div v-if="canWriteUsers" class="button-row membership-card__actions">
+          <button
+            type="button"
+            class="primary-btn"
+            data-testid="admin-renew-pro-month"
+            :disabled="renewLoading"
+            @click="renewProMonth"
+          >
+            {{ renewLoading ? '续期中…' : '续期 1 个月（¥19）' }}
+          </button>
+        </div>
+        <p v-else class="small-print">当前账号无「用户运营」权限，无法续期。</p>
+      </section>
+
       <div class="detail-grid detail-grid--columns">
         <section class="detail-card">
           <h2 class="detail-card__title">行为计数</h2>
@@ -194,5 +305,13 @@ watch(
   font-size: 0.92rem;
   color: var(--text-primary);
   word-break: break-all;
+}
+
+.membership-card__head {
+  margin-bottom: 0.75rem;
+}
+
+.membership-card__actions {
+  margin-top: 1rem;
 }
 </style>

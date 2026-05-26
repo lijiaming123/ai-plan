@@ -233,6 +233,7 @@ function submitFeedback() {
         >
           <li
             v-for="(item, index) in filteredFaqs"
+            :id="item.id"
             :key="item.id"
             class="help-faq-item rounded-xl border border-stone-200/70 bg-gradient-to-r from-white/95 to-stone-50/30 shadow-sm transition duration-300 hover:border-emerald-200/50 hover:shadow-md"
             :data-testid="`help-faq-item-${item.id}`"

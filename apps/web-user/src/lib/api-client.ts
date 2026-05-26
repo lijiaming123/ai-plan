@@ -34,16 +34,20 @@ export type AiQuotaSnapshot = {
 
 export type PlanTierApi = "basic" | "pro";
 
+export type SubscriptionSourceApi = "none" | "trial" | "paid";
+
 export type OtpVerifyResponse = {
   token: string;
   phone: string;
   userId: string;
   planTier?: PlanTierApi;
   proExpiresAt?: string | null;
+  proTrialUsed?: boolean;
+  subscriptionSource?: SubscriptionSourceApi;
+  billingCycle?: "monthly";
+  priceCents?: number;
   aiQuota?: AiQuotaSnapshot | null;
 };
-
-export type SubscriptionSourceApi = "none" | "trial" | "paid";
 
 export type AuthMeResponse = {
   userId: string;

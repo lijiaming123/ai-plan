@@ -59,7 +59,13 @@ function maxDate(dates: (Date | null | undefined)[]): Date | null {
 export async function getAdminUserDetail(userId: string) {
   const appUser = await prisma.user.findUnique({
     where: { id: userId },
-    select: { phone: true, planTier: true, proExpiresAt: true },
+    select: {
+      phone: true,
+      planTier: true,
+      proExpiresAt: true,
+      proTrialUsedAt: true,
+      proSubscriptionSource: true,
+    },
   });
 
   const [planCount, taskSubmissionCount, checkinCount, telemetryCount] = await Promise.all([
@@ -159,5 +165,7 @@ export async function getAdminUserDetail(userId: string) {
     phone: appUser?.phone ?? null,
     planTier: appUser?.planTier ?? null,
     proExpiresAt: appUser?.proExpiresAt?.toISOString() ?? null,
+    proTrialUsed: appUser?.proTrialUsedAt != null,
+    proSubscriptionSource: appUser?.proSubscriptionSource ?? null,
   };
 }

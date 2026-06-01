@@ -500,13 +500,14 @@ model AuthOtp {
 
 /// 管理端持久化账号（loginId 可为短账号如 admin，亦可与邮箱一致）
 model AdminUser {
-  id           String   @id @default(cuid())
-  loginId      String   @unique
-  email        String?  @unique
+  id           String    @id @default(cuid())
+  loginId      String    @unique
+  email        String?   @unique
   passwordHash String
   permissions  Json
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  disabledAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   @@index([loginId])
 }

@@ -23,8 +23,11 @@ import { getAuthBillingPayload } from '../billing/auth-billing';
 import { startProTrial } from '../billing/pro-trial.service';
 
 export async function registerAuthRoutes(fastify: FastifyInstance) {
+  fastify.get('/auth/admin/register-open', async () => {
+    return { open: process.env.ADMIN_OPEN_REGISTER === 'true' };
+  });
+
   /**
-   * 管理端自助注册（默认关闭）。
    * 需环境变量 ADMIN_OPEN_REGISTER=true；账号写入 AdminUser 表（需迁移 + 可用数据库）。
    */
   fastify.post('/auth/admin/register', async (request, reply) => {

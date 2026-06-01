@@ -2,7 +2,8 @@
 import { computed, onMounted, ref } from 'vue';
 import { getAdminApiClient } from '../../lib/api-client';
 import type { AdminPathResponse } from '../../lib/api-client';
-import { adminAuthState } from '../../stores/auth';
+import { exportCsvWithAudit } from '../../lib/export-with-audit';
+import { adminAuthState, adminProfile } from '../../stores/auth';
 
 const START_EVENT_OPTIONS = [
   { value: 'dashboard_view', label: 'dashboard_view（默认）' },
@@ -35,6 +36,13 @@ const emptyHint = computed(() => {
   return '所选范围内没有可统计的完整路径，需要从起点事件连续满足路径长度。没有 sessionId 时会按 30 分钟静默间隔切分会话。';
 });
 
+const canExport = computed(() => adminProfile.permissions.includes('analytics:export'));
+const exporting = ref(false);
+
+const filterSummary = computed(() => {
+  return `${startDate.value}~${endDate.value} start=${startEvent.value} len=${pathLength.value}`;
+});
+
 async function load() {
   loading.value = true;
   error.value = '';
@@ -65,6 +73,33 @@ onMounted(() => {
   startDate.value = toYmd(start);
   void load();
 });
+
+async function exportCsv() {
+  if (!data.value || !canExport.value || exporting.value) return;
+  exporting.value = true;
+  try {
+    await exportCsvWithAudit(adminAuthState.token, {
+      filename: `path-${data.value.start}-${data.value.end}.csv`,
+      columns: [
+        { key: 'path', label: '路径' },
+        { key: 'count', label: '次数' },
+        { key: 'share', label: '占比' },
+      ],
+      rows: data.value.paths.map((row) => ({
+        path: row.path,
+        count: row.count,
+        share: `${(row.share * 100).toFixed(2)}%`,
+      })),
+      action: 'analytics.export',
+      summary: `path ${filterSummary.value}`,
+      meta: { startEvent: data.value.startEvent, pathLength: data.value.pathLength },
+    });
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : '导出失败。';
+  } finally {
+    exporting.value = false;
+  }
+}
 </script>
 
 <template>
@@ -115,6 +150,15 @@ onMounted(() => {
         <input v-model="clientVersion" type="text" placeholder="可选" autocomplete="off" />
       </label>
       <button type="submit" class="primary-btn" :disabled="loading">查询</button>
+      <button
+        type="button"
+        class="ghost-btn"
+        :disabled="!data || !canExport || exporting"
+        :title="canExport ? '导出当前路径结果' : '需要 analytics:export 权限'"
+        @click="exportCsv"
+      >
+        {{ exporting ? '导出中...' : '导出 CSV' }}
+      </button>
     </form>
 
     <div v-if="loading" class="loading-row" aria-live="polite">

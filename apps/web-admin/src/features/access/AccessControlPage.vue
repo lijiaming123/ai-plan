@@ -13,6 +13,7 @@ import { adminProfile } from '../../stores/auth';
 import CopyButton from '../../components/CopyButton.vue';
 
 const roleLabel = computed(() => getAdminRoleLabel(adminProfile.permissions));
+const canManageAccounts = computed(() => adminProfile.permissions.includes('rbac:manage'));
 
 const permissions = computed(() => adminProfile.permissions as AdminPermission[]);
 
@@ -131,8 +132,12 @@ function isPresetMatched(key: string) {
     <section class="detail-card">
       <h2 class="detail-card__title">开通说明</h2>
       <p class="small-print">
-        演示环境支持在注册页自助创建 <strong>运营分析</strong> 和 <strong>审计只读</strong> 账号；生产环境建议由具备权限管理能力的管理员统一开通。
+        生产环境建议由超级管理员在「管理员账号」页统一开通；演示环境可设置
+        <code>ADMIN_OPEN_REGISTER=true</code> 开启注册页自助创建运营/审计账号。
       </p>
+      <router-link v-if="canManageAccounts" class="primary-btn link-btn" to="/admin/admin-users">
+        管理管理员账号
+      </router-link>
     </section>
   </section>
 </template>

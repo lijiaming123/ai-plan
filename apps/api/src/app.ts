@@ -13,6 +13,7 @@ import cors from '@fastify/cors';
 import { authPlugin } from './plugins/auth';
 import { registerAuthRoutes } from './modules/auth/auth.routes';
 import { registerMeRoutes } from './modules/me/me.routes';
+import { registerAdminAccountsRoutes } from './modules/admin/admin-accounts.routes';
 import { registerAdminRoutes } from './modules/admin/admin.routes';
 import { registerAuditLogRoutes } from './modules/admin/audit-log.routes';
 import { registerPlanRoutes } from './modules/plans/plan.routes';
@@ -52,6 +53,7 @@ export function buildApp() {
     await registerAuthRoutes(fastify);
     await registerMeRoutes(fastify);
     await registerAdminRoutes(fastify);
+    await registerAdminAccountsRoutes(fastify);
     await registerAuditLogRoutes(fastify);
     await registerPlanRoutes(fastify);
     await registerSubmissionRoutes(fastify);

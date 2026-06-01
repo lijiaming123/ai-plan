@@ -9,7 +9,8 @@ const props = defineProps<{
     | 'rules'
     | 'submissions'
     | 'audit'
-    | 'access';
+    | 'access'
+    | 'admin-users';
 }>();
 </script>
 
@@ -145,6 +146,23 @@ const props = defineProps<{
   >
     <path d="M12 3l7 4v6c0 5-3.5 8.5-7 9-3.5-.5-7-4-7-9V7l7-4Z" />
     <path d="M9 12l2 2 4-5" />
+  </svg>
+
+  <svg
+    v-else-if="props.name === 'admin-users'"
+    class="admin-icon"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="1.8"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+    <circle cx="9" cy="7" r="4" />
+    <path d="M19 8v6" />
+    <path d="M22 11h-6" />
   </svg>
 
   <svg

@@ -86,6 +86,39 @@ export type AdminAuditLogQuery = {
   to?: string;
 };
 
+export type RecordAuditEventInput = {
+  action: string;
+  summary?: string;
+  meta?: unknown;
+  targetType?: string;
+  targetId?: string;
+};
+
+export type AdminAccountRecord = {
+  id: string;
+  loginId: string;
+  email: string | null;
+  permissions: string[];
+  disabledAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CreateAdminAccountInput = {
+  loginId: string;
+  email?: string | null;
+  password: string;
+  presetKey?: 'super-admin' | 'analyst' | 'auditor';
+  permissions?: string[];
+};
+
+export type UpdateAdminAccountInput = {
+  email?: string | null;
+  presetKey?: 'super-admin' | 'analyst' | 'auditor';
+  permissions?: string[];
+  disabled?: boolean;
+};
+
 export type AdminFunnelStep = {
   step: string;
   count: number;
@@ -219,6 +252,12 @@ export type AdminApiClient = {
   getUser(token: string, userId: string): Promise<AdminUserDetail>;
   renewProMonth(token: string, userId: string): Promise<RenewProMonthResponse>;
   getAuditLogs(token: string, query: AdminAuditLogQuery): Promise<AdminAuditLogRecord[]>;
+  recordAuditEvent(token: string, input: RecordAuditEventInput): Promise<{ ok: true }>;
+  getRegisterOpen(): Promise<{ open: boolean }>;
+  listAdminAccounts(token: string): Promise<AdminAccountRecord[]>;
+  createAdminAccount(token: string, input: CreateAdminAccountInput): Promise<AdminAccountRecord>;
+  updateAdminAccount(token: string, id: string, input: UpdateAdminAccountInput): Promise<AdminAccountRecord>;
+  resetAdminAccountPassword(token: string, id: string, newPassword: string): Promise<{ ok: true }>;
 };
 
 export type AdminApiClientOptions = {
@@ -322,11 +361,50 @@ export function createAdminApiClient(options: AdminApiClientOptions = {}): Admin
       if (query.from) qs.set('from', query.from);
       if (query.to) qs.set('to', query.to);
       const suffix = qs.size ? `?${qs.toString()}` : '';
-      return request<AdminAuditLogRecord[]>(`/admin/audit-logs${suffix}`, {
+      return request<{ items: AdminAuditLogRecord[] }>(`/admin/audit-logs${suffix}`, {
         method: 'GET',
         headers: {
           Authorization: `Bearer ${token}`,
         },
+      }).then((res) => res.items ?? []);
+    },
+    recordAuditEvent(token, input) {
+      return request<{ ok: true }>('/admin/audit-events', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(input),
+      });
+    },
+    getRegisterOpen() {
+      return request<{ open: boolean }>('/auth/admin/register-open', { method: 'GET' });
+    },
+    listAdminAccounts(token) {
+      return request<{ items: AdminAccountRecord[] }>('/admin/admin-users', {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${token}` },
+      }).then((res) => res.items ?? []);
+    },
+    createAdminAccount(token, input) {
+      return request<AdminAccountRecord>('/admin/admin-users', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: JSON.stringify(input),
+      });
+    },
+    updateAdminAccount(token, id, input) {
+      return request<AdminAccountRecord>(`/admin/admin-users/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}` },
+        body: JSON.stringify(input),
+      });
+    },
+    resetAdminAccountPassword(token, id, newPassword) {
+      return request<{ ok: true }>(`/admin/admin-users/${encodeURIComponent(id)}/reset-password`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ newPassword }),
       });
     },
     getFunnel(token, query) {

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import AdminAuthLayout from './AdminAuthLayout.vue';
 import { getDefaultAdminPath } from '../../lib/admin-access';
@@ -7,6 +7,8 @@ import { getAdminApiClient } from '../../lib/api-client';
 import { adminProfile, clearAdminToken, hydrateAdminProfile, setAdminToken } from '../../stores/auth';
 
 const router = useRouter();
+
+const registerOpen = ref<boolean | null>(null);
 
 const email = ref('');
 const password = ref('');
@@ -20,7 +22,18 @@ const errorSummaryRef = ref<HTMLElement | null>(null);
 const emailOk = computed(() => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.value.trim()));
 const passwordOk = computed(() => password.value.length >= 8);
 const passwordMatch = computed(() => password.value === confirmPassword.value && confirmPassword.value.length > 0);
-const canSubmit = computed(() => emailOk.value && passwordOk.value && passwordMatch.value);
+const canSubmit = computed(
+  () => registerOpen.value === true && emailOk.value && passwordOk.value && passwordMatch.value,
+);
+
+onMounted(async () => {
+  try {
+    const res = await getAdminApiClient().getRegisterOpen();
+    registerOpen.value = res.open;
+  } catch {
+    registerOpen.value = false;
+  }
+});
 
 watch(error, async (msg) => {
   if (!msg) return;
@@ -74,8 +87,12 @@ async function submit() {
     <a class="auth-skip-form" href="#auth-form-start">跳到表单</a>
     <h2 id="auth-form-start" class="auth-card__title" tabindex="-1">注册管理员</h2>
     <p id="reg-subtitle" class="auth-card__subtitle">
-      演示环境可通过 <code class="auth-inline-code">ADMIN_OPEN_REGISTER=true</code> 开启自助注册，并自动分配预置角色包。
+      生产环境默认关闭自助注册。若未开放，请联系超级管理员在「管理员账号」页开通。
     </p>
+
+    <div v-if="registerOpen === false" class="auth-error" role="status">
+      当前未开放自助注册。请使用已有账号登录，或联系平台管理员创建后台账号。
+    </div>
 
     <div
       v-if="error"
@@ -88,7 +105,13 @@ async function submit() {
       {{ error }}
     </div>
 
-    <form :aria-busy="submitting" aria-describedby="reg-subtitle" novalidate @submit.prevent="submit">
+    <form
+      v-if="registerOpen !== false"
+      :aria-busy="submitting"
+      aria-describedby="reg-subtitle"
+      novalidate
+      @submit.prevent="submit"
+    >
       <div class="auth-field">
         <label for="reg-email">邮箱</label>
         <input
@@ -174,7 +197,7 @@ async function submit() {
             <input v-model="preset" type="radio" name="preset" value="auditor" />
             <div>
               <strong>审计只读</strong>
-              <span>可查看分析与审计相关信息，适合合规和治理场景。</span>
+              <span>以审计工作台为主，可查看合规留痕并导出审计记录。</span>
             </div>
           </label>
         </div>

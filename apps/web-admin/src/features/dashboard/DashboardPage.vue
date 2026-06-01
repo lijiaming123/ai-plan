@@ -7,6 +7,7 @@ import {
   type AdminRuleRecord,
 } from '../../lib/api-client';
 import { adminAuthState, adminProfile } from '../../stores/auth';
+import { resolveAdminRolePreset } from '../../lib/admin-access';
 import CopyButton from '../../components/CopyButton.vue';
 
 const summary = ref<AdminDashboardSummary | null>(null);
@@ -21,6 +22,12 @@ const auditLoading = ref(false);
 const rulesLoading = ref(false);
 
 const isSuperAdmin = computed(() => adminProfile.permissions.includes('rbac:manage'));
+const isAnalystView = computed(
+  () =>
+    !isSuperAdmin.value &&
+    adminProfile.permissions.includes('analytics:read') &&
+    resolveAdminRolePreset(adminProfile.permissions) !== 'auditor',
+);
 const canReadAudit = computed(() => adminProfile.permissions.includes('audit:read'));
 
 const completionRate = computed(() => {
@@ -159,8 +166,23 @@ onMounted(() => void load());
           <router-link class="ghost-btn link-btn" to="/admin/rules">检查规则中心</router-link>
           <router-link v-if="canReadAudit" class="ghost-btn link-btn" to="/admin/audit-logs">查看审计日志</router-link>
           <router-link class="ghost-btn link-btn" to="/admin/access">权限矩阵</router-link>
+          <router-link class="ghost-btn link-btn" to="/admin/admin-users">管理员账号</router-link>
         </div>
         <p class="small-print">优先处理 “待重提/异常流转”，其次确认规则与权限变更是否符合预期。</p>
+      </section>
+
+      <section v-else-if="isAnalystView" class="detail-card">
+        <div class="detail-head">
+          <h2 class="detail-card__title">增长摘要（运营分析）</h2>
+          <span v-if="updatedAt" class="small-print">更新于 {{ updatedAt.toLocaleString('zh-CN', { hour12: false }) }}</span>
+        </div>
+        <div class="chip-row">
+          <router-link class="primary-btn link-btn" to="/admin/analytics/funnel">漏斗分析</router-link>
+          <router-link class="ghost-btn link-btn" to="/admin/analytics/retention">留存分析</router-link>
+          <router-link class="ghost-btn link-btn" to="/admin/analytics/path">路径分析</router-link>
+          <router-link class="ghost-btn link-btn" to="/admin/users">用户画像</router-link>
+        </div>
+        <p class="small-print">先看转化与留存趋势，再下钻到具体用户排查异常 cohort。</p>
       </section>
 
       <div class="stats-grid">

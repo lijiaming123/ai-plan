@@ -1,5 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '../../lib/prisma';
+import { ADMIN_PERMISSIONS } from './admin-permissions';
+import { writeAuditLog } from './audit-log.service';
 
 function parseLimit(input: unknown) {
   const n = Number(input ?? 0);
@@ -36,6 +38,55 @@ export async function registerAuditLogRoutes(fastify: FastifyInstance) {
       });
 
       return { items };
+    },
+  );
+
+  /** 前端导出等操作记审计（需对应权限） */
+  fastify.post(
+    '/admin/audit-events',
+    { preHandler: fastify.requireRole('admin') },
+    async (request, reply) => {
+      const payload = await request.jwtVerify<{
+        sub: string;
+        email: string;
+        role: 'user' | 'admin';
+        permissions?: string[];
+      }>();
+      const perms = payload.permissions ?? ADMIN_PERMISSIONS;
+      const body = request.body as {
+        action?: string;
+        summary?: string;
+        meta?: unknown;
+        targetType?: string;
+        targetId?: string;
+      };
+      const action = String(body?.action ?? '').trim();
+      if (!action) {
+        return reply.code(400).send({ message: 'action required' });
+      }
+
+      if (action === 'analytics.export' && !perms.includes('analytics:export')) {
+        return reply.code(403).send({ message: 'Forbidden' });
+      }
+      if (
+        action === 'audit.export' &&
+        (!perms.includes('audit:read') || !perms.includes('analytics:export'))
+      ) {
+        return reply.code(403).send({ message: 'Forbidden' });
+      }
+
+      await writeAuditLog({
+        actorId: payload.sub,
+        actorEmail: payload.email,
+        action,
+        targetType: body?.targetType,
+        targetId: body?.targetId,
+        summary: body?.summary,
+        meta: body?.meta,
+        request,
+      });
+
+      return { ok: true };
     },
   );
 }

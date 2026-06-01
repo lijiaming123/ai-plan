@@ -9,53 +9,68 @@ datasource db {
 
 /// 已定稿计划（生成期数据在 PlanGenerationDraft，确认后迁入本表）
 model Plan {
-  id               String        @id @default(cuid())
-  userId           String
-  goal             String
-  deadline         DateTime
-  requirement      String
-  type             String
-  currentVersion   Int           @default(1)
-  confirmedVersion Int?
+  id                      String                       @id @default(cuid())
+  userId                  String
+  goal                    String
+  deadline                DateTime
+  requirement             String
+  type                    String
+  /// 计划完成后用于引导「下一步计划」的简短文本（可编辑；由正文解析或 PATCH 写入）
+  nextStep                String?
+  /// 由哪条计划「续航」创建而来（可选）
+  parentPlanId            String?
+  parentPlan              Plan?                        @relation("PlanContinuation", fields: [parentPlanId], references: [id], onDelete: SetNull)
+  childPlans              Plan[]                       @relation("PlanContinuation")
+  currentVersion          Int                          @default(1)
+  confirmedVersion        Int?
   stages                  PlanStage[]
   versions                PlanVersion[]
   scheduleSlotSubmissions PlanScheduleSlotSubmission[]
   scheduleSlotAppeals     PlanScheduleSlotAppeal[]
   createdAt               DateTime                     @default(now())
-  deletedAt              DateTime?
-  archivedAt             DateTime?
+  deletedAt               DateTime?
+  archivedAt              DateTime?
 
   @@index([userId, deletedAt])
   @@index([userId, archivedAt])
+  @@index([parentPlanId])
 }
 
 /// 已定稿计划下，按打卡时间槽提交的执行证明（文字 + 外链附件）
 model PlanScheduleSlotSubmission {
-  id          String                       @id @default(cuid())
-  planId      String
-  slotKey     String
-  userId      String
-  content     String                       @default("")
-  status      String                       @default("submitted")
-  createdAt   DateTime                     @default(now())
-  plan        Plan                         @relation(fields: [planId], references: [id], onDelete: Cascade)
-  attachments PlanScheduleSlotAttachment[]
+  id                 String                       @id @default(cuid())
+  planId             String
+  slotKey            String
+  userId             String
+  content            String                       @default("")
+  status             String                       @default("submitted")
+  /// 幂等键哈希（来自请求头 Idempotency-Key；用于去重重复提交）
+  idempotencyKeyHash String?
+  createdAt          DateTime                     @default(now())
+  closedAt           DateTime?
+  plan               Plan                         @relation(fields: [planId], references: [id], onDelete: Cascade)
+  attachments        PlanScheduleSlotAttachment[]
 
+  @@unique([planId, userId, slotKey, idempotencyKeyHash])
   @@index([planId, slotKey])
   @@index([userId])
+  @@index([planId, userId, slotKey, closedAt])
 }
 
 /// 打卡核验未通过时用户可发起申诉；open=申诉处理中，closed=已处理/已关闭
 model PlanScheduleSlotAppeal {
-  id        String   @id @default(cuid())
-  planId    String
-  slotKey   String
-  userId    String
-  content   String   @default("")
-  status    String   @default("open")
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  plan      Plan     @relation(fields: [planId], references: [id], onDelete: Cascade)
+  id          String   @id @default(cuid())
+  planId      String
+  slotKey     String
+  userId      String
+  content     String   @default("")
+  status      String   @default("open")
+  /// AI 预审：approve=已通过并自动建档；escalate=转人工
+  aiVerdict   String?
+  aiRationale String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  plan        Plan     @relation(fields: [planId], references: [id], onDelete: Cascade)
 
   @@index([planId, userId])
   @@index([planId, slotKey, status])
@@ -74,6 +89,27 @@ model PlanScheduleSlotAttachment {
   @@index([submissionId])
 }
 
+/// 用户上传文件的生命周期记录（用于成本治理：未被引用的文件可定期清理）
+model UploadedFile {
+  id           String    @id @default(cuid())
+  userId       String
+  /// 存储文件名（UUID.ext），与 /files/:name 一致
+  storageName  String    @unique
+  originalName String
+  kind         String
+  /// 首次被业务引用的时间（如打卡提交引用了该文件）
+  referencedAt DateTime?
+  /// 被引用时关联的业务键：打卡 submissionId，或 `appeal:<appealId>`
+  referencedBy String?
+  deletedAt    DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([referencedAt, createdAt(sort: Desc)])
+  @@index([deletedAt])
+}
+
 /// 仅用于「创建计划 / 多版本草稿」流程，定稿后删除，数据写入 Plan
 model PlanGenerationDraft {
   id             String                       @id @default(cuid())
@@ -82,6 +118,8 @@ model PlanGenerationDraft {
   deadline       DateTime
   requirement    String
   type           String
+  /// 可选：沿用父计划建立的续航关联，确认写入 Plan.parentPlanId
+  parentPlanId   String?
   currentVersion Int                          @default(1)
   createdAt      DateTime                     @default(now())
   stages         PlanGenerationDraftStage[]
@@ -91,15 +129,15 @@ model PlanGenerationDraft {
 }
 
 model PlanGenerationDraftVersion {
-  id           String                @id @default(cuid())
-  draftId      String
-  version      Int
-  requirement  String
-  deadline     DateTime
-  snapshot     Json
-  schedule     Json?
-  createdAt    DateTime              @default(now())
-  draft        PlanGenerationDraft   @relation(fields: [draftId], references: [id], onDelete: Cascade)
+  id          String              @id @default(cuid())
+  draftId     String
+  version     Int
+  requirement String
+  deadline    DateTime
+  snapshot    Json
+  schedule    Json?
+  createdAt   DateTime            @default(now())
+  draft       PlanGenerationDraft @relation(fields: [draftId], references: [id], onDelete: Cascade)
 
   @@unique([draftId, version])
   @@index([draftId])
@@ -117,15 +155,17 @@ model PlanGenerationDraftStage {
 }
 
 model PlanVersion {
-  id         String   @id @default(cuid())
-  planId     String
-  version    Int
+  id          String   @id @default(cuid())
+  planId      String
+  version     Int
   requirement String
-  deadline   DateTime
-  snapshot   Json
-  /** 打卡表（按天/按周），与版本绑定；由 DeepSeek 生成并可被用户编辑覆盖 */
-  schedule   Json?
-  createdAt  DateTime @default(now())
+  deadline    DateTime
+  snapshot    Json
+  /**
+   * 打卡表（按天/按周），与版本绑定；由 DeepSeek 生成并可被用户编辑覆盖
+   */
+  schedule    Json?
+  createdAt   DateTime @default(now())
 
   plan Plan @relation(fields: [planId], references: [id], onDelete: Cascade)
 
@@ -146,24 +186,24 @@ model PlanStage {
 }
 
 model TaskSubmission {
-  id        String             @id @default(cuid())
+  id        String            @id @default(cuid())
   taskId    String
   userId    String
   content   String
-  status    String             @default("in_review")
+  status    String            @default("in_review")
   images    SubmissionImage[]
-  createdAt DateTime           @default(now())
+  createdAt DateTime          @default(now())
 
   @@index([taskId])
   @@index([userId])
 }
 
 model SubmissionImage {
-  id            String          @id @default(cuid())
-  submissionId   String
-  url           String
-  hash          String
-  createdAt     DateTime        @default(now())
+  id           String   @id @default(cuid())
+  submissionId String
+  url          String
+  hash         String
+  createdAt    DateTime @default(now())
 
   submission TaskSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
 
@@ -200,33 +240,111 @@ model PresetTemplate {
 }
 
 model MarketTemplate {
-  id               String   @id @default(cuid())
-  authorId         String
-  sourcePlanId     String?
-  title            String
-  summary          String
-  category         String
-  tags             String[]
-  payload          Json
-  status           String   @default("published")
-  publishedAt      DateTime?
-  likeCount        Int      @default(0)
-  applicationCount Int      @default(0)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-  likes            MarketTemplateLike[]
-  favorites        MarketTemplateFavorite[]
+  id                        String                   @id @default(cuid())
+  authorId                  String
+  sourcePlanId              String?
+  title                     String
+  summary                   String
+  category                  String
+  tags                      String[]
+  payload                   Json
+  status                    String                   @default("published")
+  publishedAt               DateTime?
+  /// 当前对外“已发布”的版本（仅当 status=published 时有意义）
+  currentPublishedVersionId String?                  @unique
+  rejectedAt                DateTime?
+  rejectReasonCode          String?
+  rejectNote                String?
+  likeCount                 Int                      @default(0)
+  applicationCount          Int                      @default(0)
+  createdAt                 DateTime                 @default(now())
+  updatedAt                 DateTime                 @updatedAt
+  likes                     MarketTemplateLike[]
+  favorites                 MarketTemplateFavorite[]
+  reviewLogs                TemplateReviewLog[]
+  reports                   TemplateReport[]
+  versions                  MarketTemplateVersion[]
+  currentPublishedVersion   MarketTemplateVersion?   @relation("CurrentPublishedVersion", fields: [currentPublishedVersionId], references: [id], onDelete: SetNull)
+  applications              TemplateApplication[]
 
   @@index([status, publishedAt])
   @@index([category])
   @@index([authorId])
 }
 
-model MarketTemplateLike {
+model MarketTemplateVersion {
+  id          String   @id @default(cuid())
+  templateId  String
+  version     Int
+  payload     Json
+  payloadHash String
+  createdAt   DateTime @default(now())
+
+  template     MarketTemplate        @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  currentOf    MarketTemplate?       @relation("CurrentPublishedVersion")
+  applications TemplateApplication[]
+
+  @@unique([templateId, version])
+  @@index([templateId, createdAt(sort: Desc)])
+  @@index([payloadHash])
+}
+
+model TemplateApplication {
   id         String   @id @default(cuid())
   userId     String
   templateId String
+  versionId  String
+  planId     String
   createdAt  DateTime @default(now())
+
+  template MarketTemplate        @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  version  MarketTemplateVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([templateId, createdAt(sort: Desc)])
+  @@index([versionId, createdAt(sort: Desc)])
+  @@index([planId])
+}
+
+model TemplateReviewLog {
+  id         String   @id @default(cuid())
+  templateId String
+  reviewerId String
+  decision   String
+  reasonCode String?
+  note       String?
+  createdAt  DateTime @default(now())
+
+  template MarketTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@index([templateId, createdAt(sort: Desc)])
+  @@index([reviewerId, createdAt(sort: Desc)])
+}
+
+model TemplateReport {
+  id          String    @id @default(cuid())
+  templateId  String
+  reporterId  String
+  reasonCode  String
+  description String
+  status      String    @default("open")
+  createdAt   DateTime  @default(now())
+  resolvedAt  DateTime?
+  resolvedBy  String?
+  resolution  String?
+
+  template MarketTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@index([templateId, createdAt(sort: Desc)])
+  @@index([status, createdAt(sort: Desc)])
+  @@index([reporterId, createdAt(sort: Desc)])
+}
+
+model MarketTemplateLike {
+  id         String         @id @default(cuid())
+  userId     String
+  templateId String
+  createdAt  DateTime       @default(now())
   template   MarketTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
 
   @@unique([userId, templateId])
@@ -234,10 +352,10 @@ model MarketTemplateLike {
 }
 
 model MarketTemplateFavorite {
-  id         String   @id @default(cuid())
+  id         String         @id @default(cuid())
   userId     String
   templateId String
-  createdAt  DateTime @default(now())
+  createdAt  DateTime       @default(now())
   template   MarketTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
 
   @@unique([userId, templateId])
@@ -246,14 +364,14 @@ model MarketTemplateFavorite {
 
 /// 打卡提醒等站内消息；dedupeKey 幂等防重复
 model InAppNotification {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   userId    String
   type      String
   planId    String
   slotKey   String
   title     String
   body      String
-  dedupeKey String   @unique
+  dedupeKey String    @unique
   readAt    DateTime?
   createdAt DateTime  @default(now())
   payload   Json?
@@ -275,25 +393,105 @@ model UserNotificationSettings {
   updatedAt              DateTime  @updatedAt
 }
 
-/// 普通用户账号：以手机号为唯一登录标识（商业化版本不再依赖演示邮箱/密码）
+/// 普通用户账号：以手机号为唯一登录标识；passwordHash 为空时仅支持验证码登录
 model User {
-  id        String   @id @default(cuid())
-  phone     String   @unique
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id           String   @id @default(cuid())
+  phone        String   @unique
+  passwordHash String?
+  /// 计费档位：basic 免费额度；pro 专业版高封顶（与 JWT 无关，以库表为准）
+  planTier     String   @default("basic")
+  /// Pro 权益到期时间（UTC）；null 表示不设期限。到期后 resolveEffectivePlanTier 视为 basic，直至运营调整 planTier。
+  proExpiresAt DateTime?
+  /// 非空表示已使用过 7 天试用（不可再次自助开通）
+  proTrialUsedAt DateTime?
+  /// 当前/最近一次 Pro 来源：trial | paid；basic 或过期后可为 null
+  proSubscriptionSource String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  monthlyAiUsages        UserMonthlyAiUsage[]
+  billingOrders          BillingOrder[]
+  billingSubs            BillingSubscription[]
+  planAssistantProfile   UserPlanAssistantProfile?
 
   @@index([phone])
 }
 
+/// ToC 计划助手结构化「记忆」：偏好 + 显式 pin；完成度由服务端摘要注入，不默认 RAG
+model UserPlanAssistantProfile {
+  userId              String   @id
+  /// concise | detailed
+  tone                String?
+  language            String?  @default("zh")
+  weeklyHoursCap      Int?
+  preferMorning       Boolean?
+  /// low | medium
+  evidenceTolerance   String?
+  /// study | work | travel | general
+  defaultScenario     String?
+  /// 最多 5 条短句（JSON string[]），用户点「记住」写入
+  pinnedNotes         Json     @default("[]")
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+/// 预留：支付平台订单与 Webhook 幂等、对账（人工开通阶段可不写入）
+model BillingOrder {
+  id          String   @id @default(cuid())
+  userId      String
+  provider    String
+  externalId  String?  @unique
+  status      String
+  amountMinor Int?
+  currency    String?  @default("CNY")
+  meta        Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)])
+}
+
+/// 预留：订阅周期与续费状态（接 Stripe/微信等到期回调时写入）
+model BillingSubscription {
+  id               String    @id @default(cuid())
+  userId           String
+  provider         String
+  externalId       String?   @unique
+  status           String    @default("active")
+  currentPeriodEnd DateTime?
+  meta             Json?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+/// 按 UTC 自然月统计的「计划类 AI 生成」次数（与 /plans/assistant、流式与再生成等扣次点对齐）
+model UserMonthlyAiUsage {
+  id        String   @id @default(cuid())
+  userId    String
+  /// UTC 年月，格式 YYYY-MM
+  yearMonth String
+  count     Int      @default(0)
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, yearMonth])
+  @@index([userId])
+}
+
 /// 短信验证码请求（哈希存储，支持登录/注册/找回等用途）
 model AuthOtp {
-  id         String   @id @default(cuid())
+  id         String    @id @default(cuid())
   phone      String
   purpose    String
   codeHash   String
   expiresAt  DateTime
   consumedAt DateTime?
-  createdAt  DateTime @default(now())
+  createdAt  DateTime  @default(now())
 
   @@index([phone, createdAt(sort: Desc)])
   @@index([phone, purpose, createdAt(sort: Desc)])

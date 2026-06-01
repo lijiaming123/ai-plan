@@ -4,6 +4,7 @@ import { authState } from '../stores/auth';
 
 export type FrontendTelemetryEventName =
   | 'auth_login'
+  | 'auth_otp_send'
   | 'plan_create'
   | 'plan_publish'
   | 'checkin_submit'
@@ -11,6 +12,8 @@ export type FrontendTelemetryEventName =
   | 'notification_open'
   | 'draft_regenerate'
   | 'template_publish'
+  | 'template_detail_click'
+  | 'template_detail_open'
   | 'template_use';
 
 type TrackEventOptions = {

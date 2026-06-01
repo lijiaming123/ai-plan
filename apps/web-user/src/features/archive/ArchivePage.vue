@@ -33,6 +33,7 @@ const appliedSearch = ref("");
 const confirmUnarchiveOpen = ref(false);
 const pendingUnarchive = ref<ArchivedCard | null>(null);
 const confirmUnarchiveLoading = ref(false);
+const faqOpen = ref(false);
 
 let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 const scrollRootEl = ref<HTMLElement | null>(null);
@@ -117,7 +118,7 @@ async function fetchArchivedPage(append: boolean) {
       }
     }
   } catch (e) {
-    const message = e instanceof Error ? e.message : "加载归档失败";
+    const message = e instanceof Error ? e.message : "没能加载归档列表，请稍后再试";
     errorToastMessage.value = message;
     if (append) {
       loadMoreError.value = true;
@@ -230,7 +231,7 @@ async function onConfirmUnarchive() {
     pendingUnarchive.value = null;
   } catch (e) {
     errorToastMessage.value =
-      e instanceof Error ? e.message : "恢复执行失败";
+      e instanceof Error ? e.message : "没恢复成功，请稍后再试";
   } finally {
     confirmUnarchiveLoading.value = false;
   }
@@ -281,7 +282,7 @@ onMounted(() => {
     typeof window !== "undefined" &&
     typeof window.IntersectionObserver === "function";
   // 等首次渲染完成后再绑定 observer，避免 ref 还未挂载
-  queueMicrotask(() => {
+  void nextTick().then(() => {
     setupInfiniteScroll();
     setupBackToTop();
   });
@@ -316,7 +317,7 @@ watch(
   () => [archivedPlans.value.length, hasMore.value, listLoading.value],
   () => {
     // 列表从空到有/加载结束后，哨兵节点可能才出现，重新绑定 observer
-    queueMicrotask(() => {
+    void nextTick().then(() => {
       setupInfiniteScroll();
       setupBackToTop();
     });
@@ -346,6 +347,50 @@ watch(
           已归档的计划会移出「我的计划」列表，便于收尾与回顾；需要继续执行时可随时移回。
         </p>
       </PageSectionHeading>
+
+      <div class="mt-3 rounded-3xl border border-stone-200/80 bg-white/60 p-4 ring-1 ring-white/70">
+        <button
+          type="button"
+          class="flex w-full items-center justify-between gap-3 text-left text-sm font-bold text-stone-800"
+          data-testid="archive-faq-toggle"
+          @click="faqOpen = !faqOpen"
+        >
+          <span>了解归档</span>
+          <span class="text-stone-500" aria-hidden="true">{{
+            faqOpen ? "收起" : "展开"
+          }}</span>
+        </button>
+        <div
+          v-if="faqOpen"
+          class="mt-3 space-y-3 text-sm text-stone-700"
+          data-testid="archive-faq-body"
+        >
+          <div>
+            <p class="font-bold text-stone-900">归档和删除有什么区别？</p>
+            <p class="mt-1 text-stone-600">
+              归档用于收尾与回顾，随时可移回继续执行；删除用于清理，需要从回收站恢复。
+            </p>
+          </div>
+          <div>
+            <p class="font-bold text-stone-900">归档后为什么不能打卡/编辑？</p>
+            <p class="mt-1 text-stone-600">
+              归档表示本计划进入只读回顾状态；需要继续时先移回「我的计划」。
+            </p>
+          </div>
+          <div>
+            <p class="font-bold text-stone-900">怎么恢复继续执行？</p>
+            <p class="mt-1 text-stone-600">
+              在归档列表点击「移回我的计划」即可继续。
+            </p>
+          </div>
+          <div>
+            <p class="font-bold text-stone-900">归档会丢数据吗？</p>
+            <p class="mt-1 text-stone-600">
+              不会。归档仅改变存放位置与可编辑状态。
+            </p>
+          </div>
+        </div>
+      </div>
 
       <div class="mt-3 flex flex-wrap items-center justify-between gap-3">
         <div class="flex flex-1 flex-wrap items-center gap-2">
@@ -543,7 +588,7 @@ watch(
                 data-testid="archive-load-more-retry"
                 @click="retryLoadMore"
               >
-                {{ loadMoreErrorMessage || "加载失败" }}，点此重试
+                {{ loadMoreErrorMessage || "没能加载更多" }}，点此重试
               </button>
 
               <div v-if="loadingMore" class="w-full space-y-3" data-testid="archive-loading-more">

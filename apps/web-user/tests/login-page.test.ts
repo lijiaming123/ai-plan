@@ -19,10 +19,12 @@ import { createApiClient, setApiClient } from '../src/lib/api-client';
 
 describe('LoginPage telemetry', () => {
   const verifyOtpMock = vi.fn();
+  const getCaptchaMock = vi.fn();
 
   beforeEach(() => {
     clearAuthToken();
     verifyOtpMock.mockReset();
+    getCaptchaMock.mockReset();
     trackEventMock.mockReset();
     trackPageViewMock.mockReset();
     verifyOtpMock.mockResolvedValue({
@@ -30,8 +32,13 @@ describe('LoginPage telemetry', () => {
       phone: '13800138000',
       userId: 'u1',
     });
+    getCaptchaMock.mockResolvedValue({
+      captchaId: 'test-captcha',
+      imageSvg: '<svg xmlns="http://www.w3.org/2000/svg" width="2" height="2"/>',
+    });
     setApiClient({
       ...createApiClient(),
+      getCaptcha: getCaptchaMock,
       verifyOtp: verifyOtpMock,
     });
   });
@@ -47,6 +54,9 @@ describe('LoginPage telemetry', () => {
 
     await wrapper.get('input[aria-label="手机号"]').setValue('13800138000');
     await nextTick();
+    await wrapper.get('[data-testid="login-switch-otp"]').trigger('click');
+    await nextTick();
+    await flushPromises();
     await wrapper.get('input[aria-label="验证码"]').setValue('123456');
     await nextTick();
     await wrapper.get('form').trigger('submit');

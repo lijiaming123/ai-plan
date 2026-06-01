@@ -38,6 +38,9 @@ const PlanTrashPage = isTest
 const TemplatesPage = isTest
   ? (await import('../features/templates/TemplatesPage.vue')).default
   : () => import('../features/templates/TemplatesPage.vue');
+const TemplateMarketDetailPage = isTest
+  ? (await import('../features/templates/TemplateMarketDetailPage.vue')).default
+  : () => import('../features/templates/TemplateMarketDetailPage.vue');
 const SettingsPage = isTest
   ? (await import('../features/settings/SettingsPage.vue')).default
   : () => import('../features/settings/SettingsPage.vue');
@@ -69,6 +72,8 @@ export function createAppRouter(history: RouterHistory = createWebHistory()) {
     'plan-draft',
     'plan-detail',
     'templates',
+    'template-market-detail',
+    'template-preset-detail',
     'notifications',
     'task-submit',
   ]);
@@ -78,6 +83,16 @@ export function createAppRouter(history: RouterHistory = createWebHistory()) {
       { path: '/auth/login', name: 'login', component: LoginPage },
       { path: '/auth/register', name: 'register', component: LoginPage },
       { path: '/auth/forgot-password', name: 'forgot-password', component: ForgotPasswordPage },
+      {
+        path: '/templates/market/:id',
+        name: 'template-market-detail',
+        component: TemplateMarketDetailPage,
+      },
+      {
+        path: '/templates/presets/:id',
+        name: 'template-preset-detail',
+        component: TemplateMarketDetailPage,
+      },
       {
         path: '/plans/new',
         name: 'plan-create',

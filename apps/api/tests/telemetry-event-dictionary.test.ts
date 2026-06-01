@@ -42,6 +42,27 @@ describe('telemetry event dictionary v1', () => {
     }
   });
 
+  it('checkin_submit should allow optional variant for funnel analytics', () => {
+    const res = validateAndSanitizeTelemetryEvent({
+      name: 'checkin_submit',
+      time: '2026-05-11T00:00:00.000Z',
+      properties: {
+        planId: 'p1',
+        slotKey: '2026-04-10',
+        variant: 'complete_checkbox',
+        extra: 'drop-me',
+      },
+    });
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.sanitized.properties).toEqual({
+        planId: 'p1',
+        slotKey: '2026-04-10',
+        variant: 'complete_checkbox',
+      });
+    }
+  });
+
   it('should accept newly added high-value frontend events', () => {
     const res = validateAndSanitizeTelemetryEvent({
       name: 'notification_open',
@@ -58,6 +79,72 @@ describe('telemetry event dictionary v1', () => {
       expect(res.sanitized.properties).toEqual({
         notificationId: 'n1',
         type: 'checkin_overdue_day',
+      });
+    }
+  });
+
+  it('template_detail_open should be accepted and allowlist versionId', () => {
+    const res = validateAndSanitizeTelemetryEvent({
+      name: 'template_detail_open',
+      time: '2026-05-09T00:00:00.000Z',
+      page: '/templates/market/m1',
+      properties: {
+        templateId: 'm1',
+        versionId: 'v1',
+        // should be dropped
+        planId: 'p_should_drop',
+        extra: 'drop-me',
+      },
+    });
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.sanitized.properties).toEqual({
+        templateId: 'm1',
+        versionId: 'v1',
+      });
+    }
+  });
+
+  it('template_use should allow versionId as well', () => {
+    const res = validateAndSanitizeTelemetryEvent({
+      name: 'template_use',
+      time: '2026-05-09T00:00:00.000Z',
+      properties: {
+        templateId: 'm1',
+        templateSource: 'market',
+        planId: 'p1',
+        versionId: 'v1',
+      },
+    });
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.sanitized.properties).toEqual({
+        templateId: 'm1',
+        templateSource: 'market',
+        planId: 'p1',
+        versionId: 'v1',
+      });
+    }
+  });
+
+  it('template_detail_click should be accepted and allowlist from', () => {
+    const res = validateAndSanitizeTelemetryEvent({
+      name: 'template_detail_click',
+      time: '2026-05-09T00:00:00.000Z',
+      page: '/templates',
+      properties: {
+        templateId: 'm1',
+        from: 'market_list',
+        // should be dropped
+        versionId: 'v_should_drop',
+        extra: 'drop-me',
+      },
+    });
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.sanitized.properties).toEqual({
+        templateId: 'm1',
+        from: 'market_list',
       });
     }
   });

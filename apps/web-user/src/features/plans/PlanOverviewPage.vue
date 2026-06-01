@@ -4,7 +4,11 @@ import { useRoute, useRouter } from "vue-router";
 import PageSectionHeading from "../../components/PageSectionHeading.vue";
 import UiErrorToast from "../../components/UiErrorToast.vue";
 import UiConfirmDialog from "../../components/UiConfirmDialog.vue";
-import { getApiClient, type PlanListRow } from "../../lib/api-client";
+import {
+  getApiClient,
+  type CheckinListSegment,
+  type PlanListRow,
+} from "../../lib/api-client";
 import { buildPlanCardDisplayTexts } from "../../lib/plan-list-card-text";
 import { useCloseOnEscape } from "../../composables/useCloseOnEscape";
 import { authState } from "../../stores/auth";
@@ -26,6 +30,10 @@ type PlanCard = {
   type: string;
   /** 封面改为无图视觉锚点；保留字段便于后续迁移真实数据 */
   image: string;
+  /** 执行中：今天应打卡但未提交（用于轻量提醒；与「已过截止」分开） */
+  todayMissing?: boolean;
+  /** 有打卡表时：各段状态（绿/红/未开始） */
+  checkinSegments?: CheckinListSegment[];
 };
 
 const plans = ref<PlanCard[]>([]);
@@ -77,6 +85,7 @@ const TITLE_COLOR_CLASSES = [
   "text-indigo-700",
   "text-violet-700",
   "text-blue-700",
+  "text-teal-700",
   "text-orange-700",
   "text-rose-700",
   "text-amber-800",
@@ -88,6 +97,7 @@ const TYPE_TO_TITLE_COLOR: Record<
 > = {
   general: "text-slate-800",
   study: "text-sky-700",
+  travel: "text-teal-700",
   work: "text-indigo-700",
   exam: "text-violet-700",
   fitness: "text-orange-700",
@@ -116,7 +126,29 @@ function deadlineDayFromIso(iso: string): string {
   return /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : iso;
 }
 
-/** 列表仅展示已定稿计划；与详情页「执行中」一致；任务完成度后续可接，进度 0 占位。 */
+function utcDayMsFromIso(iso: string): number | null {
+  const day = iso.slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
+  const [y, m, d] = day.split("-").map((x) => Number(x));
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return null;
+  return Date.UTC(y, m - 1, d);
+}
+
+function computeTimeProgressPercent(params: { startIso: string; endIso: string; now?: Date }): number {
+  const startMs = utcDayMsFromIso(params.startIso);
+  const endMs = utcDayMsFromIso(params.endIso);
+  if (startMs == null || endMs == null) return 0;
+  const now = params.now ?? new Date();
+  const nowMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const totalDays = Math.floor((endMs - startMs) / 86400000) + 1;
+  if (!Number.isFinite(totalDays) || totalDays <= 1) return 100;
+  const elapsedDays = Math.floor((nowMs - startMs) / 86400000);
+  const ratio = elapsedDays / (totalDays - 1);
+  const pct = Math.round(ratio * 100);
+  return Math.max(0, Math.min(100, pct));
+}
+
+/** 列表仅展示已定稿计划；有打卡段时用槽位完成度，否则用时间推进估算。 */
 function rowToCard(row: PlanListRow): PlanCard {
   const deadline = deadlineDayFromIso(row.deadline);
   const { description, coverLine } = buildPlanCardDisplayTexts({
@@ -124,6 +156,22 @@ function rowToCard(row: PlanListRow): PlanCard {
     type: row.type,
     goal: row.goal ?? "",
   });
+  const completed = row.completed === true;
+  const startIso = row.startDate ?? row.createdAt ?? row.deadline;
+  const startMs = utcDayMsFromIso(startIso);
+  const now = new Date();
+  const nowMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const notStarted = startMs != null && nowMs < startMs;
+  const timeProgress = computeTimeProgressPercent({
+    startIso: row.createdAt ?? row.deadline,
+    endIso: row.deadline,
+  });
+  const slotProgress =
+    typeof row.checkinProgressPercent === "number" &&
+    Array.isArray(row.checkinSegments) &&
+    row.checkinSegments.length > 0
+      ? row.checkinProgressPercent
+      : null;
   return {
     id: row.id,
     title: row.goal,
@@ -131,10 +179,72 @@ function rowToCard(row: PlanListRow): PlanCard {
     coverLine,
     deadline,
     image: "",
-    progress: 0,
-    status: "执行中",
+    progress: completed ? 100 : slotProgress ?? timeProgress,
+    status: completed ? "已完成" : notStarted ? "未开始" : "执行中",
     type: row.type,
+    todayMissing: row.todayMissing === true,
+    checkinSegments: row.checkinSegments,
   };
+}
+
+function ringStyle(
+  plan: Pick<PlanCard, "progress" | "status" | "todayMissing" | "deadline">,
+) {
+  const pct = Math.max(0, Math.min(100, plan.progress));
+  const done = plan.status === "已完成";
+  const inProgress = plan.status === "执行中";
+  const dd = daysDiffFromToday(plan.deadline);
+  const overdueActive = inProgress && dd !== null && dd < 0;
+  const todayNudge =
+    inProgress && plan.todayMissing === true && !overdueActive;
+
+  let main: string;
+  let muted: string;
+  if (done) {
+    main = "rgba(16, 185, 129, 0.95)";
+    muted = "rgba(16, 185, 129, 0.14)";
+  } else if (overdueActive) {
+    main = "rgba(244, 63, 94, 0.95)";
+    muted = "rgba(244, 63, 94, 0.16)";
+  } else if (todayNudge) {
+    main = "rgba(245, 158, 11, 0.92)";
+    muted = "rgba(245, 158, 11, 0.2)";
+  } else {
+    main = "rgba(16, 185, 129, 0.95)";
+    muted = "rgba(16, 185, 129, 0.14)";
+  }
+  return {
+    "--p": `${pct}`,
+    "--ring-main": main,
+    "--ring-muted": muted,
+  } as Record<string, string>;
+}
+
+function segmentRingStyle(
+  segments: CheckinListSegment[],
+): Record<string, string> {
+  const n = segments.length;
+  const colorFor = (s: CheckinListSegment) => {
+    if (s === "done") return "rgba(16, 185, 129, 0.95)";
+    if (s === "missed") return "rgba(244, 63, 94, 0.9)";
+    return "rgba(229, 231, 235, 0.35)";
+  };
+  const parts: string[] = [];
+  for (let i = 0; i < n; i++) {
+    const a0 = (i / n) * 100;
+    const a1 = ((i + 1) / n) * 100;
+    parts.push(`${colorFor(segments[i]!)} ${a0}% ${a1}%`);
+  }
+  return {
+    "--ring-segments": `conic-gradient(from 210deg, ${parts.join(", ")})`,
+  };
+}
+
+function ringWrapStyle(plan: PlanCard) {
+  if (plan.checkinSegments?.length) {
+    return segmentRingStyle(plan.checkinSegments);
+  }
+  return ringStyle(plan);
 }
 
 async function loadPlans() {
@@ -397,6 +507,16 @@ function relativeText(deadline: string): string {
   if (dd > 0) return `还剩 ${dd} 天`;
   if (dd < 0) return `已逾期 ${Math.abs(dd)} 天`;
   return "今天截止";
+}
+
+/** 已完成：不再展示「已逾期」——避免与「目标已达成」语义冲突 */
+function deadlineRelativeText(plan: PlanCard): string {
+  if (plan.status === "已完成") return "";
+  return relativeText(plan.deadline);
+}
+
+function isOverdueRelativeText(text: string): boolean {
+  return text.startsWith("已逾期");
 }
 
 watch(
@@ -718,9 +838,7 @@ watch(
             <div class="plan-cover-inner flex items-center gap-4 px-5 py-4">
               <div
                 class="plan-ring-wrap shrink-0"
-                :style="{
-                  '--p': `${Math.max(0, Math.min(100, plan.progress))}`,
-                }"
+                :style="ringWrapStyle(plan)"
               >
                 <div class="plan-ring" aria-hidden="true" />
                 <div class="plan-ring-text" aria-hidden="true">
@@ -736,18 +854,18 @@ watch(
                 >
                   {{ dueText(plan.deadline) }}
                   <span
-                    v-if="relativeText(plan.deadline)"
+                    v-if="deadlineRelativeText(plan)"
                     class="text-stone-900/35"
                     >·</span
                   >
                   <span
                     class="plan-cover-rel"
                     :class="
-                      relativeText(plan.deadline).startsWith('已逾期')
+                      isOverdueRelativeText(deadlineRelativeText(plan))
                         ? 'plan-cover-rel--overdue'
                         : ''
                     "
-                    >{{ relativeText(plan.deadline) }}</span
+                    >{{ deadlineRelativeText(plan) }}</span
                   >
                 </p>
                 <div class="mt-2 flex items-center gap-2">
@@ -785,22 +903,18 @@ watch(
                 class="flex flex-wrap items-center justify-between gap-2 text-xs font-semibold text-stone-500"
               >
                 <span class="inline-flex items-center gap-1.5">
-                  <span class="tabular-nums text-stone-800"
-                    >{{ plan.progress }}%</span
-                  >
-                  <span class="text-stone-400">·</span>
                   <span>{{ dueText(plan.deadline) }}</span>
                 </span>
                 <span
-                  v-if="relativeText(plan.deadline)"
+                  v-if="deadlineRelativeText(plan)"
                   class="tabular-nums"
                   :class="
-                    relativeText(plan.deadline).startsWith('已逾期')
+                    isOverdueRelativeText(deadlineRelativeText(plan))
                       ? 'text-rose-700'
                       : 'text-stone-600'
                   "
                 >
-                  {{ relativeText(plan.deadline) }}
+                  {{ deadlineRelativeText(plan) }}
                 </span>
               </div>
             </div>
@@ -825,7 +939,7 @@ watch(
           <template v-if="!listLoading && plans.length === 0 && !searchText">
             <p class="text-lg font-semibold text-stone-800">从这里开始你的第一个计划</p>
             <p class="mt-2 max-w-md text-sm leading-relaxed text-stone-600">
-              定稿后的计划会出现在本页；在「新建计划」里填写目标与要求、生成并确认，即可在详情里按时间槽打卡。全程可随时回到草稿继续改。
+              定稿后的计划会出现在本页；在「新建计划」里填写目标与要求、生成并确认，即可在详情里按打卡段逐项打卡。全程可随时回到草稿继续改。
             </p>
           </template>
           <template v-else-if="searchText">
@@ -1207,10 +1321,13 @@ watch(
   inset: 0;
   border-radius: 9999px;
   background:
-    conic-gradient(
-      from 210deg,
-      rgba(16, 185, 129, 0.95) calc(var(--p, 0) * 1%),
-      rgba(16, 185, 129, 0.14) 0
+    var(
+      --ring-segments,
+      conic-gradient(
+        from 210deg,
+        var(--ring-main, rgba(16, 185, 129, 0.95)) calc(var(--p, 0) * 1%),
+        var(--ring-muted, rgba(16, 185, 129, 0.14)) 0
+      )
     ),
     radial-gradient(
       circle at 35% 35%,

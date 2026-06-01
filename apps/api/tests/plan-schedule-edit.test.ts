@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app';
+import { prisma } from '../src/lib/prisma';
 
 describe('plan schedule edit', () => {
   const app = buildApp();
@@ -166,6 +167,158 @@ describe('plan schedule edit', () => {
     const restored = JSON.parse(restore.body) as { slot: { content: string; contentSource: string } };
     expect(restored.slot.contentSource).toBe('generated');
     expect(restored.slot.content).toContain('生成内容');
+  });
+
+  it('已有提交的 slot 不应允许再编辑（通过后禁改）', async () => {
+    const login = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      payload: { email: 'demo@ai-plan.dev', password: 'Pass1234!' },
+    });
+    const { token } = JSON.parse(login.body) as { token: string };
+
+    const requirementWithJson = [
+      '正文',
+      '```json',
+      JSON.stringify({
+        schedule: {
+          granularity: 'day',
+          slots: [
+            { slotKey: '2026-04-10', content: '第1天：生成内容。' },
+            { slotKey: '2026-04-11', content: '第2天：生成内容。' },
+          ],
+        },
+      }),
+      '```',
+    ].join('\n');
+
+    const created = await app.inject({
+      method: 'POST',
+      url: '/plans',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        goal: '测试 通过后禁改',
+        deadline: '2026-04-11T00:00:00.000Z',
+        requirement: requirementWithJson,
+        type: 'general',
+        profile: {
+          planMode: 'basic',
+          basicInfo: {
+            planName: '测试 通过后禁改',
+            planContent: '测试',
+            currentLevel: 'none',
+            startDate: '2026-04-10',
+            cycle: 'custom',
+            endDate: '2026-04-11',
+            preference: '',
+            timeInvestment: 'none',
+            outputMode: 'daily',
+            granularityMode: 'deep',
+          },
+        },
+      },
+    });
+    expect(created.statusCode).toBe(201);
+
+    const plan = JSON.parse(created.body) as { id: string };
+    const planId = plan.id;
+    const slotKey = '2026-04-11';
+    const userId = 'user_demo';
+
+    // 将草稿定稿为正式 Plan（否则 PlanScheduleSlotSubmission 的外键无法落库）
+    const confirmed = await app.inject({
+      method: 'POST',
+      url: `/plans/${planId}/confirm`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: { version: 1 },
+    });
+    expect(confirmed.statusCode).toBe(200);
+
+    await prisma.planScheduleSlotSubmission.create({
+      data: {
+        planId,
+        slotKey,
+        userId,
+        content: '我已提交（模拟通过）',
+        status: 'submitted',
+      },
+    });
+
+    const patch = await app.inject({
+      method: 'PATCH',
+      url: `/plans/${planId}/schedule/slots/${encodeURIComponent(slotKey)}`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: { content: '再次编辑：我不应该能改' },
+    });
+    expect(patch.statusCode).toBe(409);
+
+    // cleanup：避免数据污染后续用例
+    await prisma.planScheduleSlotSubmission.deleteMany({ where: { planId, slotKey } });
+    await prisma.plan.deleteMany({ where: { id: planId } });
+  });
+
+  it('编辑 content 超过最大长度应返回 400', async () => {
+    const login = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      payload: { email: 'demo@ai-plan.dev', password: 'Pass1234!' },
+    });
+    const { token } = JSON.parse(login.body) as { token: string };
+
+    const requirementWithJson = [
+      '正文',
+      '```json',
+      JSON.stringify({
+        schedule: {
+          granularity: 'day',
+          slots: [{ slotKey: '2026-04-11', content: '第2天：生成内容。' }],
+        },
+      }),
+      '```',
+    ].join('\n');
+
+    const created = await app.inject({
+      method: 'POST',
+      url: '/plans',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        goal: '测试 content 最大长度',
+        deadline: '2026-04-11T00:00:00.000Z',
+        requirement: requirementWithJson,
+        type: 'general',
+        profile: {
+          planMode: 'basic',
+          basicInfo: {
+            planName: '测试 content 最大长度',
+            planContent: '测试',
+            currentLevel: 'none',
+            startDate: '2026-04-11',
+            cycle: 'custom',
+            endDate: '2026-04-11',
+            preference: '',
+            timeInvestment: 'none',
+            outputMode: 'daily',
+            granularityMode: 'deep',
+          },
+        },
+      },
+    });
+    expect(created.statusCode).toBe(201);
+
+    const plan = JSON.parse(created.body) as { id: string };
+    const planId = plan.id;
+    const slotKey = '2026-04-11';
+
+    const tooLong = 'a'.repeat(2001);
+    const patch = await app.inject({
+      method: 'PATCH',
+      url: `/plans/${planId}/schedule/slots/${encodeURIComponent(slotKey)}`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: { content: tooLong },
+    });
+    expect(patch.statusCode).toBe(400);
+
+    await prisma.plan.deleteMany({ where: { id: planId } });
   });
 
   it('应将 schedule 内容中的 br 标签规范化为换行', async () => {

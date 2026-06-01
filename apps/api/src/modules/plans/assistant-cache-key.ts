@@ -13,11 +13,14 @@ export function buildPlanAssistantCacheKey(params: {
   cycle: string;
   message?: string;
   granularityMode?: string;
+  /** 与 Pro Agent memoryPrefix 对齐，避免同表单不同记忆命中错误缓存 */
+  memoryPrefix?: string;
 }): string {
   const base = JSON.stringify({
     mode: params.mode,
     goal: params.goal,
     requirement: params.requirement,
+    memoryPrefix: params.memoryPrefix ?? "",
     startDate: params.startDate,
     endDate: params.endDate,
     cycle: params.cycle,

@@ -25,7 +25,7 @@ async function readFiles(files: FileList | null) {
     return;
   }
   if (!authState.token) {
-    errorToastMessage.value = '请先登录后再上传文件。';
+    errorToastMessage.value = '请先登录，再上传附件。';
     return;
   }
   selectedFiles.value = Array.from(files);
@@ -39,7 +39,7 @@ async function readFiles(files: FileList | null) {
     }
     form.imageUrls = urls;
   } catch (e) {
-    errorToastMessage.value = e instanceof Error ? e.message : '上传失败，请稍后重试。';
+    errorToastMessage.value = e instanceof Error ? e.message : '没上传成功，请稍后再试。';
     selectedFiles.value = [];
     form.imageUrls = [];
   } finally {
@@ -57,7 +57,7 @@ async function handleSubmit() {
 
     await router.push(`/submissions/${result.id}/result`);
   } catch (error) {
-    errorToastMessage.value = error instanceof Error ? error.message : '提交失败，请稍后重试。';
+    errorToastMessage.value = error instanceof Error ? error.message : '没提交成功，请稍后再试。';
   }
 }
 </script>
@@ -67,12 +67,12 @@ async function handleSubmit() {
   <form class="page surface-card form-card" @submit.prevent="handleSubmit">
     <span class="brand-badge">节点提交</span>
     <header>
-      <h1 class="hero-title">提交任务成果以进入自动判定</h1>
-      <p class="hero-subtitle">任务编号：{{ taskId }}。提交说明越具体，评分反馈越有效。</p>
+      <h1 class="hero-title">提交你的成果</h1>
+      <p class="hero-subtitle">任务编号：{{ taskId }}。说明越具体，我们越能给出准确的反馈。</p>
     </header>
     <label class="field">
       完成说明
-      <textarea v-model="form.content" aria-label="完成说明" placeholder="描述你完成了什么，如何达到要求，有哪些可验证结果" />
+      <textarea v-model="form.content" aria-label="完成说明" placeholder="写清楚你做了什么、怎么做的、结果如何验证（例如数据、截图、链接）" />
     </label>
     <label class="field">
       上传附件（图片、PDF、Word、文本）
@@ -94,9 +94,9 @@ async function handleSubmit() {
       <ul v-if="hasFiles" class="file-list">
         <li v-for="file in selectedFiles" :key="file.name">{{ file.name }}</li>
       </ul>
-      <p v-else class="inline-note">暂无文件，建议至少上传 1 个可证明过程或结果的附件。</p>
+      <p v-else class="inline-note">还没选文件。建议至少上传 1 个能证明过程或结果的附件。</p>
     </div>
 
-    <button class="btn-primary" type="submit" :disabled="fileUploading">提交审核</button>
+    <button class="btn-primary" type="submit" :disabled="fileUploading">提交</button>
   </form>
 </template>

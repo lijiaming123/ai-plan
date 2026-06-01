@@ -1,8 +1,17 @@
 /**
  * 打卡核验未通过后，用户针对某时间槽发起申诉（status=open 表示申诉中）。
+ * 创建后先做 AI 预审：通过则自动写入成功提交并关闭申诉；否则保持 open 进入人工。
  */
 import { prisma } from "../../lib/prisma";
+import { runAppealAiScreening } from "./appeal-ai-screening.service";
+import type { CheckinPublicReview } from "./checkin-submission-score.service";
 import type { CheckinSchedule } from "./deepseek-schedule";
+import type {
+  ScheduleSlotCheckinAttachmentInput,
+  SerializedScheduleSlotSubmission,
+} from "./schedule-slot-checkin.service";
+import { persistApprovedCheckinSubmission } from "./schedule-slot-checkin.service";
+import { markUploadedFilesReferenced } from "../uploads/upload-reference.service";
 
 export type OpenAppealBySlot = Record<
   string,
@@ -50,9 +59,19 @@ export async function createScheduleSlotAppeal(params: {
   userId: string;
   slotKey: string;
   content: string;
+  /** 与弹窗中「完成证明」一致，供 AI 通过后自动建档 */
+  proofContent?: string;
+  proofAttachments?: ScheduleSlotCheckinAttachmentInput[];
+  lastReview?: CheckinPublicReview | null;
 }): Promise<
   | { ok: false; code: 400 | 403 | 404 | 409; message: string }
-  | { ok: true; appeal: { id: string; content: string; createdAt: string } }
+  | {
+      ok: true;
+      appeal: { id: string; content: string; createdAt: string };
+      outcome: "ai_approved" | "human_review";
+      aiRationale: string;
+      submission?: SerializedScheduleSlotSubmission;
+    }
 > {
   const plan = await prisma.plan.findFirst({
     where: { id: params.planId, userId: params.userId },
@@ -97,13 +116,92 @@ export async function createScheduleSlotAppeal(params: {
     },
   });
 
+  const slotRow = schedule.slots.find((s) => s.slotKey === params.slotKey);
+  const slotContent = (slotRow?.content ?? "").trim();
+
+  const proofText = (params.proofContent ?? "").trim();
+  const proofAtt = Array.isArray(params.proofAttachments) ? params.proofAttachments : [];
+  const proofUrls = proofAtt
+    .map((a) => (typeof a?.url === "string" ? a.url.trim() : ""))
+    .filter((u) => u.length > 0);
+
+  const markAppealProofUploads = async () => {
+    if (!proofUrls.length) return;
+    await markUploadedFilesReferenced({
+      userId: params.userId,
+      urls: proofUrls,
+      referencedBy: `appeal:${created.id}`,
+    });
+  };
+
+  const screening = await runAppealAiScreening({
+    planGoal: plan.goal ?? "",
+    slotContent,
+    appealText: text,
+    proofText,
+    proofAttachmentCount: proofUrls.length,
+    lastReview: params.lastReview ?? undefined,
+  });
+
+  await prisma.planScheduleSlotAppeal.update({
+    where: { id: created.id },
+    data: {
+      aiVerdict: screening.decision,
+      aiRationale: screening.rationale.slice(0, 2000),
+    },
+  });
+
+  const appealOut = {
+    id: created.id,
+    content: created.content,
+    createdAt: created.createdAt.toISOString(),
+  };
+
+  if (screening.decision === "approve") {
+    const persistContent = proofText || text;
+    const persisted = await persistApprovedCheckinSubmission({
+      planId: params.planId,
+      userId: params.userId,
+      slotKey: params.slotKey,
+      content: persistContent,
+      attachments: proofAtt.length ? proofAtt : undefined,
+    });
+    if (persisted.ok) {
+      await prisma.planScheduleSlotAppeal.update({
+        where: { id: created.id },
+        data: { status: "closed" },
+      });
+      return {
+        ok: true,
+        appeal: appealOut,
+        outcome: "ai_approved",
+        aiRationale: screening.rationale,
+        submission: persisted.submission,
+      };
+    }
+    const escRationale = `${screening.rationale}（采纳时建档失败：${persisted.message}，已转人工）`.slice(
+      0,
+      2000,
+    );
+    await prisma.planScheduleSlotAppeal.update({
+      where: { id: created.id },
+      data: { aiVerdict: "escalate", aiRationale: escRationale },
+    });
+    await markAppealProofUploads();
+    return {
+      ok: true,
+      appeal: appealOut,
+      outcome: "human_review",
+      aiRationale: escRationale,
+    };
+  }
+
+  await markAppealProofUploads();
   return {
     ok: true,
-    appeal: {
-      id: created.id,
-      content: created.content,
-      createdAt: created.createdAt.toISOString(),
-    },
+    appeal: appealOut,
+    outcome: "human_review",
+    aiRationale: screening.rationale,
   };
 }
 

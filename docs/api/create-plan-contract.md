@@ -13,7 +13,7 @@ Top-level fields:
 - `goal` (string, required): 计划名称（服务端兼容主字段）
 - `requirement` (string, required): 计划内容（服务端兼容主字段）
 - `deadline` (string, required): ISO datetime, example `2026-07-10T00:00:00.000Z`
-- `type` (enum, required): `general | study | work`
+- `type` (enum, required): `general | study | work | travel`
 - `profile` (object, optional): 前端结构化扩展信息
 
 `profile` shape:

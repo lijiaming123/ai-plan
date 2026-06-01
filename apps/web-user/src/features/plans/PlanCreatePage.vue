@@ -4,19 +4,20 @@ import { useRoute, useRouter } from "vue-router";
 import {
   getApiBaseURL,
   getApiClient,
+  HttpApiError,
   type PlanAssistantResult,
 } from "../../lib/api-client";
 import { renderMarkdownToHtml } from "../../lib/render-markdown";
 import { consumePlanAssistantStream } from "../../lib/plan-assistant-stream";
 import { storeDraftStreamPayload } from "../../lib/plan-assistant-stream";
 import { trackEvent } from "../../lib/telemetry";
-import { authState } from "../../stores/auth";
+import { authState, refreshAuthBillingFromApi } from "../../stores/auth";
 import UiErrorToast from "../../components/UiErrorToast.vue";
 import UiSunriseSelect from "../../components/UiSunriseSelect.vue";
 
 type PlanMode = "basic" | "pro";
 type CycleValue = "1w" | "1m" | "3m" | "6m" | "custom";
-type PlanScenario = "study" | "work" | "exam" | "fitness" | "other";
+type PlanScenario = "study" | "travel" | "other";
 type StartingPoint =
   | ""
   | "none"
@@ -87,6 +88,9 @@ function calcDurationDays(startDate: string, endDate: string) {
 }
 
 const today = formatDate(new Date());
+/** 已从服务端拉取计划助手上下文（偏好 + 摘要注入由后端完成） */
+const planAssistantMemoryLoaded = ref(false);
+const planAssistantMemoryDismissed = ref(false);
 const isSubmitting = ref(false);
 const showUpgradeHint = ref(false);
 const planTierMode = ref<PlanMode>("basic");
@@ -131,7 +135,7 @@ const chatMessages = ref<ChatMessage[]>([
     id: "chat-init",
     role: "assistant",
     content:
-      "你好，我是你的计划助手。填写上面的基础信息后，点击「生成初稿」，我会先给你一版初始计划，然后我们再对话优化。",
+      "你好，我是你的计划助手。先把上面的基础信息填一下，然后点「生成一版初稿」。我会先给你一个可执行的版本，我们再一起微调。",
   },
 ]);
 
@@ -149,6 +153,19 @@ const proSelectedOptionId = ref<
 const proCustomOptimization = ref("");
 const proApplyLoading = ref(false);
 
+function selectProOptimizationOption(id: string) {
+  if (
+    id === "more_granular" ||
+    id === "save_time" ||
+    id === "more_steady" ||
+    id === "more_aggressive"
+  ) {
+    proSelectedOptionId.value = id;
+    return;
+  }
+  proSelectedOptionId.value = "";
+}
+
 const form = reactive({
   planScenario: "" as PlanScenario | "",
   goal: "",
@@ -163,6 +180,15 @@ const form = reactive({
   granularityMode: "smart" as GranularityMode,
   reminderMode: "standard" as ReminderMode,
   aiDepth: "basic" as AiDepth,
+  // Travel P1
+  travelFrom: "",
+  travelTo: "",
+  travelEndDate: today,
+  travelCompanions: "",
+  travelStyles: "",
+  travelBudget: "",
+  travelTransport: "",
+  travelConstraints: "",
 });
 
 const errors = reactive({
@@ -172,15 +198,26 @@ const errors = reactive({
   startDate: "",
   customEndDate: "",
   timeInvestmentCustomHours: "",
+  // Travel P1
+  travelFrom: "",
+  travelTo: "",
+  travelEndDate: "",
 });
 
 const scenarioOptions = [
   { label: "学习", value: "study" },
-  { label: "工作", value: "work" },
-  { label: "考试", value: "exam" },
-  { label: "健身", value: "fitness" },
-  { label: "其他", value: "other" },
+  { label: "旅游", value: "travel" },
+  { label: "其它", value: "other" },
 ] as const;
+
+/** 与计划详情页标签同源：库表 `Plan.type` 为 general | study | work | travel；旅游落 travel，其它落 general */
+function planScenarioToApiPlanType(
+  scenario: PlanScenario | "",
+): "general" | "study" | "travel" {
+  if (scenario === "study") return "study";
+  if (scenario === "travel") return "travel";
+  return "general";
+}
 
 const startingPointOptionsMap: Record<
   PlanScenario,
@@ -192,23 +229,11 @@ const startingPointOptionsMap: Record<
     { label: "进阶", value: "intermediate" },
     { label: "熟练", value: "advanced" },
   ],
-  work: [
-    { label: "未启动", value: "none" },
-    { label: "已了解背景", value: "newbie" },
-    { label: "可独立执行", value: "intermediate" },
-    { label: "可带人推进", value: "advanced" },
-  ],
-  exam: [
-    { label: "基础薄弱", value: "none" },
-    { label: "基础一般", value: "newbie" },
-    { label: "接近目标线", value: "intermediate" },
-    { label: "冲刺阶段", value: "advanced" },
-  ],
-  fitness: [
-    { label: "刚开始", value: "none" },
-    { label: "已建立习惯", value: "newbie" },
-    { label: "稳定提升", value: "intermediate" },
-    { label: "进阶强化", value: "advanced" },
+  travel: [
+    { label: "未成行", value: "none" },
+    { label: "有大致方向", value: "newbie" },
+    { label: "机酒/行程部分已定", value: "intermediate" },
+    { label: "熟路/常旅", value: "advanced" },
   ],
   other: [
     { label: "刚开始", value: "none" },
@@ -241,10 +266,92 @@ const granularityOptions = [
   { label: "粗略计划", value: "rough" },
 ] as const;
 
+const travelCompanionOptions = [
+  { label: "不设置", value: "" },
+  { label: "独自", value: "独自" },
+  { label: "情侣", value: "情侣" },
+  { label: "朋友/同事", value: "朋友/同事" },
+  { label: "亲子", value: "亲子" },
+  { label: "带老人", value: "带老人" },
+] as const;
+
+const travelBudgetOptions = [
+  { label: "不设置", value: "" },
+  { label: "经济", value: "经济" },
+  { label: "舒适", value: "舒适" },
+  { label: "高端", value: "高端" },
+] as const;
+
+const travelStyleChipOptions = [
+  "松弛",
+  "特种兵",
+  "文化博物馆",
+  "美食",
+  "摄影",
+  "自然徒步",
+  "购物",
+] as const;
+
+const travelTransportChipOptions = [
+  "飞机",
+  "高铁",
+  "自驾",
+  "公共交通优先",
+  "步行友好",
+] as const;
+
+const isTravelScenario = computed(() => form.planScenario === "travel");
+const isOtherScenario = computed(() => form.planScenario === "other");
+
+function normalizeCommaSeparatedTags(input: string): string[] {
+  return input
+    .split(/[,，/、\n]/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .slice(0, 12);
+}
+
+function toggleCommaSeparatedTag(params: {
+  current: string;
+  tag: string;
+}): string {
+  const list = normalizeCommaSeparatedTags(params.current);
+  const idx = list.indexOf(params.tag);
+  if (idx >= 0) list.splice(idx, 1);
+  else list.push(params.tag);
+  return list.join("、");
+}
+
 const effectiveDeadline = computed(() => {
+  if (isTravelScenario.value) return form.travelEndDate;
   if (form.cycle === "custom") return form.customEndDate;
   return computeDeadlineByCycle(form.startDate, form.cycle);
 });
+
+function buildTravelRequirementTemplate() {
+  const from = form.travelFrom.trim();
+  const to = form.travelTo.trim();
+  const startDate = form.startDate || today;
+  const endDate = form.travelEndDate || startDate;
+  const days = calcDurationDays(startDate, endDate);
+  const companions = form.travelCompanions?.trim() || "未设置";
+  const styles = form.travelStyles.trim() || "未设置";
+  const budget = form.travelBudget?.trim() || "未设置";
+  const transport = form.travelTransport.trim() || "未设置";
+  const constraints = form.travelConstraints.trim() || "未设置";
+
+  return [
+    "【旅行类型】旅游",
+    `【出发地】${from || "（待填写）"}`,
+    `【目的地】${to || "（待填写）"}`,
+    `【日期】${startDate} - ${endDate}（共 ${days} 天）`,
+    `【同行人】${companions}`,
+    `【风格偏好】${styles}`,
+    `【预算】${budget}`,
+    `【交通偏好】${transport}`,
+    `【约束与偏好】${constraints}`,
+  ].join("\n");
+}
 
 watch(
   () => [
@@ -264,7 +371,7 @@ function attachScheduleJsonToRequirement(
 ) {
   const trimmed = text.trim();
   if (!schedule) return trimmed;
-  const payload = {
+  const planScheduleData = {
     schedule: {
       granularity: schedule.granularity,
       slots: schedule.slots.map((s) => ({
@@ -273,7 +380,7 @@ function attachScheduleJsonToRequirement(
       })),
     },
   };
-  return `${trimmed}\n\n\`\`\`json\n${JSON.stringify(payload, null, 2)}\n\`\`\``;
+  return `${trimmed}\n\n\`\`\`json\n${JSON.stringify(planScheduleData, null, 2)}\n\`\`\``;
 }
 
 function normalizedPendingScheduleFromAssistant(
@@ -312,8 +419,8 @@ const recommendedMode = computed<GranularityMode>(() => {
 const granularityHint = computed(() => {
   if (form.granularityMode !== "smart") return "";
   return recommendedMode.value === "deep"
-    ? "智能推荐：当前周期更适合深度计划（按天 + 阶段总结）。"
-    : "智能推荐：当前周期更适合粗略计划（按周推进）。";
+    ? "推荐：这个周期更适合按天拆分（每天更清晰，也更容易坚持）。"
+    : "推荐：这个周期更适合按周推进（先抓主线，再逐步细化）。";
 });
 
 const acceptedPlanFileTypes = ["txt", "md", "markdown", "doc", "docx"] as const;
@@ -375,9 +482,22 @@ function showErrorToast(message: string) {
 }
 
 function extractErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof HttpApiError) {
+    if (error.status === 429) {
+      return `${error.message} · 可在「设置」查看本月额度与会员说明`;
+    }
+    return error.message || fallback;
+  }
   if (error instanceof Error && error.message) return error.message;
   return fallback;
 }
+
+const aiQuotaSummaryText = computed(() => {
+  const q = authState.aiQuota;
+  if (!q || !authState.token) return "";
+  const left = Math.max(0, q.limit - q.used);
+  return `本月智能生成剩余 ${left} / ${q.limit} 次（${q.yearMonth}，UTC）`;
+});
 
 /**
  * 落库/创建计划用的「可执行正文」：优先助手产出的初稿/优化版（proPendingContent），
@@ -386,6 +506,19 @@ function extractErrorMessage(error: unknown, fallback: string) {
 function resolveExecutablePlanRequirement(): string {
   const userNotes = form.requirement.trim();
   const aiDraft = proPendingContent.value?.trim() ?? "";
+  if (isTravelScenario.value) {
+    const travelTemplate = buildTravelRequirementTemplate();
+    if (aiDraft && userNotes) {
+      return `${travelTemplate}\n\n---\n【用户自由补充】\n${userNotes}\n\n---\n【AI 生成的计划初稿/优化版】\n${aiDraft}`;
+    }
+    if (aiDraft) {
+      return `${travelTemplate}\n\n---\n【AI 生成的计划初稿/优化版】\n${aiDraft}`;
+    }
+    if (userNotes) {
+      return `${travelTemplate}\n\n---\n【用户自由补充】\n${userNotes}`;
+    }
+    return travelTemplate;
+  }
   if (aiDraft && userNotes) {
     return `${aiDraft}\n\n---\n【用户在「计划内容」中的说明】\n${userNotes}`;
   }
@@ -404,6 +537,27 @@ function getCycleLabel(cycle: CycleValue) {
 }
 
 const generatedPrompt = computed(() => {
+  if (isTravelScenario.value) {
+    const travelTemplate = buildTravelRequirementTemplate();
+    const extra = form.requirement.trim();
+    const notes = extra ? `\n\n---\n【用户自由补充】\n${extra}` : "";
+    return `你是一名资深旅行规划师与行程编排助手。
+
+请基于以下旅行信息，生成一份可执行的旅行行程建议（偏攻略/路线/提醒），输出尽量贴近“每天怎么走、怎么坐车、要提前预约什么、备选方案是什么”。
+
+【旅行信息（固定结构）】
+${travelTemplate}${notes}
+
+【输出要求】
+1. 按天输出行程（早/午/晚），包含路线顺序
+2. 标注交通方式与通勤时长估计（粗略即可）
+3. 给出预约/门票/营业时间/高峰人流提醒（如适用）
+4. 提供至少 2 条备选方案（下雨/人多/体力不足等）
+5. 每天给 1 条可选“旅行记录建议”（一句话/拍照点）
+
+请直接输出最终行程内容。`;
+  }
+
   const endDateText = effectiveDeadline.value || form.startDate || today;
   const scenarioLabel =
     scenarioOptions.find((item) => item.value === form.planScenario)?.label ??
@@ -432,13 +586,13 @@ const generatedPrompt = computed(() => {
 
   return `你是一名资深 AI 计划顾问与执行教练。
 
-请基于以下用户基础信息，生成一份高可执行、可跟踪、可复盘的计划方案。该请求可能属于学习、工作、项目推进、健康管理或其他个人成长目标，请先判断最可能的场景，再输出计划。
+请基于以下用户基础信息，生成一份高可执行、可跟踪、可复盘的计划方案。该请求可能属于学习、旅游出行或其它个人目标，请先结合用户所选场景与补充说明判断侧重点，再输出计划。
 
 【用户基础信息】
 ${contextLines.join("\n")}
 
 【输出要求】
-1. 先给出你判断的场景类型（学习/工作/项目/健康/生活/其他）与判断依据
+1. 先给出你判断的场景类型（学习/旅游/其它）与判断依据
 2. 生成阶段化计划（按周期拆分），每个阶段提供明确目标与验收标准
 3. 给出可执行任务清单（优先具体到周，必要时细化到天）
 4. 提供风险点与应对策略（至少3条）
@@ -475,24 +629,107 @@ function syncModeFromRoute() {
   }
 }
 
+/** 从已完成计划「续航」创建时，由 query.continuationFrom 解析并 POST /plans 写 parentPlanId */
+const continuationParentPlanId = ref<string | null>(null);
+
+async function hydrateContinuationFromRoute() {
+  const raw = route.query.continuationFrom;
+  const id = typeof raw === "string" && raw.trim() ? raw.trim() : "";
+  if (!id) {
+    continuationParentPlanId.value = null;
+    return;
+  }
+  if (!authState.token) return;
+  try {
+    const src = await getApiClient().getPlan({
+      id,
+      token: authState.token,
+    });
+    const ns = (src.nextStep ?? "").trim();
+    if (!ns) {
+      continuationParentPlanId.value = null;
+      return;
+    }
+    continuationParentPlanId.value = id;
+    const g = (src.goal ?? "").trim() || "上一计划";
+    if (!form.goal.trim()) {
+      form.goal = `${g} · 下一步`;
+    }
+    if (!form.requirement.trim()) {
+      form.requirement = `${ns}\n\n（承接自已完成计划「${g}」，请主要依据上一阶段的「下一步迭代方向」生成新计划，勿复述旧计划全文。）`;
+    }
+    if (!form.planScenario) {
+      form.planScenario = "other";
+    }
+  } catch {
+    continuationParentPlanId.value = null;
+  }
+}
+
+/** 创建页进入：拉取助手上下文，并按画像填充默认场景/周投入（不覆盖续航或用户已选项） */
+async function loadPlanAssistantUserContext() {
+  planAssistantMemoryLoaded.value = false;
+  if (!authState.token) return;
+  try {
+    const ctx = await getApiClient().getPlanAssistantContext({
+      token: authState.token,
+    });
+    planAssistantMemoryLoaded.value = true;
+    const hadContinuation = Boolean(route.query.continuationFrom);
+    if (!hadContinuation && !form.planScenario) {
+      const ds = ctx.profile.defaultScenario;
+      if (ds === "study") form.planScenario = "study";
+      else if (ds === "travel") form.planScenario = "travel";
+      else if (ds === "work" || ds === "general") form.planScenario = "other";
+    }
+    const cap = ctx.profile.weeklyHoursCap;
+    if (
+      cap != null &&
+      cap > 0 &&
+      form.timeInvestment === "none" &&
+      !hadContinuation
+    ) {
+      form.timeInvestment = "custom";
+      form.timeInvestmentCustomHours = String(cap);
+    }
+  } catch {
+    planAssistantMemoryLoaded.value = false;
+  }
+}
+
 function validateForm() {
   errors.planScenario = form.planScenario ? "" : "请选择计划场景";
   errors.goal = form.goal.trim() ? "" : "请输入计划名称";
-  errors.requirement = form.requirement.trim() ? "" : "请输入计划内容";
-  errors.startDate = form.startDate ? "" : "请选择计划开始时间";
+  errors.travelFrom = "";
+  errors.travelTo = "";
+  errors.travelEndDate = "";
+  if (isTravelScenario.value) {
+    errors.requirement = "";
+    errors.travelFrom = form.travelFrom.trim() ? "" : "请输入出发地";
+    errors.travelTo = form.travelTo.trim() ? "" : "请输入目的地";
+    errors.travelEndDate = form.travelEndDate ? "" : "请选择结束日期";
+  } else {
+    errors.requirement = form.requirement.trim() ? "" : "请输入计划内容";
+  }
+  errors.startDate = form.startDate ? "" : "请选择开始日期";
   errors.customEndDate =
-    form.cycle === "custom" && !form.customEndDate ? "请选择计划完成时间" : "";
+    !isTravelScenario.value && form.cycle === "custom" && !form.customEndDate
+      ? "请选择完成日期"
+      : "";
   errors.timeInvestmentCustomHours =
     form.timeInvestment === "custom" &&
     (!form.timeInvestmentCustomHours ||
       Number.isNaN(Number(form.timeInvestmentCustomHours)) ||
       Number(form.timeInvestmentCustomHours) <= 0)
-      ? "请输入有效的每周投入小时（大于0）"
+      ? "请输入每周大概能投入的小时数（需大于 0）"
       : "";
   return (
     !errors.planScenario &&
     !errors.goal &&
     !errors.requirement &&
+    !errors.travelFrom &&
+    !errors.travelTo &&
+    !errors.travelEndDate &&
     !errors.startDate &&
     !errors.customEndDate &&
     !errors.timeInvestmentCustomHours
@@ -507,7 +744,7 @@ async function handleSubmit() {
     proDraftGenerated.value &&
     !proOptimizationConfirmed.value
   ) {
-    showErrorToast("请先在「计划助手」完成一次优化确认，再生成草稿计划。");
+    showErrorToast("还差一步：请先在「计划助手」确认一次优化版本，再生成计划。");
     return;
   }
   isSubmitting.value = true;
@@ -546,12 +783,19 @@ async function handleSubmit() {
       chatMessages.value.push({
         id: `chat-pro-auto-${Date.now()}`,
         role: "assistant",
-        content: "已为你自动生成并优化了一版计划（专业版）。",
+        content: "我已经先帮你生成并优化了一版计划。接下来你可以直接点击「立即生成计划」。",
       });
     } catch (e) {
-      showErrorToast(
-        extractErrorMessage(e, "专业版助手生成失败，已回退为普通创建流程。"),
-      );
+      if (e instanceof HttpApiError && e.status === 429) {
+        showErrorToast(
+          extractErrorMessage(e, "本月智能生成次数已用尽。"),
+        );
+        void refreshAuthBillingFromApi();
+      } else {
+        showErrorToast(
+          extractErrorMessage(e, "智能生成暂时用不了，我先用基础方式帮你继续创建。"),
+        );
+      }
     }
   }
 
@@ -562,28 +806,47 @@ async function handleSubmit() {
     assistantSchedule.value,
   );
 
+  const effectiveEndDate = effectiveDeadline.value || form.startDate;
+  const submitCycle: CycleValue = isTravelScenario.value ? "custom" : form.cycle;
+  const submitGranularityMode: GranularityMode = isTravelScenario.value
+    ? "deep"
+    : form.granularityMode;
+  const submitTimeInvestment = isTravelScenario.value
+    ? "none"
+    : form.timeInvestment === "custom"
+      ? `custom:${Number(form.timeInvestmentCustomHours)}h_weekly`
+      : form.timeInvestment;
+  const submitTimeInvestmentCustomHours =
+    !isTravelScenario.value && form.timeInvestment === "custom"
+      ? Number(form.timeInvestmentCustomHours)
+      : undefined;
+  const submitCurrentLevel = form.startingPoint || "none";
+  const submitPlanContent = isTravelScenario.value
+    ? (() => {
+        const extra = form.requirement.trim();
+        return extra
+          ? `${buildTravelRequirementTemplate()}\n\n---\n【用户自由补充】\n${extra}`
+          : buildTravelRequirementTemplate();
+      })()
+    : finalRequirement;
+
   const profile = {
     planMode: planTierMode.value,
     basicInfo: {
       planScenario,
       planName: form.goal,
-      planContent: finalRequirement,
+      planContent: submitPlanContent,
       startingPoint: form.startingPoint,
       currentLevel: form.startingPoint || "none",
       startDate: form.startDate,
-      cycle: form.cycle,
-      endDate: effectiveDeadline.value || form.startDate,
+      cycle: submitCycle,
+      endDate: effectiveEndDate,
       preference: form.preference.trim(),
       focusAreas: focusAreas.value,
-      timeInvestment:
-        form.timeInvestment === "custom"
-          ? `custom:${Number(form.timeInvestmentCustomHours)}h_weekly`
-          : form.timeInvestment,
-      timeInvestmentCustomHours:
-        form.timeInvestment === "custom"
-          ? Number(form.timeInvestmentCustomHours)
-          : undefined,
-      granularityMode: form.granularityMode,
+      timeInvestment: submitTimeInvestment,
+      timeInvestmentCustomHours: submitTimeInvestmentCustomHours,
+      outputMode: "daily",
+      granularityMode: submitGranularityMode,
     },
     proSettings: isProMode.value
       ? {
@@ -619,20 +882,23 @@ async function handleSubmit() {
   };
   void planPayloadDraft;
 
-  const deadline = toIsoStartOfDay(effectiveDeadline.value || form.startDate);
+  const deadline = toIsoStartOfDay(effectiveEndDate || form.startDate);
+  const parentContinuationId = continuationParentPlanId.value ?? undefined;
+  const apiPlanType = planScenarioToApiPlanType(form.planScenario as PlanScenario);
   let plan;
   try {
     plan = await client.createPlan({
       goal: form.goal,
       deadline,
       requirement: finalRequirementForSubmit,
-      type: "general",
-    token: authState.token,
+      type: apiPlanType,
+      token: authState.token,
       profile,
+      ...(parentContinuationId ? { parentPlanId: parentContinuationId } : {}),
     });
   } catch (error) {
     showErrorToast(
-      extractErrorMessage(error, "计划创建失败，正在尝试兼容模式重试。"),
+      extractErrorMessage(error, "刚刚没创建成功，我正在帮你再试一次。"),
     );
     // Backward compatibility for older /plans contract.
     try {
@@ -640,18 +906,21 @@ async function handleSubmit() {
         goal: form.goal,
         deadline,
         requirement: finalRequirementForSubmit,
-        type: "general",
+        type: apiPlanType,
         token: authState.token,
+        ...(parentContinuationId ? { parentPlanId: parentContinuationId } : {}),
       });
     } catch (retryError) {
       showErrorToast(
-        extractErrorMessage(retryError, "计划创建失败，请稍后重试。"),
+        extractErrorMessage(retryError, "还是没创建成功，请稍后再试。"),
       );
       return;
     }
   } finally {
     isSubmitting.value = false;
   }
+
+  continuationParentPlanId.value = null;
 
   storeDraftStreamPayload(plan.id, {
     assistantPrompt: generatedPrompt.value,
@@ -664,7 +933,8 @@ async function handleSubmit() {
   trackEvent("plan_create", {
     properties: {
       planId: plan.id,
-      type: "general",
+      type: apiPlanType,
+      planScenario: form.planScenario,
     },
   });
 
@@ -695,7 +965,7 @@ async function handleGenerateAiDraft() {
     return;
   }
   if (!form.startDate) {
-    errors.startDate = "请选择计划开始时间";
+    errors.startDate = "请选择开始日期";
     return;
   }
   isAiThinking.value = true;
@@ -707,6 +977,7 @@ async function handleGenerateAiDraft() {
 
     // 非测试环境优先走流式（像 ChatGPT 一样逐字输出）；测试环境仍走非流式 mock，避免复杂的 stream mocking
     let response: PlanAssistantResult | null = null;
+    let streamHardFailed = false;
     if (!isTest && authState.token) {
       const streamAssistantId = `chat-draft-stream-${Date.now()}`;
       streamDraftMsgId = streamAssistantId;
@@ -762,11 +1033,32 @@ async function handleGenerateAiDraft() {
               };
             }
           },
-          onError: () => {
-            /* 错误由下方非流式降级处理，不在此处弹 Toast，避免误报 */
+          onError: (msg) => {
+            streamHardFailed = true;
+            showErrorToast(
+              /次数|用尽|额度/i.test(msg)
+                ? `${msg} · 可在「设置」查看会员说明`
+                : msg,
+            );
+            void refreshAuthBillingFromApi();
+            const msgEl = chatMessages.value.find(
+              (m) => m.id === streamAssistantId,
+            );
+            if (msgEl) {
+              msgEl.content =
+                /次数|用尽|额度/i.test(msg) && authState.token
+                  ? "本月智能生成次数已用尽或暂时不可用。请前往「设置」查看额度。"
+                  : msg;
+            }
           },
         },
       );
+    }
+
+    if (streamHardFailed) {
+      isAiThinking.value = false;
+      assistantDraftStreamMessageId.value = null;
+      return;
     }
 
     if (!response) {
@@ -823,12 +1115,20 @@ async function handleGenerateAiDraft() {
         content: body || response.reply,
       });
     }
+    void refreshAuthBillingFromApi();
   } catch (error) {
+    if (error instanceof HttpApiError && error.status === 429) {
+      showErrorToast(extractErrorMessage(error, "本月智能生成次数已用尽。"));
+      void refreshAuthBillingFromApi();
+      isAiThinking.value = false;
+      assistantDraftStreamMessageId.value = null;
+      return;
+    }
     const draft = buildAiDraftContent();
     proPendingContent.value = draft;
     proPendingSchedule.value = null;
     showErrorToast(
-      extractErrorMessage(error, "智能服务暂不可用，已使用本地策略生成初稿。"),
+      extractErrorMessage(error, "智能生成暂时用不了，但我已经先给你生成了一版初稿。"),
     );
     if (streamDraftMsgId) {
       const msg = chatMessages.value.find((m) => m.id === streamDraftMsgId);
@@ -838,14 +1138,14 @@ async function handleGenerateAiDraft() {
         chatMessages.value.push({
           id: `chat-draft-fallback-${Date.now()}`,
           role: "assistant",
-          content: "智能服务暂不可用，已使用本地策略为你生成初稿。",
+          content: "智能生成暂时用不了，但我已经先给你生成了一版初稿。",
         });
       }
     } else {
       chatMessages.value.push({
         id: `chat-draft-fallback-${Date.now()}`,
         role: "assistant",
-        content: "智能服务暂不可用，已使用本地策略为你生成初稿。",
+        content: "智能生成暂时用不了，但我已经先给你生成了一版初稿。",
       });
     }
   } finally {
@@ -861,18 +1161,18 @@ async function confirmProOptimizationDefault() {
   chatMessages.value.push({
     id: `chat-pro-confirm-${Date.now()}`,
     role: "assistant",
-    content: "已确认使用默认优化版。你现在可以点击「立即生成计划」。",
+    content: "好的，我们就按这个版本来。你现在可以点击「立即生成计划」。",
   });
 }
 
 async function applyProOptionOrCustom() {
   if (!isProMode.value || authState.tier !== "pro") return;
   if (!proPendingContent.value || !proPendingSchedule.value) {
-    showErrorToast("请先生成初稿，再应用优化选项。");
+    showErrorToast("先生成一版初稿，再来选择优化方向。");
     return;
   }
   if (!proSelectedOptionId.value && !proCustomOptimization.value.trim()) {
-    showErrorToast("请选择一个优化选项，或输入自定义优化内容。");
+    showErrorToast("请选择一个优化方向，或写一句你想怎么优化。");
     return;
   }
   const client = getApiClient();
@@ -893,7 +1193,7 @@ async function applyProOptionOrCustom() {
         startDate: form.startDate,
         endDate: effectiveDeadline.value || form.startDate,
         cycle: form.cycle,
-        type: "general",
+        type: planScenarioToApiPlanType(form.planScenario as PlanScenario),
       },
     });
     proOptimizationConfirmed.value = true;
@@ -907,7 +1207,7 @@ async function applyProOptionOrCustom() {
         "已应用你的优化选择并生成新版本。你现在可以点击「立即生成计划」。",
     });
   } catch (e) {
-    showErrorToast(extractErrorMessage(e, "应用优化失败，请稍后重试。"));
+    showErrorToast(extractErrorMessage(e, "刚刚没应用成功，请稍后再试。"));
   } finally {
     proApplyLoading.value = false;
   }
@@ -956,21 +1256,29 @@ async function handleChatSend() {
       content: body || response.reply,
     });
   } catch (error) {
-    const mergedRequirement = form.requirement.trim()
-      ? `${form.requirement.trim()}\n\n用户补充：${content}`
-      : content;
-    showErrorToast(
-      extractErrorMessage(error, "对话服务暂不可用，已先按本地策略合并内容。"),
-    );
-    applyChatAssistantResult({
-      reply: "对话服务暂不可用，已先把你的补充整合为新草稿。",
-      suggestedContent: mergedRequirement,
-    });
-    chatMessages.value.push({
-      id: `chat-ai-fallback-${Date.now()}`,
-      role: "assistant",
-      content: mergedRequirement,
-    });
+    if (error instanceof HttpApiError && error.status === 429) {
+      showErrorToast(extractErrorMessage(error, "本月智能生成次数已用尽。"));
+      void refreshAuthBillingFromApi();
+    } else {
+      const mergedRequirement = form.requirement.trim()
+        ? `${form.requirement.trim()}\n\n用户补充：${content}`
+        : content;
+      showErrorToast(
+        extractErrorMessage(
+          error,
+          "对话暂时用不了，但我已经先把你的补充整理进草稿里了。",
+        ),
+      );
+      applyChatAssistantResult({
+        reply: "对话暂时用不了，但我已经先把你的补充整理进草稿里了。",
+        suggestedContent: mergedRequirement,
+      });
+      chatMessages.value.push({
+        id: `chat-ai-fallback-${Date.now()}`,
+        role: "assistant",
+        content: mergedRequirement,
+      });
+    }
   } finally {
     isAiThinking.value = false;
   }
@@ -1063,7 +1371,7 @@ async function handlePlanFileChange(event: Event) {
     showErrorToast(
       extractErrorMessage(error, "文件解析失败，请手动补充计划内容。"),
     );
-    uploadedFileHint.value = `已上传：${file.name}，解析失败，请手动补充计划内容。`;
+    uploadedFileHint.value = `已上传：${file.name}，但没能读取出内容。你可以直接在下方「计划内容」里补充。`;
   }
 }
 
@@ -1107,6 +1415,17 @@ watch(
 );
 
 watch(
+  () => isTravelScenario.value,
+  () => {
+    if (!isTravelScenario.value) return;
+    // 旅游：用起止日期控制，弱化学习型字段
+    form.cycle = "custom";
+    form.granularityMode = "deep";
+    form.timeInvestment = "none";
+  },
+);
+
+watch(
   () => form.planScenario,
   () => {
     if (!form.planScenario) {
@@ -1140,11 +1459,22 @@ watch(
   },
 );
 
-onMounted(syncModeFromRoute);
+onMounted(async () => {
+  syncModeFromRoute();
+  await hydrateContinuationFromRoute();
+  void refreshAuthBillingFromApi();
+  await loadPlanAssistantUserContext();
+});
 watch(
   () => route.query.mode,
   () => {
     syncModeFromRoute();
+  },
+);
+watch(
+  () => route.query.continuationFrom,
+  () => {
+    void hydrateContinuationFromRoute();
   },
 );
 watch(
@@ -1195,7 +1525,7 @@ watch(
         <h1
           class="create-page-title pointer-events-none absolute left-1/2 top-1/2 z-0 max-w-[min(52vw,14rem)] -translate-x-1/2 -translate-y-1/2 truncate text-center text-sm font-black leading-[1.1] tracking-[-0.04em] text-[#111813] sm:max-w-none sm:px-2 sm:text-base md:text-xl md:tracking-[-0.05em] lg:text-2xl"
         >
-          创建你的新计划
+          创建新计划
         </h1>
         <div class="relative z-10 flex min-w-0 justify-end">
           <router-link
@@ -1207,6 +1537,40 @@ watch(
         </div>
       </div>
     </header>
+
+    <div
+      v-if="aiQuotaSummaryText"
+      class="relative z-40 border-b border-amber-200/70 bg-amber-50/90 px-3 py-1.5 text-center text-[11px] font-medium text-amber-950 sm:text-xs"
+      data-testid="ai-quota-banner"
+    >
+      <span>{{ aiQuotaSummaryText }}</span>
+      <router-link
+        to="/settings?focus=pro"
+        class="ml-1.5 font-bold text-[#0f8b4e] underline underline-offset-2"
+        >会员与额度</router-link
+      >
+    </div>
+
+    <div
+      v-if="planAssistantMemoryLoaded && !planAssistantMemoryDismissed"
+      class="relative z-40 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 border-b border-emerald-200/75 bg-emerald-50/90 px-3 py-1.5 text-center text-[11px] font-medium text-emerald-950 sm:text-xs"
+      data-testid="plan-assistant-memory-banner"
+    >
+      <span>已加载你在「设置」中的计划助手偏好；生成时服务端会注入近期执行摘要（不含历史正文全文）。</span>
+      <router-link
+        to="/settings"
+        class="font-bold text-[#0f8b4e] underline underline-offset-2"
+        >去设置</router-link
+      >
+      <button
+        type="button"
+        class="rounded-md px-1.5 py-0.5 text-[11px] font-bold text-emerald-800/90 underline decoration-emerald-400/80 underline-offset-2 hover:bg-emerald-100/60"
+        data-testid="plan-assistant-memory-dismiss"
+        @click="planAssistantMemoryDismissed = true"
+      >
+        关闭
+      </button>
+    </div>
 
     <div
       class="plan-create-scroll ui-scrollbar relative z-10 min-h-0 flex-1 overflow-y-auto overflow-x-hidden"
@@ -1272,7 +1636,7 @@ watch(
               <p class="mt-3 text-sm leading-relaxed text-[#64716b]">
                 当前为{{
                   isProMode ? "专业版创建计划" : "普通版创建计划"
-                }}。迈出第一步就好——不必一次写完美，先让心里那个目标落在纸上。
+                }}。先把目标写下来就很棒了——不必一次写完美，我们可以边做边完善。
               </p>
               <div
                 class="mt-3 flex flex-wrap items-center gap-4 text-xs text-[#64716b]"
@@ -1297,7 +1661,7 @@ watch(
 
               <h3 class="text-base font-bold text-[#26302b]">基础信息</h3>
               <p class="mb-4 mt-1 text-sm leading-relaxed text-[#5f6d66]">
-                先完成标有 ✦ 的几项即可提交；其余随时可补，我们会陪你把路走稳。
+                先完成标有 ✦ 的几项就能创建计划；其余随时可补，我们一步步来。
               </p>
               <div
                 class="basic-form-grid grid grid-cols-1 gap-5 md:grid-cols-2 md:gap-x-6 md:gap-y-5"
@@ -1314,7 +1678,7 @@ watch(
                       v-model="form.planScenario"
                       aria-label="计划场景"
                       size="large"
-                      placeholder="请选择场景"
+                      placeholder="选择一个最贴近的场景"
                     >
                       <ElOption
                         v-for="option in scenarioOptions"
@@ -1332,6 +1696,14 @@ watch(
                   </p>
     </label>
 
+                <p
+                  v-if="isOtherScenario"
+                  class="text-xs leading-relaxed text-[#5f6d66] md:col-span-2"
+                  data-testid="plan-scenario-other-checkin-hint"
+                >
+                  「其它」计划定稿后按天<strong class="font-semibold text-[#4d7a63]">勾选完成</strong>即可打卡，可在每个打卡段写一句文字备注；<strong class="font-semibold">不需要</strong>上传附件作为打卡材料。
+                </p>
+
                 <label class="flex min-w-0 flex-col">
                   <p class="field-label">
                     <span class="field-icon required">✦</span>计划名称
@@ -1340,7 +1712,11 @@ watch(
                     v-model="form.goal"
                     aria-label="计划名称"
                     class="form-control-input h-14 p-[15px] text-base"
-                    placeholder="例如，学习一门新语言"
+                    :placeholder="
+                      isTravelScenario
+                        ? '例如：日本关西 6 天游（城市漫游）'
+                        : '例如：30 天学会基础口语'
+                    "
                   />
                   <p
                     v-if="errors.goal"
@@ -1352,13 +1728,18 @@ watch(
 
                 <label class="flex flex-col md:col-span-2">
                   <p class="field-label">
-                    <span class="field-icon required">✦</span>计划内容
+                    <span class="field-icon required">✦</span
+                    >{{ isTravelScenario ? "自由补充（可选）" : "计划内容" }}
                   </p>
                   <textarea
                     v-model="form.requirement"
                     aria-label="计划内容"
                     class="form-control-textarea min-h-32 p-[15px] text-base leading-relaxed md:min-h-36"
-                    placeholder="在这里描述你希望通过这个计划达成的具体成果..."
+                    :placeholder="
+                      isTravelScenario
+                        ? '可选：补充必去点/避雷、酒店区域偏好、忌口、每天最晚回酒店时间等'
+                        : '写清楚你想达成什么、目前情况、以及你希望我们怎么拆解（越具体越好）'
+                    "
                   />
                   <p
                     v-if="errors.requirement"
@@ -1367,6 +1748,50 @@ watch(
                     {{ errors.requirement }}
                   </p>
     </label>
+
+                <label
+                  v-if="isTravelScenario"
+                  class="flex min-w-0 flex-col"
+                  data-testid="field-travel-from"
+                >
+                  <p class="field-label">
+                    <span class="field-icon required">✦</span>出发地
+                  </p>
+                  <input
+                    v-model="form.travelFrom"
+                    aria-label="出发地"
+                    class="form-control-input h-14 p-[15px] text-base"
+                    placeholder="例如：上海"
+                  />
+                  <p
+                    v-if="errors.travelFrom"
+                    class="mt-2 text-xs font-semibold text-[#cc4338]"
+                  >
+                    {{ errors.travelFrom }}
+                  </p>
+                </label>
+
+                <label
+                  v-if="isTravelScenario"
+                  class="flex min-w-0 flex-col"
+                  data-testid="field-travel-to"
+                >
+                  <p class="field-label">
+                    <span class="field-icon required">✦</span>目的地
+                  </p>
+                  <input
+                    v-model="form.travelTo"
+                    aria-label="目的地"
+                    class="form-control-input h-14 p-[15px] text-base"
+                    placeholder="例如：大阪、京都（可用顿号/逗号分隔）"
+                  />
+                  <p
+                    v-if="errors.travelTo"
+                    class="mt-2 text-xs font-semibold text-[#cc4338]"
+                  >
+                    {{ errors.travelTo }}
+                  </p>
+                </label>
 
                 <label class="flex flex-col md:min-w-0">
                   <p class="field-label">
@@ -1380,7 +1805,7 @@ watch(
                       format="YYYY-MM-DD"
                       class="plan-create-date-picker w-full"
                       :disabled-date="disableBeforeToday"
-                      placeholder="请选择计划开始时间"
+                      placeholder="选择开始日期"
                     />
                   </div>
                   <p
@@ -1391,7 +1816,10 @@ watch(
                   </p>
     </label>
 
-                <label class="flex flex-col md:min-w-0">
+                <label
+                  v-if="!isTravelScenario"
+                  class="flex flex-col md:min-w-0"
+                >
                   <p class="field-label">
                     <span class="field-icon required">✦</span>计划周期
                   </p>
@@ -1415,7 +1843,34 @@ watch(
                 </label>
 
                 <label
-                  v-if="form.cycle === 'custom'"
+                  v-else
+                  class="flex flex-col md:min-w-0"
+                  data-testid="field-travel-end-date"
+                >
+                  <p class="field-label">
+                    <span class="field-icon required">✦</span>结束日期
+                  </p>
+                  <div class="plan-date-shell w-full">
+                    <ElDatePicker
+                      v-model="form.travelEndDate"
+                      type="date"
+                      value-format="YYYY-MM-DD"
+                      format="YYYY-MM-DD"
+                      class="plan-create-date-picker w-full"
+                      :disabled-date="disableBeforeStartDate"
+                      placeholder="选择结束日期"
+                    />
+                  </div>
+                  <p
+                    v-if="errors.travelEndDate"
+                    class="mt-2 text-xs font-semibold text-[#cc4338]"
+                  >
+                    {{ errors.travelEndDate }}
+                  </p>
+                </label>
+
+                <label
+                  v-if="!isTravelScenario && form.cycle === 'custom'"
                   class="flex flex-col md:col-span-2"
                   data-testid="custom-end-date"
                 >
@@ -1430,7 +1885,7 @@ watch(
                       format="YYYY-MM-DD"
                       class="plan-create-date-picker w-full"
                       :disabled-date="disableBeforeStartDate"
-                      placeholder="请选择计划完成时间"
+                      placeholder="选择完成日期"
                     />
                   </div>
                   <p
@@ -1517,6 +1972,128 @@ watch(
                         </UiSunriseSelect>
                       </div>
                     </label>
+
+                    <div
+                      v-if="isTravelScenario"
+                      class="grid grid-cols-1 gap-5 md:grid-cols-2"
+                    >
+                      <label class="flex flex-col">
+                        <p class="field-label">
+                          <span class="field-icon optional">◌</span>同行人
+                        </p>
+                        <div class="ui-sunrise-select-shell w-full">
+                          <UiSunriseSelect
+                            v-model="form.travelCompanions"
+                            aria-label="同行人"
+                            size="large"
+                            placeholder="可选：选择同行人类型"
+                          >
+                            <ElOption
+                              v-for="opt in travelCompanionOptions"
+                              :key="opt.value"
+                              :label="opt.label"
+                              :value="opt.value"
+                            />
+                          </UiSunriseSelect>
+                        </div>
+                      </label>
+
+                      <label class="flex flex-col">
+                        <p class="field-label">
+                          <span class="field-icon optional">◌</span>预算
+                        </p>
+                        <div class="ui-sunrise-select-shell w-full">
+                          <UiSunriseSelect
+                            v-model="form.travelBudget"
+                            aria-label="预算"
+                            size="large"
+                            placeholder="可选：选择预算档位"
+                          >
+                            <ElOption
+                              v-for="opt in travelBudgetOptions"
+                              :key="opt.value"
+                              :label="opt.label"
+                              :value="opt.value"
+                            />
+                          </UiSunriseSelect>
+                        </div>
+                      </label>
+
+                      <label class="flex flex-col md:col-span-2">
+                        <p class="field-label">
+                          <span class="field-icon optional">◌</span>旅行风格
+                        </p>
+                        <div class="flex flex-wrap gap-2">
+                          <button
+                            v-for="tag in travelStyleChipOptions"
+                            :key="tag"
+                            type="button"
+                            class="rounded-full border px-3 py-1.5 text-xs font-semibold transition"
+                            :class="
+                              normalizeCommaSeparatedTags(form.travelStyles).includes(tag)
+                                ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                                : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                            "
+                            @click="
+                              form.travelStyles = toggleCommaSeparatedTag({
+                                current: form.travelStyles,
+                                tag,
+                              })
+                            "
+                          >
+                            {{ tag }}
+                          </button>
+                        </div>
+                        <input
+                          v-model="form.travelStyles"
+                          aria-label="旅行风格"
+                          class="mt-2 form-control-input h-12 p-[15px] text-base"
+                          placeholder="可选：也可以手动输入（用逗号/顿号分隔）"
+                        />
+                      </label>
+
+                      <label class="flex flex-col md:col-span-2">
+                        <p class="field-label">
+                          <span class="field-icon optional">◌</span>交通偏好
+                        </p>
+                        <div class="flex flex-wrap gap-2">
+                          <button
+                            v-for="tag in travelTransportChipOptions"
+                            :key="tag"
+                            type="button"
+                            class="rounded-full border px-3 py-1.5 text-xs font-semibold transition"
+                            :class="
+                              normalizeCommaSeparatedTags(form.travelTransport).includes(tag)
+                                ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                                : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                            "
+                            @click="
+                              form.travelTransport = toggleCommaSeparatedTag({
+                                current: form.travelTransport,
+                                tag,
+                              })
+                            "
+                          </button>
+                        </div>
+                        <input
+                          v-model="form.travelTransport"
+                          aria-label="交通偏好"
+                          class="mt-2 form-control-input h-12 p-[15px] text-base"
+                          placeholder="可选：也可以手动输入（用逗号/顿号分隔）"
+                        />
+                      </label>
+
+                      <label class="flex flex-col md:col-span-2">
+                        <p class="field-label">
+                          <span class="field-icon optional">◌</span>约束与偏好
+                        </p>
+                        <textarea
+                          v-model="form.travelConstraints"
+                          class="form-control-textarea min-h-24 p-[15px] text-base leading-relaxed"
+                          placeholder="可选：忌口、必去、避雷、住宿区域、每日最晚回酒店时间等"
+                        />
+                      </label>
+                    </div>
 
                     <label class="flex flex-col">
                       <p class="field-label">
@@ -1699,7 +2276,7 @@ watch(
                   </div>
                 </div>
                 <p class="mt-3 text-sm leading-relaxed text-[#64716b]">
-                  当前为专业版创建计划。可用助手共创细化方案，填写下方基础信息后生成初稿。
+                  当前为专业版创建计划。先填好基础信息，然后用「计划助手」生成初稿，我们再一起微调。
                 </p>
                 <div
                   class="mt-3 flex flex-wrap items-center gap-4 text-xs text-[#64716b]"
@@ -1733,7 +2310,7 @@ watch(
                         v-model="form.planScenario"
                         aria-label="计划场景"
                         size="large"
-                        placeholder="请选择场景"
+                        placeholder="选择一个最贴近的场景"
                       >
                         <ElOption
                           v-for="option in scenarioOptions"
@@ -1751,6 +2328,14 @@ watch(
                     </p>
                   </label>
 
+                  <p
+                    v-if="isOtherScenario"
+                    class="text-xs leading-relaxed text-[#5f6d66] md:col-span-2"
+                    data-testid="plan-scenario-other-checkin-hint-pro"
+                  >
+                    「其它」计划定稿后按天<strong class="font-semibold text-[#4d7a63]">勾选完成</strong>即可打卡，可在每个打卡段写一句文字备注；<strong class="font-semibold">不需要</strong>上传附件作为打卡材料。
+                  </p>
+
                   <label class="flex min-w-0 flex-col">
                     <p class="field-label">
                       <span class="field-icon required">✦</span>计划名称
@@ -1759,7 +2344,11 @@ watch(
                       v-model="form.goal"
                       aria-label="计划名称"
                       class="form-control-input h-14 p-[15px] text-base"
-                      placeholder="例如，90天英语口语冲刺"
+                      :placeholder="
+                        isTravelScenario
+                          ? '例如：日本关西 6 天游（城市漫游）'
+                          : '例如：90 天英语口语冲刺'
+                      "
                     />
                     <p
                       v-if="errors.goal"
@@ -1802,13 +2391,61 @@ watch(
                       v-model="form.requirement"
                       aria-label="计划内容"
                       class="form-control-textarea min-h-32 p-[15px] text-base leading-relaxed md:min-h-36"
-                      placeholder="描述计划目标、边界、你希望助手协助细化的重点..."
+                      :placeholder="
+                        isTravelScenario
+                          ? '可选：补充必去点/避雷、酒店区域偏好、忌口、每天最晚回酒店时间等'
+                          : '写清楚目标、目前情况、时间限制，以及你希望我重点帮你拆解的部分'
+                      "
                     />
                     <p
                       v-if="errors.requirement"
                       class="mt-2 text-xs font-semibold text-[#cc4338]"
                     >
                       {{ errors.requirement }}
+                    </p>
+                  </label>
+
+                  <label
+                    v-if="isTravelScenario"
+                    class="flex min-w-0 flex-col"
+                    data-testid="field-travel-from"
+                  >
+                    <p class="field-label">
+                      <span class="field-icon required">✦</span>出发地
+                    </p>
+                    <input
+                      v-model="form.travelFrom"
+                      aria-label="出发地"
+                      class="form-control-input h-14 p-[15px] text-base"
+                      placeholder="例如：上海"
+                    />
+                    <p
+                      v-if="errors.travelFrom"
+                      class="mt-2 text-xs font-semibold text-[#cc4338]"
+                    >
+                      {{ errors.travelFrom }}
+                    </p>
+                  </label>
+
+                  <label
+                    v-if="isTravelScenario"
+                    class="flex min-w-0 flex-col"
+                    data-testid="field-travel-to"
+                  >
+                    <p class="field-label">
+                      <span class="field-icon required">✦</span>目的地
+                    </p>
+                    <input
+                      v-model="form.travelTo"
+                      aria-label="目的地"
+                      class="form-control-input h-14 p-[15px] text-base"
+                      placeholder="例如：大阪、京都（可用顿号/逗号分隔）"
+                    />
+                    <p
+                      v-if="errors.travelTo"
+                      class="mt-2 text-xs font-semibold text-[#cc4338]"
+                    >
+                      {{ errors.travelTo }}
                     </p>
                   </label>
 
@@ -1824,7 +2461,7 @@ watch(
                         format="YYYY-MM-DD"
                         class="plan-create-date-picker w-full"
                         :disabled-date="disableBeforeToday"
-                        placeholder="请选择计划开始时间"
+                        placeholder="选择开始日期"
                       />
                     </div>
                     <p
@@ -1835,7 +2472,7 @@ watch(
                     </p>
                   </label>
 
-                  <label class="flex min-w-0 flex-col">
+                  <label v-if="!isTravelScenario" class="flex min-w-0 flex-col">
                     <p class="field-label">
                       <span class="field-icon required">✦</span>计划周期
                     </p>
@@ -1859,7 +2496,7 @@ watch(
                   </label>
 
                   <label
-                    v-if="form.cycle === 'custom'"
+                    v-if="!isTravelScenario && form.cycle === 'custom'"
                     class="flex flex-col md:col-span-2"
                     data-testid="custom-end-date"
                   >
@@ -1874,7 +2511,7 @@ watch(
                         format="YYYY-MM-DD"
                         class="plan-create-date-picker w-full"
                         :disabled-date="disableBeforeStartDate"
-                        placeholder="请选择计划完成时间"
+                        placeholder="选择完成日期"
                       />
                     </div>
                     <p
@@ -1882,6 +2519,33 @@ watch(
                       class="mt-2 text-xs font-semibold text-[#cc4338]"
                     >
                       {{ errors.customEndDate }}
+                    </p>
+                  </label>
+
+                  <label
+                    v-else-if="isTravelScenario"
+                    class="flex flex-col md:col-span-2"
+                    data-testid="field-travel-end-date"
+                  >
+                    <p class="field-label">
+                      <span class="field-icon required">✦</span>结束日期
+                    </p>
+                    <div class="plan-date-shell w-full">
+                      <ElDatePicker
+                        v-model="form.travelEndDate"
+                        type="date"
+                        value-format="YYYY-MM-DD"
+                        format="YYYY-MM-DD"
+                        class="plan-create-date-picker w-full"
+                        :disabled-date="disableBeforeStartDate"
+                        placeholder="选择结束日期"
+                      />
+                    </div>
+                    <p
+                      v-if="errors.travelEndDate"
+                      class="mt-2 text-xs font-semibold text-[#cc4338]"
+                    >
+                      {{ errors.travelEndDate }}
                     </p>
                   </label>
                 </div>
@@ -1899,7 +2563,7 @@ watch(
                     :disabled="isAiThinking"
                     @click="handleGenerateAiDraft"
                   >
-                    {{ isAiThinking ? "生成中…" : "生成初稿" }}
+                    {{ isAiThinking ? "正在生成…" : "生成一版初稿" }}
                   </button>
                 </div>
 
@@ -1951,7 +2615,7 @@ watch(
                       class="h-10 rounded-xl bg-[#0a8f4a] px-4 text-sm font-bold text-white shadow-[0_10px_26px_-16px_rgba(12,80,48,0.55)] transition hover:brightness-105 active:scale-[0.99]"
                       @click="confirmProOptimizationDefault"
                     >
-                      使用默认优化版（确认）
+                      就用这个版本
                     </button>
 
                     <div
@@ -1959,7 +2623,7 @@ watch(
                       class="rounded-xl border border-emerald-100/70 bg-white/70 p-3"
                     >
                       <p class="text-xs font-semibold text-[#305446]">
-                        或选择一个优化方向
+                        也可以选一个优化方向
                       </p>
                       <div class="mt-2 flex flex-wrap gap-2">
                         <button
@@ -1972,7 +2636,7 @@ watch(
                               ? 'border-emerald-300 bg-emerald-50 text-emerald-900'
                               : 'border-stone-200/70 bg-white/70 text-stone-600 hover:border-emerald-200 hover:text-emerald-800'
                           "
-                          @click="proSelectedOptionId = opt.id"
+                          @click="selectProOptimizationOption(opt.id)"
                         >
                           {{ opt.title }}
                         </button>
@@ -1984,7 +2648,7 @@ watch(
                           v-model="proCustomOptimization"
                           rows="2"
                           class="w-full resize-none border-none bg-transparent px-2 py-1 text-[12px] leading-relaxed text-stone-700 outline-none"
-                          placeholder="或写一句你的优化要求（可选）：例如「把每周目标拆得更具体，包含证据」"
+                          placeholder="也可以补一句你想怎么优化（可选），例如「把每周目标拆得更具体，包含证据」"
                         />
                         <div class="flex justify-end">
                           <button
@@ -1998,12 +2662,12 @@ watch(
                             "
                             @click="applyProOptionOrCustom"
                           >
-                            {{ proApplyLoading ? "应用中…" : "应用并确认" }}
+                            {{ proApplyLoading ? "正在应用…" : "应用并确认版本" }}
                           </button>
                         </div>
                       </div>
                       <p class="mt-2 text-[11px] text-stone-500">
-                        说明：确认后才可点击底部「立即生成计划」。
+                        提示：确认版本后，就可以点击底部「立即生成计划」。
                       </p>
                     </div>
                   </div>
@@ -2053,7 +2717,7 @@ watch(
                     rows="3"
                     aria-label="对话完善计划"
                     class="w-full resize-none border-none bg-transparent px-2 py-1 text-sm outline-none"
-                    placeholder="例如：请把执行阶段拆成每周目标，并加上每周复盘任务。"
+                    placeholder="例如：帮我按周拆目标，并加上每周复盘任务。"
                     @keydown="handleChatInputKeydown"
                   />
                   <div class="flex justify-end">

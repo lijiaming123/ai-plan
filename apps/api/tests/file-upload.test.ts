@@ -1,6 +1,7 @@
 import FormData from 'form-data';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app';
+import { prisma } from '../src/lib/prisma';
 
 describe('file upload', () => {
   const app = buildApp();
@@ -49,6 +50,16 @@ describe('file upload', () => {
     const getFile = await app.inject({ method: 'GET', url: `/files/${name}` });
     expect(getFile.statusCode).toBe(200);
     expect(getFile.body).toContain('fake-png');
+
+    // 记录应写入 UploadedFile（用于治理；失败不应影响上传接口，但在正常情况下应存在）
+    const row = await (prisma as any).uploadedFile.findUnique({
+      where: { storageName: name },
+      select: { storageName: true, userId: true, referencedAt: true, deletedAt: true },
+    });
+    expect(row?.storageName).toBe(name);
+    expect(row?.userId).toBe('user_demo');
+    expect(row?.referencedAt ?? null).toBe(null);
+    expect(row?.deletedAt ?? null).toBe(null);
   });
 
   it('未登录 POST /uploads 应 401', async () => {

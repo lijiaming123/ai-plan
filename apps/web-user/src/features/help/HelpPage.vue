@@ -32,8 +32,8 @@ const faqs: FaqItem[] = [
     id: 'submit-proof',
     category: 'task',
     title: '如何提交任务证明？',
-    body: '在计划详情进入具体任务，填写文字说明并上传图片证据后提交。提交将进入审核流，系统会记录时间与内容便于后续查看。',
-    keywords: '上传 图片 审核',
+    body: '学习类计划在「计划详情」打卡表中按槽提交文字说明与证明材料（链接/附件），并可能经自动核验。旅游类以勾选完成为主，可为每段附加旅行记录（图片等）。其它（通用）类以勾选完成为主，可写一句文字备注，不需要上传附件。',
+    keywords: '上传 图片 审核 勾选 学习 旅游 其它',
   },
   {
     id: 'ai-score',
@@ -53,14 +53,28 @@ const faqs: FaqItem[] = [
     id: 'pro-tier',
     category: 'account',
     title: '基础版与专业版区别？',
-    body: '「设置」中可查看当前方案。专业版在演示环境可通过「模拟开通」体验；正式能力以后端策略为准，通常包含更深度的拆解与提醒选项。',
-    keywords: '会员 升级 设置',
+    body: '「设置」中可查看当前方案。基础版已覆盖创建计划、草稿确认、执行打卡与模板等主流程。专业版 ¥19/月，新用户可享 7 天免费试用（每人一次）；试用或续费后享有更高智能生成额度与进阶计划助手。暂不支持自动扣款，续费请按设置页说明联系开通。',
+    keywords: '会员 升级 设置 普通版 计费',
+  },
+  {
+    id: 'archive-insights-nav',
+    category: 'account',
+    title: '「归档」与「统计分析」是什么？',
+    body: '登录后侧栏提供「归档」收纳暂不需要执行的计划，以及「统计分析」查看进行中计划数、本周打卡与进度汇总。部署方可将环境变量 VITE_FEATURE_ARCHIVE / VITE_FEATURE_INSIGHTS 设为 false 临时隐藏对应菜单（默认可用）。管理员可在后台按用户 ID 查看计划与打卡计数以便客服排查。',
+    keywords: '归档 洞察 统计 侧栏 环境变量 客服',
+  },
+  {
+    id: 'ops-telemetry-ugc',
+    category: 'account',
+    title: '埋点、模板内容与上传材料说明',
+    body: '客户端会按字典上报匿名化事件（如 plan_create、checkin_submit），用于产品与故障分析；不含密码等敏感字段。模板市场用户发布内容应遵守社区规范；举报与下架流程以当前版本后台能力为准。打卡与申诉中的附件仅用于业务核验，请避免上传隐私原件。',
+    keywords: '隐私 埋点 模板 举报 上传',
   },
   {
     id: 'forgot-password-demo',
     category: 'account',
     title: '收不到验证码怎么办？',
-    body: '登录与找回均使用手机号短信验证码。演示环境通常不会发送真实短信，验证码可在服务端日志查看；也可在「收不到验证码」页再次获取。生产环境需接入短信服务商。',
+    body: '登录可用验证码或密码；「收不到验证码？」请在登录页查看说明弹层。找回密码需在验证手机号后设置新密码。演示环境通常不发真实短信，验证码可在服务端日志查看。生产环境需接入短信服务商。',
     keywords: '验证码 短信 登录 找回 演示',
   },
   {
@@ -219,6 +233,7 @@ function submitFeedback() {
         >
           <li
             v-for="(item, index) in filteredFaqs"
+            :id="item.id"
             :key="item.id"
             class="help-faq-item rounded-xl border border-stone-200/70 bg-gradient-to-r from-white/95 to-stone-50/30 shadow-sm transition duration-300 hover:border-emerald-200/50 hover:shadow-md"
             :data-testid="`help-faq-item-${item.id}`"

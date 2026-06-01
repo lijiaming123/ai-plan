@@ -103,6 +103,15 @@ describe('TemplatesPage / TemplateMarketList', () => {
     setAuthToken(demoJwt());
     const wrapper2 = mount(TemplatesPage, { global: { plugins: [router] } });
     await flushPromises();
+
+    // 点击详情应打点并跳转
+    await wrapper2.get('[data-testid="market-card-hit-m1"]').trigger('click');
+    await flushPromises();
+    expect(trackEventMock).toHaveBeenCalledWith('template_detail_click', {
+      properties: { templateId: 'm1', from: 'market_list' },
+    });
+    expect(router.currentRoute.value.fullPath).toBe('/templates/market/m1');
+
     await wrapper2.get('[data-testid="tab-mine"]').trigger('click');
     await nextTick();
     await flushPromises();
@@ -191,5 +200,101 @@ describe('TemplatesPage / TemplateMarketList', () => {
       },
     });
     expect(wrapper.get('[data-testid="btn-apply"]').text()).toContain('套用');
+  });
+
+  it('我的模板（我创建的）应展示状态，并在驳回/下架时提供重新提交入口', async () => {
+    trackEventMock.mockReset();
+    trackPageViewMock.mockReset();
+    clearAuthToken();
+    setAuthToken(demoJwt());
+
+    const noopFetch = vi.fn(() => Promise.reject(new Error('unexpected fetch'))) as unknown as typeof fetch;
+    const base = createApiClient({ baseURL: 'http://test.local', fetchImpl: noopFetch });
+    const listMy = vi.fn().mockResolvedValue({
+      items: [
+        {
+          id: 'm1',
+          authorId: 'user_demo',
+          authorName: '我',
+          title: '待审模板',
+          summary: '摘要',
+          category: 'work',
+          tags: [],
+          likeCount: 0,
+          applicationCount: 0,
+          publishedAt: null,
+          status: 'pending_review',
+        },
+        {
+          id: 'm2',
+          authorId: 'user_demo',
+          authorName: '我',
+          title: '被驳回模板',
+          summary: '摘要',
+          category: 'work',
+          tags: [],
+          likeCount: 0,
+          applicationCount: 0,
+          publishedAt: null,
+          status: 'rejected',
+          rejectReasonCode: 'spam',
+          rejectNote: '包含推广内容',
+        },
+        {
+          id: 'm3',
+          authorId: 'user_demo',
+          authorName: '我',
+          title: '已下架模板',
+          summary: '摘要',
+          category: 'work',
+          tags: [],
+          likeCount: 0,
+          applicationCount: 0,
+          publishedAt: null,
+          status: 'unpublished',
+        },
+      ],
+      page: 1,
+      pageSize: 20,
+      total: 3,
+    });
+
+    setApiClient({
+      ...base,
+      listPresets: vi.fn().mockResolvedValue({ items: [] }),
+      listMarketTemplates: vi.fn().mockResolvedValue({ items: [], page: 1, pageSize: 20, total: 0 }),
+      listMyMarketTemplates: listMy,
+      patchMarketTemplate: vi.fn().mockResolvedValue({ ok: true }),
+      unpublishMarketTemplate: vi.fn().mockResolvedValue({ ok: true }),
+      applyMarketTemplate: vi.fn().mockResolvedValue({ planId: 'p1' }),
+      likeMarketTemplate: vi.fn().mockResolvedValue({ liked: true, likeCount: 1 }),
+      unlikeMarketTemplate: vi.fn().mockResolvedValue({ liked: false, likeCount: 0 }),
+      favoriteMarketTemplate: vi.fn().mockResolvedValue({ favorited: true }),
+      unfavoriteMarketTemplate: vi.fn().mockResolvedValue({ favorited: false }),
+    });
+
+    const router = createAppRouter(createMemoryHistory());
+    await router.push('/templates');
+    await router.isReady();
+    const wrapper = mount(TemplatesPage, { global: { plugins: [router] } });
+    await flushPromises();
+
+    await wrapper.get('[data-testid="tab-mine"]').trigger('click');
+    await nextTick();
+    await flushPromises();
+
+    // 默认 scope=created：状态应进行中文映射展示
+    const statuses = wrapper.findAll('[data-testid="template-status"]').map((x) => x.text());
+    expect(statuses.some((t) => t.includes('待审核'))).toBe(true);
+    expect(statuses.some((t) => t.includes('已驳回'))).toBe(true);
+    expect(statuses.some((t) => t.includes('已下架'))).toBe(true);
+
+    // 驳回原因应有可见提示
+    expect(wrapper.find('[data-testid="template-reject-reason"]').exists()).toBe(true);
+
+    // 驳回/下架应提供重新提交入口
+    const resubmits = wrapper.findAll('[data-testid="btn-resubmit"]');
+    expect(resubmits.length).toBeGreaterThanOrEqual(2);
+    clearAuthToken();
   });
 });

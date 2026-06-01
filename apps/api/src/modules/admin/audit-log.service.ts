@@ -7,6 +7,7 @@ export type AuditAction =
   | 'rbac.change'
   | 'user.ban'
   | 'user.unban'
+  | 'user.plan_tier'
   | 'admin.read';
 
 export async function writeAuditLog(input: {

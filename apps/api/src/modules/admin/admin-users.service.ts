@@ -57,6 +57,17 @@ function maxDate(dates: (Date | null | undefined)[]): Date | null {
 }
 
 export async function getAdminUserDetail(userId: string) {
+  const appUser = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      phone: true,
+      planTier: true,
+      proExpiresAt: true,
+      proTrialUsedAt: true,
+      proSubscriptionSource: true,
+    },
+  });
+
   const [planCount, taskSubmissionCount, checkinCount, telemetryCount] = await Promise.all([
     prisma.plan.count({ where: { userId } }),
     prisma.taskSubmission.count({ where: { userId } }),
@@ -64,7 +75,8 @@ export async function getAdminUserDetail(userId: string) {
     prisma.telemetryRawEvent.count({ where: { userId } }),
   ]);
 
-  if (planCount + taskSubmissionCount + telemetryCount === 0) {
+  const hasActivity = planCount + taskSubmissionCount + telemetryCount > 0;
+  if (!hasActivity && !appUser) {
     return null;
   }
 
@@ -150,5 +162,10 @@ export async function getAdminUserDetail(userId: string) {
       eventName: r.eventName,
       count: r._count.eventName,
     })),
+    phone: appUser?.phone ?? null,
+    planTier: appUser?.planTier ?? null,
+    proExpiresAt: appUser?.proExpiresAt?.toISOString() ?? null,
+    proTrialUsed: appUser?.proTrialUsedAt != null,
+    proSubscriptionSource: appUser?.proSubscriptionSource ?? null,
   };
 }

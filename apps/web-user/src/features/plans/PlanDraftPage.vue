@@ -17,7 +17,7 @@ import {
 import { trackEvent } from "../../lib/telemetry";
 import { renderMarkdownToHtml } from "../../lib/render-markdown";
 import { useCloseOnEscape } from "../../composables/useCloseOnEscape";
-import { authState } from "../../stores/auth";
+import { authState, refreshAuthBillingFromApi } from "../../stores/auth";
 
 type DraftBundle = NonNullable<PlanRecord["draft"]>;
 type DraftVersionSnapshot = DraftBundle["versions"][number];
@@ -383,7 +383,7 @@ function openScheduleSwap(slotKey: string, planVersion: number) {
   const slots = scheduleSlotsForVersion(planVersion);
   const firstOther = slots.find((s) => s.slotKey !== slotKey);
   if (!firstOther) {
-    showError("当前版本可交换的时间槽不足");
+    showError("当前版本可交换的打卡段不足");
     return;
   }
   scheduleSwapVersion.value = planVersion;
@@ -425,7 +425,7 @@ async function refreshDraftBundleOnly(capturedSeq: number) {
     };
   } catch (error) {
     if (capturedSeq !== loadDraftSeq) return;
-    showError(error instanceof Error ? error.message : "刷新草稿失败");
+    showError(error instanceof Error ? error.message : "没能刷新草稿，请稍后再试");
   }
 }
 
@@ -455,7 +455,7 @@ async function saveScheduleEdit() {
     }
     scheduleEditOpen.value = false;
   } catch (e) {
-    showError(e instanceof Error ? e.message : "保存失败");
+    showError(e instanceof Error ? e.message : "没保存成功，请稍后再试");
   } finally {
     scheduleSaving.value = false;
   }
@@ -483,7 +483,7 @@ async function restoreScheduleSlot(slotKey: string, planVersion: number) {
         };
     }
   } catch (e) {
-    showError(e instanceof Error ? e.message : "恢复失败");
+    showError(e instanceof Error ? e.message : "没恢复成功，请稍后再试");
   } finally {
     scheduleSaving.value = false;
   }
@@ -515,7 +515,7 @@ async function submitScheduleSwap() {
     }
     scheduleSwapOpen.value = false;
   } catch (e) {
-    showError(e instanceof Error ? e.message : "交换失败");
+    showError(e instanceof Error ? e.message : "没交换成功，请稍后再试");
   } finally {
     scheduleSwapping.value = false;
   }
@@ -631,10 +631,10 @@ async function loadDraftPage() {
     if (seq !== loadDraftSeq) return;
     try {
       await getApiClient().getPlan({
-        id,
-        token: authState.token,
-      });
-      if (seq !== loadDraftSeq) return;
+      id,
+      token: authState.token,
+    });
+    if (seq !== loadDraftSeq) return;
       await goToDetail(id);
       return;
     } catch {
@@ -760,8 +760,8 @@ async function submitRegenerate() {
   clearError();
 
   const placeholder = makeRegeneratePlaceholderVersion(prevSnap, nextV);
-  draftMeta.value = {
-    ...draftMeta.value,
+    draftMeta.value = {
+      ...draftMeta.value,
     versions: [...draftMeta.value.versions, placeholder],
     canRegenerate: nextV < draftMeta.value.maxVersions,
   };
@@ -797,7 +797,12 @@ async function submitRegenerate() {
         onError: (msg) => {
           if (seq !== loadDraftSeq || planId.value !== id) return;
           rollbackRegeneratePlaceholder(nextV);
-          showError(msg);
+          showError(
+            /次数|用尽|额度/i.test(msg)
+              ? `${msg} · 可在「设置」查看会员与额度`
+              : msg,
+          );
+          void refreshAuthBillingFromApi();
         },
       },
     );
@@ -968,7 +973,7 @@ onBeforeUnmount(() => {
       <div class="draft-bg-orb draft-bg-orb--left"></div>
       <div class="draft-bg-orb draft-bg-orb--right"></div>
       <div class="draft-bg-grain"></div>
-    </div>
+          </div>
 
     <header
       class="draft-header relative z-20 shrink-0 border-b border-[#dbe8e1]/90"
@@ -993,7 +998,7 @@ onBeforeUnmount(() => {
               >
                 草稿中心
               </span>
-            </div>
+        </div>
             <h1
               class="draft-title truncate text-2xl font-black tracking-[-0.03em] md:text-3xl"
             >
@@ -1027,18 +1032,18 @@ onBeforeUnmount(() => {
               class="relative inline-flex items-stretch"
               @keydown.esc.stop.prevent="closeRegenerateMenu"
             >
-              <button
-                type="button"
+          <button
+            type="button"
                 class="draft-btn draft-btn--ghost rounded-r-none"
                 :class="{ 'is-busy': operating }"
                 :disabled="!canRegenerate || operating || regenerateLocked"
-                data-testid="draft-regenerate"
-                @click="handleRegenerate"
-              >
-                重新生成（剩余 {{ remainingRegenerateCount }} 次）
-              </button>
-              <button
-                type="button"
+            data-testid="draft-regenerate"
+            @click="handleRegenerate"
+          >
+            重新生成（剩余 {{ remainingRegenerateCount }} 次）
+          </button>
+          <button
+            type="button"
                 class="draft-btn draft-btn--ghost -ml-px rounded-l-none px-3"
                 :disabled="!canRegenerate || operating || regenerateLocked"
                 data-testid="draft-regenerate-menu"
@@ -1117,22 +1122,22 @@ onBeforeUnmount(() => {
               type="button"
               class="draft-btn draft-btn--primary"
               :disabled="!selectedSnapshot || operating || regenerateLocked"
-              data-testid="draft-open-confirm"
-              @click="openConfirmModal"
-            >
+            data-testid="draft-open-confirm"
+            @click="openConfirmModal"
+          >
               确认 v{{ selectedSnapshot?.version ?? "—" }} 并保存
-            </button>
-          </div>
+          </button>
         </div>
+      </div>
 
-        <div class="mx-auto mt-4 max-w-[1600px] md:hidden">
+      <div class="mx-auto mt-4 max-w-[1600px] md:hidden">
           <label class="mb-1.5 block text-xs font-bold text-[#466257]"
             >当前查看版本</label
           >
           <UiSunriseSelect
-            v-model.number="selectedVersion"
-            data-testid="draft-version-select"
-          >
+          v-model.number="selectedVersion"
+          data-testid="draft-version-select"
+        >
             <ElOption
               v-for="v in versions"
               :key="`m-${v.version}`"
@@ -1172,7 +1177,7 @@ onBeforeUnmount(() => {
           >
             <div
               v-for="(ver, idx) in versions"
-              :key="ver.version"
+            :key="ver.version"
               class="draft-version-card group relative flex min-h-0 min-w-0 flex-col self-stretch rounded-2xl text-left outline-none"
               :class="[
                 selectedVersion === ver.version
@@ -1201,7 +1206,7 @@ onBeforeUnmount(() => {
                   </p>
                   <span
                     class="draft-card-status inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-bold transition-[background,color,box-shadow] duration-300"
-                    :class="
+            :class="
                       selectedVersion === ver.version
                         ? 'draft-card-status--on'
                         : 'draft-card-status--off'
@@ -1215,7 +1220,7 @@ onBeforeUnmount(() => {
                       selectedVersion === ver.version ? "当前选中" : "待评估"
                     }}
                   </span>
-                </div>
+            </div>
                 <p class="mt-1.5 text-xs font-medium text-[#61896f]">
                   {{ formatCreatedAt(ver.createdAt) }}
                 </p>
@@ -1248,8 +1253,8 @@ onBeforeUnmount(() => {
                       {{ getDiffMeta(ver.version)?.removedTasks ?? 0 }}</span
                     >
                   </template>
-                </div>
               </div>
+            </div>
               <div
                 :ref="(el) => setCardScrollEl(ver.version, el)"
                 class="draft-card-scroll ui-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-y-contain rounded-b-2xl px-4 py-4"
@@ -1291,7 +1296,7 @@ onBeforeUnmount(() => {
                         ? "收起版本说明"
                         : "展开全文"
                     }}
-                  </button>
+          </button>
                 </div>
                 <div
                   v-if="scheduleSkeletonForVersion(ver)"
@@ -1379,7 +1384,7 @@ onBeforeUnmount(() => {
                     </div>
                     <p class="text-[11px] font-semibold text-[#61896f]">
                       {{ ver.schedule.granularity === "day" ? "按天" : "按周" }}
-                      · 共 {{ ver.schedule.slots.length }} 个时间槽
+                      · 共 {{ ver.schedule.slots.length }} 个打卡段
                     </p>
                   </div>
                   <div
@@ -1391,7 +1396,7 @@ onBeforeUnmount(() => {
                       <div
                         class="grid grid-cols-[148px,minmax(260px,1fr),128px] items-center gap-3 border-b border-[#edf4f0] bg-[#f8fcfa] px-4 py-2 text-[11px] font-black tracking-[0.12em] text-[#4d6a5e]"
                       >
-                        <div>时间槽</div>
+                        <div>打卡段</div>
                         <div>内容</div>
                         <div class="text-right">操作</div>
                       </div>
@@ -1467,16 +1472,16 @@ onBeforeUnmount(() => {
                 </div>
               </div>
             </div>
-          </div>
+        </div>
 
           <div
             v-if="selectedSnapshot"
             class="flex min-h-0 flex-1 flex-col md:hidden"
           >
-            <article
+          <article
               class="draft-mobile-card flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border-2 border-[#0f8b4e] bg-white shadow-[0_12px_40px_-14px_rgba(15,139,78,0.35)] ring-2 ring-[#0f8b4e]/18"
-              :data-testid="`draft-card-v${selectedSnapshot.version}`"
-            >
+            :data-testid="`draft-card-v${selectedSnapshot.version}`"
+          >
               <div
                 class="shrink-0 border-b border-[#e8f0ec] bg-[linear-gradient(180deg,#fbfffd_0%,#f0faf4_100%)] px-4 py-3.5"
               >
@@ -1486,7 +1491,7 @@ onBeforeUnmount(() => {
                 <p class="mt-1 text-xs font-medium text-[#61896f]">
                   {{ formatCreatedAt(selectedSnapshot.createdAt) }}
                 </p>
-              </div>
+            </div>
               <div
                 :ref="(el) => setCardScrollEl(selectedSnapshot.version, el)"
                 class="draft-card-scroll ui-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-4 py-4"
@@ -1607,7 +1612,7 @@ onBeforeUnmount(() => {
                           ? "按天"
                           : "按周"
                       }}
-                      · 共 {{ selectedSnapshot.schedule.slots.length }} 个时间槽
+                      · 共 {{ selectedSnapshot.schedule.slots.length }} 个打卡段
                     </p>
                   </div>
                   <div
@@ -1619,7 +1624,7 @@ onBeforeUnmount(() => {
                       <div
                         class="grid grid-cols-[148px,minmax(260px,1fr),128px] items-center gap-3 border-b border-[#edf4f0] bg-[#f8fcfa] px-4 py-2 text-[11px] font-black tracking-[0.12em] text-[#4d6a5e]"
                       >
-                        <div>时间槽</div>
+                        <div>打卡段</div>
                         <div>内容</div>
                         <div class="text-right">操作</div>
                       </div>
@@ -1700,9 +1705,9 @@ onBeforeUnmount(() => {
                       </div>
                     </div>
                   </div>
-                </div>
               </div>
-            </article>
+            </div>
+          </article>
           </div>
         </div>
 
@@ -1738,7 +1743,7 @@ onBeforeUnmount(() => {
                 编辑打卡内容
               </h2>
               <p class="mt-1 text-xs font-semibold text-[#61896f]">
-                版本 v{{ scheduleEditVersion ?? "—" }} · 时间槽：{{
+                版本 v{{ scheduleEditVersion ?? "—" }} · 打卡段：{{
                   scheduleEditSlotKey
                 }}
               </p>
@@ -1797,7 +1802,7 @@ onBeforeUnmount(() => {
                 交换打卡内容
               </h2>
               <p class="mt-1 text-xs font-semibold text-[#61896f]">
-                版本 v{{ scheduleSwapVersion ?? "—" }} · 仅交换内容，不改变时间槽
+                版本 v{{ scheduleSwapVersion ?? "—" }} · 仅交换内容，不改变打卡段顺序
               </p>
             </div>
             <button
@@ -1811,7 +1816,7 @@ onBeforeUnmount(() => {
           </div>
           <div class="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
             <label class="block text-xs font-semibold text-[#4d6a5e]">
-              当前时间槽
+              当前打卡段
               <select
                 v-model="scheduleSwapSlotKeyA"
                 class="mt-1.5 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
@@ -1826,7 +1831,7 @@ onBeforeUnmount(() => {
               </select>
             </label>
             <label class="block text-xs font-semibold text-[#4d6a5e]">
-              目标时间槽
+              目标打卡段
               <select
                 v-model="scheduleSwapSlotKeyB"
                 class="mt-1.5 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"

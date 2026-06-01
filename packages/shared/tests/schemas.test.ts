@@ -22,4 +22,14 @@ describe('planCreateSchema', () => {
 
     expect(result.success).toBe(true);
   });
+
+  it('type 可为 travel', () => {
+    const result = planCreateSchema.safeParse({
+      goal: '云南环线',
+      deadline: '2026-12-31T00:00:00+08:00',
+      requirement: '行程与预算',
+      type: 'travel',
+    });
+    expect(result.success).toBe(true);
+  });
 });

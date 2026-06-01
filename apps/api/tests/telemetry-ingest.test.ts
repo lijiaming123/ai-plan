@@ -103,7 +103,26 @@ describeTelemetryDb('telemetry ingest', () => {
   });
 
   it('accepted events 应写入 TelemetryRawEvent', async () => {
-    const before = await prisma.telemetryRawEvent.count();
+    const tAuth = new Date('2026-04-22T12:00:00.000Z');
+    const tAuthEnd = new Date('2026-04-22T12:00:00.999Z');
+    const tDash = new Date('2026-04-22T12:00:01.000Z');
+    const tDashEnd = new Date('2026-04-22T12:00:01.999Z');
+
+    const before = await prisma.telemetryRawEvent.count({
+      where: {
+        OR: [
+          {
+            eventName: 'auth_login',
+            eventTime: { gte: tAuth, lte: tAuthEnd },
+          },
+          {
+            eventName: 'dashboard_view',
+            page: '/overview',
+            eventTime: { gte: tDash, lte: tDashEnd },
+          },
+        ],
+      },
+    });
     const res = await app.inject({
       method: 'POST',
       url: '/telemetry/events',
@@ -123,7 +142,21 @@ describeTelemetryDb('telemetry ingest', () => {
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.body) as { accepted: number };
     expect(body.accepted).toBe(2);
-    const after = await prisma.telemetryRawEvent.count();
+    const after = await prisma.telemetryRawEvent.count({
+      where: {
+        OR: [
+          {
+            eventName: 'auth_login',
+            eventTime: { gte: tAuth, lte: tAuthEnd },
+          },
+          {
+            eventName: 'dashboard_view',
+            page: '/overview',
+            eventTime: { gte: tDash, lte: tDashEnd },
+          },
+        ],
+      },
+    });
     expect(after - before).toBe(2);
 
     const last = await prisma.telemetryRawEvent.findFirst({
@@ -145,7 +178,9 @@ describeTelemetryDb('telemetry ingest', () => {
       payload: { email: 'demo@ai-plan.dev', password: 'Pass1234!' },
     });
     const { token } = JSON.parse(login.body) as { token: string };
-    const before = await prisma.telemetryRawEvent.count();
+    const before = await prisma.telemetryRawEvent.count({
+      where: { sessionId: 'session-tracksmith-1' },
+    });
 
     const res = await app.inject({
       method: 'POST',
@@ -169,7 +204,9 @@ describeTelemetryDb('telemetry ingest', () => {
     expect(body.accepted).toBe(1);
     expect(body.dropped).toBe(0);
 
-    const after = await prisma.telemetryRawEvent.count();
+    const after = await prisma.telemetryRawEvent.count({
+      where: { sessionId: 'session-tracksmith-1' },
+    });
     expect(after - before).toBe(1);
 
     const last = await prisma.telemetryRawEvent.findFirst({

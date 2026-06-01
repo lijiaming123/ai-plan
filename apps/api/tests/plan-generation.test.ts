@@ -289,12 +289,14 @@ describe('plan generation', () => {
       sanitizePlanPatch({
         deadline: '2026-10-02T00:00:00.000Z',
         note: '调整节奏',
+        nextStep: '下一阶段重点',
         goal: '不应保留',
         status: 'completed',
       })
     ).toEqual({
       deadline: '2026-10-02T00:00:00.000Z',
       note: '调整节奏',
+      nextStep: '下一阶段重点',
     });
   });
 

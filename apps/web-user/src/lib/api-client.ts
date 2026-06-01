@@ -8,10 +8,10 @@ export type ApiClientOptions = {
   fetchImpl?: typeof fetch;
 };
 
-export type LoginInput = {
-  email: string;
-  password: string;
-};
+/** 用户端：`phone` + `password`；管理端/演示：`email` + `password` */
+export type LoginInput =
+  | { phone: string; password: string; email?: undefined }
+  | { email: string; password: string; phone?: undefined };
 
 export type OtpPurpose = "login" | "register" | "reset";
 
@@ -26,16 +26,41 @@ export type OtpSendResponse =
     }
   | { message: string; cooldownSeconds?: number };
 
+export type AiQuotaSnapshot = {
+  used: number;
+  limit: number;
+  yearMonth: string;
+};
+
+export type PlanTierApi = "basic" | "pro";
+
+export type SubscriptionSourceApi = "none" | "trial" | "paid";
+
 export type OtpVerifyResponse = {
   token: string;
   phone: string;
   userId: string;
+  planTier?: PlanTierApi;
+  proExpiresAt?: string | null;
+  proTrialUsed?: boolean;
+  subscriptionSource?: SubscriptionSourceApi;
+  billingCycle?: "monthly";
+  priceCents?: number;
+  aiQuota?: AiQuotaSnapshot | null;
 };
 
 export type AuthMeResponse = {
   userId: string;
   email: string;
   role: "user" | "admin";
+  permissions?: string[];
+  planTier?: PlanTierApi;
+  proExpiresAt?: string | null;
+  proTrialUsed?: boolean;
+  subscriptionSource?: SubscriptionSourceApi;
+  billingCycle?: "monthly";
+  priceCents?: number;
+  aiQuota?: AiQuotaSnapshot | null;
 };
 
 export type PlanHeatmapDay = {
@@ -59,16 +84,46 @@ export type UserInsightsResponse = {
   weekRangeLabel: string;
 };
 
+/** GET /me/plan-assistant-context、PATCH /me/plan-assistant-profile */
+export type PlanAssistantProfileApi = {
+  tone: string | null;
+  language: string | null;
+  weeklyHoursCap: number | null;
+  preferMorning: boolean | null;
+  evidenceTolerance: string | null;
+  defaultScenario: string | null;
+  pinnedNotes: string[];
+};
+
+export type PlanAssistantContextResponse = {
+  profile: PlanAssistantProfileApi;
+  completionSummary: string;
+  quotaHint: AiQuotaSnapshot | null;
+};
+
+export type PlanAssistantProfilePatchInput = {
+  token: string;
+  tone?: "concise" | "detailed" | null;
+  language?: "zh" | null;
+  weeklyHoursCap?: number | null;
+  preferMorning?: boolean | null;
+  evidenceTolerance?: "low" | "medium" | null;
+  defaultScenario?: "study" | "work" | "travel" | "general" | null;
+  pinnedNotes?: string[];
+};
+
 export type CreatePlanInput = {
   goal: string;
   deadline: string;
   requirement: string;
-  type: "general" | "study" | "work";
+  type: "general" | "study" | "work" | "travel";
   token: string;
+  /** 续航：来源已定稿计划 id */
+  parentPlanId?: string;
   profile?: {
     planMode: "basic" | "pro";
     basicInfo: {
-      planScenario: "study" | "work" | "exam" | "fitness" | "other";
+      planScenario: "study" | "travel" | "other";
       planName: string;
       planContent: string;
       currentLevel: "none" | "newbie" | "junior" | "intermediate" | "advanced";
@@ -121,6 +176,7 @@ export type PlanAssistantResult = {
   suggestedContent: string;
   schedule?: {
     granularity: "day" | "week";
+    meta?: { startDate: string; endDate: string };
     slots: Array<{
       slotKey: string;
       generatedContent: string;
@@ -157,6 +213,7 @@ export type PlanAssistantApplyOptionInput = {
   baseSuggestedContent: string;
   baseSchedule: {
     granularity: "day" | "week";
+    meta?: { startDate: string; endDate: string };
     slots: Array<{ slotKey: string; content: string }>;
   };
   optionId?: "more_granular" | "save_time" | "more_steady" | "more_aggressive";
@@ -166,7 +223,7 @@ export type PlanAssistantApplyOptionInput = {
     startDate: string;
     endDate: string;
     cycle: "1w" | "1m" | "3m" | "6m" | "custom";
-    type: "general" | "study" | "work";
+    type: "general" | "study" | "work" | "travel";
   };
 };
 
@@ -174,6 +231,7 @@ export type PlanAssistantApplyOptionResult = {
   suggestedContent: string;
   schedule: {
     granularity: "day" | "week";
+    meta?: { startDate: string; endDate: string };
     slots: Array<{ slotKey: string; content: string }>;
   };
   meta?: { diffSummary?: string[] };
@@ -189,6 +247,9 @@ export type ParsePlanFileResult = {
   text: string;
 };
 
+/** 列表卡片多段进度环：每段对应 schedule 中一个 slot 的语义色 */
+export type CheckinListSegment = "done" | "missed" | "upcoming";
+
 /** GET /plans 列表项（仅已定稿 Plan；生成中数据在 PlanGenerationDraft 表，不经列表暴露） */
 export type PlanListRow = {
   id: string;
@@ -198,6 +259,16 @@ export type PlanListRow = {
   type: string;
   status: string;
   createdAt: string;
+  /** 计划开始日期（ISO）；用于计算“未开始” */
+  startDate?: string | null;
+  /** 是否所有打卡段都已提交（不受日期是否到达影响） */
+  completed?: boolean;
+  /** 执行中：今天应打卡但未提交（用于列表页红色提醒） */
+  todayMissing?: boolean;
+  /** 有打卡表时：各 slot 按顺序的完成态（用于多段环） */
+  checkinSegments?: CheckinListSegment[];
+  /** 与 checkinSegments 同步：已提交段数 / 总段数 ×100 */
+  checkinProgressPercent?: number;
 };
 
 export type DeletedPlanListRow = {
@@ -225,6 +296,14 @@ export type PlanRecord = {
   status?: string;
   /** 已定稿计划归档时间（ISO）；未归档为 null */
   archivedAt?: string | null;
+  /** 下一步迭代方向（可 PATCH 更新；定稿时也会从正文解析） */
+  nextStep?: string | null;
+  /** 续航父计划 id */
+  parentPlanId?: string | null;
+  /** 父计划摘要（同用户下存在时返回，便于展示「承接自」） */
+  parentPlan?: { id: string; goal: string } | null;
+  /** 由此计划「续航」创建的子计划列表（按创建时间升序；可多条） */
+  childPlans?: Array<{ id: string; goal: string; createdAt: string }>;
   draft?: {
     versions: Array<{
       version: number;
@@ -233,6 +312,7 @@ export type PlanRecord = {
       createdAt: string;
       schedule?: {
         granularity: "day" | "week";
+        meta?: { startDate: string; endDate: string };
         slots: Array<{
           slotKey: string;
           generatedContent: string;
@@ -262,7 +342,7 @@ export type PlanRecord = {
   } | null;
   /** 已定稿计划：各打卡槽的提交记录（GET /plans/:id） */
   scheduleSlotSubmissions?: Record<string, ScheduleSlotCheckinRecord[]>;
-  /** 各时间槽进行中的申诉（open）；无键表示该槽无待处理申诉 */
+  /** 各打卡段进行中的申诉（open）；无键表示该段无待处理申诉 */
   scheduleSlotOpenAppeals?: Record<
     string,
     { id: string; content: string; createdAt: string }
@@ -300,9 +380,30 @@ export type MarketTemplateBrief = {
   likeCount: number;
   applicationCount: number;
   publishedAt: string | null;
+  /** 作者侧管理与审核状态（created scope 可能返回；市场列表通常为 published） */
+  status?: string;
+  rejectedAt?: string | null;
+  rejectReasonCode?: string | null;
+  rejectNote?: string | null;
   /** 登录访问市场列表时由后端返回 */
   favorited?: boolean;
   likedByMe?: boolean;
+};
+
+export type MarketTemplatePreview = {
+  goal: string;
+  deadline: string;
+  requirementExcerpt: string;
+  type: string;
+  granularityMode: string | null;
+  startDateIso: string | null;
+  versionId: string;
+  version: number;
+  payloadHash: string;
+};
+
+export type MarketTemplateDetail = MarketTemplateBrief & {
+  preview: MarketTemplatePreview;
 };
 
 export type MarketListResult = {
@@ -366,6 +467,14 @@ export type CheckinPublicReview = {
   summary: string;
 };
 
+/** POST .../appeals：先 AI 预审，通过则自动建档 */
+export type SlotAppealResponse = {
+  appeal: { id: string; content: string; createdAt: string };
+  outcome: "ai_approved" | "human_review";
+  aiRationale: string;
+  submission?: ScheduleSlotCheckinRecord;
+};
+
 export type InAppNotificationItem = {
   id: string;
   userId: string;
@@ -391,21 +500,51 @@ export type ForgotPasswordResponse = {
   message: string;
 };
 
+export type CaptchaSessionResponse = {
+  captchaId: string;
+  imageSvg: string;
+};
+
 export type ApiClient = {
-  /**
-   * 管理端或自动化。用户端请用 `sendOtp` + `verifyOtp`。
-   * 生产环境默认不允许演示普通用户走邮箱密码（见服务端 `AUTH_DEMO_PASSWORD_USER`）。
-   */
-  login(input: LoginInput): Promise<{ token: string }>;
+  /** 用户端传 `phone`；管理端传 `email`。 */
+  login(input: LoginInput): Promise<{
+    token: string;
+    planTier?: PlanTierApi;
+    proExpiresAt?: string | null;
+    aiQuota?: AiQuotaSnapshot | null;
+  }>;
   forgotPassword(input: { email: string }): Promise<ForgotPasswordResponse>;
-  sendOtp(input: { phone: string; purpose?: OtpPurpose }): Promise<OtpSendResponse>;
-  verifyOtp(input: { phone: string; code: string; purpose?: OtpPurpose }): Promise<OtpVerifyResponse>;
+  getCaptcha(): Promise<CaptchaSessionResponse>;
+  sendOtp(input: {
+    phone: string;
+    purpose?: OtpPurpose;
+    captchaId: string;
+    captchaText: string;
+  }): Promise<OtpSendResponse>;
+  verifyOtp(input: {
+    phone: string;
+    code: string;
+    purpose?: OtpPurpose;
+    password?: string;
+    passwordConfirm?: string;
+  }): Promise<OtpVerifyResponse>;
   getAuthMe(input: { token: string }): Promise<AuthMeResponse>;
+  startProTrial(input: { token: string }): Promise<AuthMeResponse>;
   getPlanHeatmap(input: {
     token: string;
     year?: number;
   }): Promise<PlanHeatmapResponse>;
   getUserInsights(input: { token: string }): Promise<UserInsightsResponse>;
+  getPlanAssistantContext(input: {
+    token: string;
+  }): Promise<PlanAssistantContextResponse>;
+  patchPlanAssistantProfile(
+    input: PlanAssistantProfilePatchInput,
+  ): Promise<PlanAssistantContextResponse>;
+  postPlanAssistantPinNote(input: {
+    token: string;
+    text: string;
+  }): Promise<PlanAssistantContextResponse>;
   listNotifications(input: {
     token: string;
     limit?: number;
@@ -452,6 +591,12 @@ export type ApiClient = {
   ): Promise<PlanAssistantApplyOptionResult>;
   parsePlanFile(input: ParsePlanFileInput): Promise<ParsePlanFileResult>;
   getPlan(input: { id: string; token: string }): Promise<PlanRecord>;
+  /** 更新已定稿计划的有限字段（当前支持 nextStep） */
+  patchPlan(input: {
+    id: string;
+    token: string;
+    nextStep?: string;
+  }): Promise<{ nextStep: string | null }>;
   getPlanDraft(input: {
     id: string;
     token: string;
@@ -498,13 +643,24 @@ export type ApiClient = {
     token: string;
     content?: string;
     attachments?: Array<{ url: string; fileName?: string; kind?: string }>;
+    /** 客户端幂等键（服务端支持时可用于去重；不支持也不会影响兼容性） */
+    idempotencyKey?: string;
   }): Promise<{ submission: ScheduleSlotCheckinRecord }>;
+  /** DELETE .../checkins：撤销本打卡段的完成记录（通常仅删除最新一次/当前有效记录） */
+  deletePlanScheduleSlotCheckin(input: {
+    id: string;
+    slotKey: string;
+    token: string;
+  }): Promise<{ ok: true }>;
   postPlanScheduleSlotAppeal(input: {
     id: string;
     slotKey: string;
     token: string;
     content: string;
-  }): Promise<{ appeal: { id: string; content: string; createdAt: string } }>;
+    proofContent?: string;
+    proofAttachments?: Array<{ url: string; fileName?: string; kind?: string }>;
+    lastReview?: CheckinPublicReview;
+  }): Promise<SlotAppealResponse>;
   deletePlanScheduleSlotAppeal(input: {
     id: string;
     slotKey: string;
@@ -586,6 +742,15 @@ export type ApiClient = {
     id: string;
     token: string;
   }): Promise<{ favorited: boolean }>;
+  unpublishMarketTemplate(input: { id: string; token: string }): Promise<{ ok: true }>;
+  patchMarketTemplate(input: {
+    id: string;
+    token: string;
+    title?: string;
+    summary?: string;
+    category?: string;
+    tags?: string[];
+  }): Promise<{ ok: true }>;
   applyPresetTemplate(input: {
     id: string;
     token: string;
@@ -594,6 +759,9 @@ export type ApiClient = {
     id: string;
     token: string;
   }): Promise<{ planId: string }>;
+  getMarketTemplateDetail(input: { id: string; token?: string }): Promise<MarketTemplateDetail>;
+  /** GET /templates/presets/:id，返回结构与 MarketTemplateDetail 对齐 */
+  getPresetTemplateDetail(input: { id: string; token?: string }): Promise<MarketTemplateDetail>;
   /** multipart 单文件，字段名 `file`；返回可写入提交的公开 URL */
   uploadUserFile(input: {
     token: string;
@@ -695,12 +863,19 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
         body: JSON.stringify({ email: input.email }),
       });
     },
+    getCaptcha() {
+      return request<CaptchaSessionResponse>("/auth/captcha", {
+        method: "GET",
+      });
+    },
     sendOtp(input) {
       return request<OtpSendResponse>("/auth/otp/send", {
         method: "POST",
         body: JSON.stringify({
           phone: input.phone,
           purpose: input.purpose ?? "login",
+          captchaId: input.captchaId,
+          captchaText: input.captchaText,
         }),
       });
     },
@@ -711,12 +886,24 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
           phone: input.phone,
           code: input.code,
           purpose: input.purpose ?? "login",
+          ...(input.password != null ? { password: input.password } : {}),
+          ...(input.passwordConfirm != null
+            ? { passwordConfirm: input.passwordConfirm }
+            : {}),
         }),
       });
     },
     getAuthMe(input) {
       return request<AuthMeResponse>("/auth/me", {
         method: "GET",
+        headers: {
+          Authorization: `Bearer ${input.token}`,
+        },
+      });
+    },
+    startProTrial(input) {
+      return request<AuthMeResponse>("/auth/start-pro-trial", {
+        method: "POST",
         headers: {
           Authorization: `Bearer ${input.token}`,
         },
@@ -741,6 +928,36 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
           Authorization: `Bearer ${input.token}`,
         },
       });
+    },
+    getPlanAssistantContext(input) {
+      return request<PlanAssistantContextResponse>("/me/plan-assistant-context", {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${input.token}`,
+        },
+      });
+    },
+    patchPlanAssistantProfile(input) {
+      const { token, ...body } = input;
+      return request<PlanAssistantContextResponse>("/me/plan-assistant-profile", {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(body),
+      });
+    },
+    postPlanAssistantPinNote(input) {
+      return request<PlanAssistantContextResponse>(
+        "/me/plan-assistant-profile/pin-note",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${input.token}`,
+          },
+          body: JSON.stringify({ text: input.text }),
+        },
+      );
     },
     listNotifications(input) {
       const p = new URLSearchParams();
@@ -897,6 +1114,9 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
           requirement: input.requirement,
           type: input.type,
           profile: input.profile,
+          ...(input.parentPlanId?.trim()
+            ? { parentPlanId: input.parentPlanId.trim() }
+            : {}),
         }),
       });
     },
@@ -970,6 +1190,17 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
         },
       });
     },
+    patchPlan(input) {
+      const body: Record<string, string> = {};
+      if (input.nextStep !== undefined) body.nextStep = input.nextStep;
+      return request<{ nextStep: string | null }>(`/plans/${input.id}`, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${input.token}`,
+        },
+        body: JSON.stringify(body),
+      });
+    },
     getPlanDraft(input) {
       return request<PlanDraftSessionPayload>(`/plans/${input.id}/draft`, {
         method: "GET",
@@ -1027,8 +1258,42 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
       });
     },
     postPlanScheduleSlotCheckin(input) {
+      const hasPayload =
+        (input.content != null && String(input.content).trim().length > 0) ||
+        (Array.isArray(input.attachments) && input.attachments.length > 0);
       return request<{ submission: ScheduleSlotCheckinRecord }>(
         `/plans/${input.id}/schedule/slots/${encodeURIComponent(input.slotKey)}/checkins`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${input.token}`,
+            ...(input.idempotencyKey
+              ? { "Idempotency-Key": input.idempotencyKey }
+              : {}),
+          },
+          body: hasPayload
+            ? JSON.stringify({
+                content: input.content,
+                attachments: input.attachments,
+              })
+            : undefined,
+        },
+      );
+    },
+    deletePlanScheduleSlotCheckin(input) {
+      return request<{ ok: true }>(
+        `/plans/${input.id}/schedule/slots/${encodeURIComponent(input.slotKey)}/checkins`,
+        {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${input.token}`,
+          },
+        },
+      );
+    },
+    postPlanScheduleSlotAppeal(input) {
+      return request<SlotAppealResponse>(
+        `/plans/${input.id}/schedule/slots/${encodeURIComponent(input.slotKey)}/appeals`,
         {
           method: "POST",
           headers: {
@@ -1036,20 +1301,12 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
           },
           body: JSON.stringify({
             content: input.content,
-            attachments: input.attachments,
+            ...(input.proofContent != null ? { proofContent: input.proofContent } : {}),
+            ...(input.proofAttachments != null && input.proofAttachments.length
+              ? { proofAttachments: input.proofAttachments }
+              : {}),
+            ...(input.lastReview != null ? { lastReview: input.lastReview } : {}),
           }),
-        },
-      );
-    },
-    postPlanScheduleSlotAppeal(input) {
-      return request<{ appeal: { id: string; content: string; createdAt: string } }>(
-        `/plans/${input.id}/schedule/slots/${encodeURIComponent(input.slotKey)}/appeals`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${input.token}`,
-          },
-          body: JSON.stringify({ content: input.content }),
         },
       );
     },
@@ -1209,6 +1466,24 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
         },
       );
     },
+    unpublishMarketTemplate(input) {
+      return request<{ ok: true }>(`/templates/market/${input.id}/unpublish`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${input.token}` },
+      });
+    },
+    patchMarketTemplate(input) {
+      return request<{ ok: true }>(`/templates/market/${input.id}`, {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${input.token}` },
+        body: JSON.stringify({
+          title: input.title,
+          summary: input.summary,
+          category: input.category,
+          tags: input.tags,
+        }),
+      });
+    },
     applyPresetTemplate(input) {
       return request<{ planId: string }>(
         `/templates/presets/${input.id}/apply`,
@@ -1226,6 +1501,22 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
           headers: { Authorization: `Bearer ${input.token}` },
         },
       );
+    },
+    getMarketTemplateDetail(input) {
+      const headers: Record<string, string> = {};
+      if (input.token) headers.Authorization = `Bearer ${input.token}`;
+      return request<MarketTemplateDetail>(`/templates/market/${encodeURIComponent(input.id)}`, {
+        method: "GET",
+        headers,
+      });
+    },
+    getPresetTemplateDetail(input) {
+      const headers: Record<string, string> = {};
+      if (input.token) headers.Authorization = `Bearer ${input.token}`;
+      return request<MarketTemplateDetail>(`/templates/presets/${encodeURIComponent(input.id)}`, {
+        method: "GET",
+        headers,
+      });
     },
     async uploadUserFile(input) {
       const fd = new FormData();

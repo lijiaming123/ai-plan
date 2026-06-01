@@ -57,7 +57,7 @@ onBeforeUnmount(() => {
   <div v-if="visible" data-testid="error-toast" class="error-toast">
     <div class="error-toast-icon" aria-hidden="true">!</div>
     <div class="min-w-0 flex-1">
-      <p class="error-toast-title">{{ title ?? '请求失败' }}</p>
+      <p class="error-toast-title">{{ title ?? '操作没成功' }}</p>
       <p class="error-toast-message">{{ displayMessage }}</p>
     </div>
     <button type="button" class="error-toast-close" aria-label="关闭错误提示" @click="handleClose">×</button>

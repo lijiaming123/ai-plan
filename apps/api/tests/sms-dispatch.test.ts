@@ -54,4 +54,15 @@ describe("dispatchOtpSms", () => {
     });
     expect(r.ok).toBe(false);
   });
+
+  it("aliyun_sms_auth 不应走 webhook 分发", async () => {
+    vi.stubEnv("SMS_PROVIDER", "aliyun_sms_auth");
+    const r = await dispatchOtpSms({
+      phone: "13800138000",
+      code: "123456",
+      purpose: "login",
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.message).toContain("otp.service");
+  });
 });

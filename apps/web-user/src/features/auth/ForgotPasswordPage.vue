@@ -1,18 +1,32 @@
 <script setup lang="ts">
-import { onUnmounted, reactive, ref } from 'vue';
+import { onMounted, onUnmounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import AuthBackground from './AuthBackground.vue';
 import UiErrorToast from '../../components/UiErrorToast.vue';
+import { useAuthCaptcha } from '../../composables/useAuthCaptcha';
 import { getApiClient, HttpApiError } from '../../lib/api-client';
 import { trackEvent } from '../../lib/telemetry';
-import { setAuthTier, setAuthToken, setUserPhone } from '../../stores/auth';
+import { setAuthBillingFromMe, setAuthToken, setUserPhone } from '../../stores/auth';
 
 const router = useRouter();
+
+const {
+  captchaId: otpCaptchaId,
+  imageDataUrl: otpCaptchaImageUrl,
+  loading: otpCaptchaLoading,
+  refresh: refreshOtpCaptcha,
+} = useAuthCaptcha();
 
 const form = reactive({
   phone: '',
   code: '',
+  password: '',
+  passwordConfirm: '',
+  captchaText: '',
 });
+
+const showPassword = ref(false);
+const showPasswordConfirm = ref(false);
 
 const loadingSend = ref(false);
 const loadingVerify = ref(false);
@@ -43,6 +57,21 @@ function validateCode(): boolean {
   return true;
 }
 
+function validatePasswords(): boolean {
+  const p = form.password;
+  const c = form.passwordConfirm;
+  if (p.length < 8) {
+    fieldError.value = '新密码至少 8 位';
+    return false;
+  }
+  if (p !== c) {
+    fieldError.value = '两次输入的密码不一致';
+    return false;
+  }
+  fieldError.value = '';
+  return true;
+}
+
 function startCooldown(seconds: number) {
   cooldownLeft.value = Math.max(0, Math.floor(seconds));
   if (cooldownTimer != null) window.clearInterval(cooldownTimer);
@@ -60,17 +89,29 @@ async function sendCode() {
   sendHint.value = '';
   if (!validatePhone()) return;
   if (cooldownLeft.value > 0) return;
+  if (!otpCaptchaId.value) {
+    await refreshOtpCaptcha();
+  }
+  const captchaText = form.captchaText.trim();
+  if (!captchaText) {
+    errorToastMessage.value = '请输入图形验证码';
+    return;
+  }
   loadingSend.value = true;
   try {
     const r = await getApiClient().sendOtp({
       phone: form.phone.trim(),
       purpose: 'reset',
+      captchaId: otpCaptchaId.value,
+      captchaText,
     });
     if (typeof r === 'object' && r && 'ok' in r && r.ok && 'cooldownSeconds' in r) {
       startCooldown((r as { cooldownSeconds: number }).cooldownSeconds);
     } else {
       startCooldown(60);
     }
+    form.captchaText = '';
+    await refreshOtpCaptcha();
     sendHint.value = '验证码已发送。演示环境请查看服务端日志；生产环境将收到短信。';
     trackEvent('auth_otp_send', { properties: { purpose: 'reset' } });
   } catch (e) {
@@ -79,6 +120,8 @@ async function sendCode() {
     } else {
       errorToastMessage.value = e instanceof Error ? e.message : '发送失败，请稍后重试';
     }
+    form.captchaText = '';
+    await refreshOtpCaptcha();
   } finally {
     loadingSend.value = false;
   }
@@ -89,17 +132,20 @@ async function verifyAndEnter() {
   sendHint.value = '';
   if (!validatePhone()) return;
   if (!validateCode()) return;
+  if (!validatePasswords()) return;
   loadingVerify.value = true;
   try {
     const r = await getApiClient().verifyOtp({
       phone: form.phone.trim(),
       code: form.code.trim(),
       purpose: 'reset',
+      password: form.password,
+      passwordConfirm: form.passwordConfirm,
     });
     setAuthToken(r.token);
     setUserPhone(r.phone);
-    setAuthTier('basic');
-    trackEvent('auth_login', { properties: { method: 'otp', purpose: 'reset' } });
+    setAuthBillingFromMe(r);
+    trackEvent('auth_login', { properties: { method: 'otp_reset_password', purpose: 'reset' } });
     await router.push('/plans');
   } catch (e) {
     errorToastMessage.value = e instanceof Error ? e.message : '验证失败，请稍后重试';
@@ -107,6 +153,10 @@ async function verifyAndEnter() {
     loadingVerify.value = false;
   }
 }
+
+onMounted(() => {
+  void refreshOtpCaptcha();
+});
 
 onUnmounted(() => {
   if (cooldownTimer != null) window.clearInterval(cooldownTimer);
@@ -143,9 +193,9 @@ onUnmounted(() => {
         <div class="w-full max-w-lg px-4 py-16">
           <div class="flex flex-col gap-8">
             <div class="p-4 text-center">
-              <p class="text-4xl font-black leading-tight tracking-[-0.033em]">通过手机验证码恢复登录</p>
+              <p class="text-4xl font-black leading-tight tracking-[-0.033em]">重置登录密码</p>
               <p class="mt-3 text-base font-normal leading-normal text-[#61896f]">
-                向您的手机号发送验证码，验证成功后即可重新进入应用。若未注册，验证后将自动创建账号。
+                验证手机号后设置新密码，完成后将自动登录。仅支持已注册手机号。
               </p>
             </div>
 
@@ -172,6 +222,96 @@ onUnmounted(() => {
                   :disabled="loadingSend || loadingVerify"
                 />
               </label>
+
+              <label class="flex flex-col px-4 py-3">
+                <span class="pb-2 text-base font-medium">新密码</span>
+                <div
+                  class="flex w-full min-w-0 items-stretch rounded-lg border border-[#dbe6df] bg-white outline-none transition-[box-shadow,border-color] focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/50 focus-within:ring-offset-0"
+                >
+                  <input
+                    v-model="form.password"
+                    :type="showPassword ? 'text' : 'password'"
+                    autocomplete="new-password"
+                    class="h-14 min-w-0 flex-1 rounded-l-lg border-0 border-r border-[#dbe6df] bg-transparent p-[15px] pr-2 text-base outline-none ring-0 focus:border-transparent focus:ring-0 focus:outline-none"
+                    placeholder="至少 8 位"
+                    data-testid="forgot-password-password"
+                    :disabled="loadingVerify"
+                  />
+                  <button
+                    type="button"
+                    class="flex shrink-0 items-center justify-center rounded-r-lg border-0 bg-white px-3 text-[#61896f] !outline-none hover:bg-[#f6f8f6]"
+                    :aria-pressed="showPassword"
+                    :aria-label="showPassword ? '隐藏密码' : '显示密码'"
+                    @click="showPassword = !showPassword"
+                  >
+                    <span class="material-symbols-outlined text-xl" aria-hidden="true">{{ showPassword ? 'visibility_off' : 'visibility' }}</span>
+                  </button>
+                </div>
+              </label>
+
+              <label class="flex flex-col px-4 py-3">
+                <span class="pb-2 text-base font-medium">确认新密码</span>
+                <div
+                  class="flex w-full min-w-0 items-stretch rounded-lg border border-[#dbe6df] bg-white outline-none transition-[box-shadow,border-color] focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/50 focus-within:ring-offset-0"
+                >
+                  <input
+                    v-model="form.passwordConfirm"
+                    :type="showPasswordConfirm ? 'text' : 'password'"
+                    autocomplete="new-password"
+                    class="h-14 min-w-0 flex-1 rounded-l-lg border-0 border-r border-[#dbe6df] bg-transparent p-[15px] pr-2 text-base outline-none ring-0 focus:border-transparent focus:ring-0 focus:outline-none"
+                    placeholder="再次输入新密码"
+                    data-testid="forgot-password-password-confirm"
+                    :disabled="loadingVerify"
+                  />
+                  <button
+                    type="button"
+                    class="flex shrink-0 items-center justify-center rounded-r-lg border-0 bg-white px-3 text-[#61896f] !outline-none hover:bg-[#f6f8f6]"
+                    :aria-pressed="showPasswordConfirm"
+                    :aria-label="showPasswordConfirm ? '隐藏确认密码' : '显示确认密码'"
+                    @click="showPasswordConfirm = !showPasswordConfirm"
+                  >
+                    <span class="material-symbols-outlined text-xl" aria-hidden="true">{{ showPasswordConfirm ? 'visibility_off' : 'visibility' }}</span>
+                  </button>
+                </div>
+              </label>
+
+              <div class="mx-4 flex flex-col gap-2 rounded-lg border border-[#dbe6df] bg-[#fafcfb] p-3">
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                  <span class="text-sm font-medium text-[#111813]">图形验证码</span>
+                  <button
+                    type="button"
+                    class="text-sm font-semibold text-primary/90 underline decoration-primary/30 underline-offset-2 transition hover:text-primary hover:decoration-primary"
+                    data-testid="forgot-captcha-refresh"
+                    :disabled="otpCaptchaLoading"
+                    @click="refreshOtpCaptcha()"
+                  >
+                    {{ otpCaptchaLoading ? '加载中…' : '换一张' }}
+                  </button>
+                </div>
+                <div class="flex flex-wrap items-center gap-3">
+                  <img
+                    v-if="otpCaptchaImageUrl"
+                    :src="otpCaptchaImageUrl"
+                    alt="图形验证码"
+                    width="132"
+                    height="44"
+                    class="h-11 rounded border border-[#dbe6df] bg-white object-contain"
+                  />
+                  <input
+                    v-model="form.captchaText"
+                    type="text"
+                    maxlength="12"
+                    autocomplete="off"
+                    autocapitalize="characters"
+                    spellcheck="false"
+                    aria-label="图形验证码"
+                    data-testid="forgot-password-captcha-text"
+                    class="h-12 w-[8.5rem] rounded-lg border border-[#dbe6df] bg-white px-3 text-base uppercase outline-none focus:border-primary focus:ring-2 focus:ring-primary/50 focus:ring-offset-0"
+                    placeholder="图中字符"
+                    :disabled="loadingVerify"
+                  />
+                </div>
+              </div>
 
               <label class="flex flex-col px-4 py-3">
                 <span class="pb-2 text-base font-medium">验证码</span>
@@ -213,7 +353,7 @@ onUnmounted(() => {
                   data-testid="forgot-password-submit"
                   :disabled="loadingVerify"
                 >
-                  {{ loadingVerify ? '验证中…' : '验证并进入应用' }}
+                  {{ loadingVerify ? '提交中…' : '重置密码并登录' }}
                 </button>
               </div>
             </form>

@@ -21,34 +21,48 @@ function isLikelyBackendUserMessage(detail: string): boolean {
   const t = detail.trim();
   if (!t || t.length > 240) return false;
   if (/Invalid\s+['']?[\w.]+['']?\s+invocation|\.ts:\d+|\\\\|\bprisma\./i.test(t)) return false;
-  return /[\u4e00-\u9fff]/.test(t);
+  // 中文短提示：直接透传
+  if (/[\u4e00-\u9fff]/.test(t)) return true;
+
+  // 英文短提示：仅对白名单类型透传（避免把无意义的 "bad"/"x" 直接展示给用户）
+  // 常见来源：Zod 校验错误、payload 字段检查等。
+  if (
+    /^(Expected\b|Invalid\b|must\b|should\b|required\b|cannot\b|can not\b)/i.test(t) ||
+    // 更具体的字段路径/结构化提示才透传；避免 "bad payload" 这类无信息文案
+    /\b(planId|content|deadline|goal|requirement|tags|category)\b/i.test(t) ||
+    /\b(payload\.[\w.]+)\b/i.test(t)
+  ) {
+    return true;
+  }
+
+  return false;
 }
 
 export function formatHttpApiUserMessage(status: number, detail: string): string {
   const d = (detail ?? '').trim();
   if (looksLikeDatabaseConnectivityIssue(d)) {
-    return '无法连接数据库服务，请确认 PostgreSQL 已启动或本机的数据库容器（如 Docker）已运行。';
+    return '服务暂时不可用，请稍后再试；如果反复失败，可以刷新页面后重试。';
   }
   if (isLikelyBackendUserMessage(d)) {
     if (status >= 400 && status < 500) return d;
-    if (status >= 500) return `服务异常：${d}`;
+    if (status >= 500) return `服务遇到点问题：${d}`;
     return d;
   }
   switch (status) {
     case 400:
-      return '请求参数有误，请检查后重试。';
+      return '提交的信息有点问题，请检查后再试。';
     case 401:
-      return '登录已失效，请重新登录。';
+      return '登录状态已过期，请重新登录。';
     case 403:
-      return '没有权限执行此操作。';
+      return '暂时无法执行这个操作。';
     case 404:
       return '请求的资源不存在。';
     case 409:
-      return '资源状态已变更或发生冲突，请刷新后重试。';
+      return '内容已更新或发生冲突，请刷新后重试。';
     case 413:
       return '上传的文件过大，请更换较小的文件后重试。';
     case 422:
-      return '提交的数据无法通过校验，请检查后重试。';
+      return '有些内容还不符合要求，请检查后再试。';
     case 429:
       return '请求过于频繁，请稍后再试。';
     case 502:

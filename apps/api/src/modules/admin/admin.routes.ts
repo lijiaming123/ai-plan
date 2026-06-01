@@ -7,6 +7,8 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '../../lib/prisma';
 import { aggregateTelemetryForUtcDay } from '../telemetry/telemetry-daily-agg.service';
+import { writeAuditLog } from './audit-log.service';
+import { patchAppUserPlanTier, renewAppUserProMonth } from './admin-user-plan-tier.service';
 import { getAdminUserDetail, listAdminUsers } from './admin-users.service';
 
 export async function registerAdminRoutes(fastify: FastifyInstance) {
@@ -77,6 +79,92 @@ export async function registerAdminRoutes(fastify: FastifyInstance) {
     }
     return detail;
   });
+
+  /** 人工开通/调整 App 用户会员档位（User 表）；支付 Webhook 后续可复用同一 service */
+  fastify.patch(
+    '/admin/users/:userId/plan-tier',
+    { preHandler: fastify.requirePermission('users:write') },
+    async (request, reply) => {
+      const { userId } = request.params as { userId: string };
+      const actor = await request.jwtVerify<{ sub: string; email: string }>();
+      const body = request.body as { planTier?: unknown; proExpiresAt?: unknown };
+      const tierRaw = String(body?.planTier ?? '').trim().toLowerCase();
+      if (tierRaw !== 'basic' && tierRaw !== 'pro') {
+        return reply.code(400).send({ message: 'planTier must be basic or pro' });
+      }
+      let proExpiresAt: Date | null = null;
+      if (tierRaw === 'pro') {
+        const expRaw = body?.proExpiresAt;
+        if (expRaw === null || expRaw === undefined || expRaw === '') {
+          proExpiresAt = null;
+        } else if (typeof expRaw === 'string') {
+          const d = new Date(expRaw);
+          if (!Number.isFinite(d.getTime())) {
+            return reply.code(400).send({ message: 'proExpiresAt must be ISO-8601 or empty' });
+          }
+          proExpiresAt = d;
+        } else {
+          return reply.code(400).send({ message: 'proExpiresAt invalid' });
+        }
+      }
+      const res = await patchAppUserPlanTier({
+        userId,
+        planTier: tierRaw,
+        proExpiresAt: tierRaw === 'basic' ? null : proExpiresAt,
+      });
+      if (!res.ok) {
+        return reply.code(404).send({ message: res.message });
+      }
+      await writeAuditLog({
+        actorId: actor.sub,
+        actorEmail: actor.email,
+        action: 'user.plan_tier',
+        targetType: 'User',
+        targetId: userId,
+        summary: `planTier=${tierRaw}`,
+        meta: {
+          planTier: tierRaw,
+          proExpiresAt: tierRaw === 'pro' && proExpiresAt ? proExpiresAt.toISOString() : null,
+        },
+        request,
+      });
+      return { ok: true };
+    },
+  );
+
+  /** 运营一键续期专业版 1 个自然月（¥19/月人工履约） */
+  fastify.post(
+    '/admin/users/:userId/renew-pro-month',
+    { preHandler: fastify.requirePermission('users:write') },
+    async (request, reply) => {
+      const { userId } = request.params as { userId: string };
+      const actor = await request.jwtVerify<{ sub: string; email: string }>();
+      const res = await renewAppUserProMonth(userId);
+      if (!res.ok) {
+        return reply.code(404).send({ message: res.message });
+      }
+      await writeAuditLog({
+        actorId: actor.sub,
+        actorEmail: actor.email,
+        action: 'user.plan_tier',
+        targetType: 'User',
+        targetId: userId,
+        summary: 'renew_pro_month',
+        meta: {
+          planTier: res.planTier,
+          proExpiresAt: res.proExpiresAt.toISOString(),
+          proSubscriptionSource: res.proSubscriptionSource,
+        },
+        request,
+      });
+      return {
+        ok: true,
+        planTier: res.planTier,
+        proExpiresAt: res.proExpiresAt.toISOString(),
+        proSubscriptionSource: res.proSubscriptionSource,
+      };
+    },
+  );
 
   /** 按 UTC 日重算 Telemetry 日聚合（幂等） */
   fastify.post(

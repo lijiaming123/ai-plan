@@ -74,9 +74,15 @@ export async function runProPlanAgent(_params: {
   };
 }
 
+const MAX_MEMORY_PREFIX_CHARS = 2000;
+
 function normalizeInput(input: ProAgentInput): ProAgentInput {
   const trim = (s: string) =>
     typeof s === "string" ? s.replace(/\u0000/g, "").trim() : "";
+  const mem =
+    typeof input.memoryPrefix === "string"
+      ? input.memoryPrefix.replace(/\u0000/g, "").trim().slice(0, MAX_MEMORY_PREFIX_CHARS)
+      : "";
   return {
     ...input,
     goal: trim(input.goal),
@@ -88,6 +94,7 @@ function normalizeInput(input: ProAgentInput): ProAgentInput {
     endDate: trim(input.endDate),
     cycle: trim(input.cycle),
     message: input.message ? trim(input.message) : undefined,
+    memoryPrefix: mem || undefined,
   };
 }
 
@@ -162,6 +169,9 @@ function buildDraftMessages(
       ? input.requirement
       : `请根据以下目标生成计划：${input.goal}`;
   const userContent = [
+    ...(input.memoryPrefix?.trim()
+      ? [`${input.memoryPrefix.trim()}\n`, ""]
+      : []),
     `目标：${input.goal}`,
     `起始：${input.startDate}，预计完成：${input.endDate}，周期代码：${input.cycle}`,
     "",
@@ -600,6 +610,7 @@ function buildCacheKey(phase: string, input: ProAgentInput): string {
     mode: input.mode,
     goal: input.goal,
     requirement: input.requirement,
+    memoryPrefix: input.memoryPrefix ?? "",
     startDate: input.startDate,
     endDate: input.endDate,
     cycle: input.cycle,

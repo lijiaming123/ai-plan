@@ -24,9 +24,14 @@ const activeNav = computed(() =>
 
 const showPlanSearch = computed(() => route.name === "plan-overview");
 
-const tierLabel = computed(() =>
-  authState.tier === "pro" ? "专业版" : "基础版",
-);
+const tierLabel = computed(() => {
+  if (authState.tier === "pro") {
+    return authState.subscriptionSource === "trial"
+      ? "专业版（试用）"
+      : "专业版";
+  }
+  return "基础版";
+});
 
 const displayPhone = computed(() => authState.userPhone || "未登录手机号");
 
@@ -103,6 +108,21 @@ const primaryNavItems = [
     testid: "nav-settings",
   },
 ] as const;
+
+/** 部署方可将 VITE_FEATURE_ARCHIVE / VITE_FEATURE_INSIGHTS 设为 false 隐藏侧栏入口（默认可用）。 */
+const visiblePrimaryNavItems = computed(() =>
+  primaryNavItems.filter((item) => {
+    if (item.nav === "archive") {
+      const v = import.meta.env.VITE_FEATURE_ARCHIVE as string | undefined;
+      return v !== "false" && v !== "0";
+    }
+    if (item.nav === "insights") {
+      const v = import.meta.env.VITE_FEATURE_INSIGHTS as string | undefined;
+      return v !== "false" && v !== "0";
+    }
+    return true;
+  }),
+);
 
 function goUpgrade() {
   void router.push({ path: "/settings", query: { focus: "pro" } });
@@ -213,7 +233,7 @@ if (typeof window !== "undefined") {
         </div>
         <nav class="ui-scrollbar flex flex-col gap-1 overflow-y-auto pr-0.5">
           <ElTooltip
-            v-for="item in primaryNavItems"
+            v-for="item in visiblePrimaryNavItems"
             :key="item.nav"
             :disabled="!shellSidebarCollapsed"
             :content="item.label"

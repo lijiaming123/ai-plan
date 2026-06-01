@@ -15,6 +15,10 @@ import {
 import { prisma } from '../../lib/prisma';
 import { createGeneratedPlan } from '../plans/plan.service';
 import { parseTemplatePayload, templatePayloadToCreateInput } from './template-payload';
+import { hitSimpleRateLimit } from '../../lib/simple-rate-limit';
+
+/** 模板详情接口中「计划需求」正文长度上限，避免极端大包拖垮响应 */
+const TEMPLATE_DETAIL_REQUIREMENT_MAX_CHARS = 120_000;
 
 const AUTHOR_LABELS: Record<string, string> = {
   user_demo: '演示用户',
@@ -23,6 +27,76 @@ const AUTHOR_LABELS: Record<string, string> = {
 
 function authorLabel(authorId: string) {
   return AUTHOR_LABELS[authorId] ?? '用户';
+}
+
+function stableStringify(value: unknown): string {
+  const seen = new WeakSet<object>();
+  const normalize = (v: unknown): unknown => {
+    if (v === null) return null;
+    const t = typeof v;
+    if (t === 'string' || t === 'number' || t === 'boolean') return v;
+    if (Array.isArray(v)) return v.map(normalize);
+    if (t === 'object') {
+      const obj = v as Record<string, unknown>;
+      if (seen.has(obj)) return '[Circular]';
+      seen.add(obj);
+      const keys = Object.keys(obj).sort();
+      const out: Record<string, unknown> = {};
+      for (const k of keys) out[k] = normalize(obj[k]);
+      return out;
+    }
+    return String(v);
+  };
+  return JSON.stringify(normalize(value));
+}
+
+function payloadHash(payload: unknown): string {
+  // 轻量哈希：用于去重与审计；不要求密码学强度
+  let h = 2166136261;
+  const s = stableStringify(payload);
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return `fnv1a32:${(h >>> 0).toString(16).padStart(8, '0')}`;
+}
+
+async function ensureCurrentPublishedVersion(templateId: string) {
+  return prisma.$transaction(async (tx) => {
+    const tpl = await tx.marketTemplate.findUnique({
+      where: { id: templateId },
+      select: {
+        id: true,
+        payload: true,
+        currentPublishedVersionId: true,
+      },
+    });
+    if (!tpl) return null;
+
+    if (tpl.currentPublishedVersionId) {
+      const existing = await tx.marketTemplateVersion.findUnique({
+        where: { id: tpl.currentPublishedVersionId },
+      });
+      if (existing) return existing;
+    }
+
+    // 历史 published 模板可能没有版本：懒补一个版本并回填 currentPublishedVersionId
+    const count = await tx.marketTemplateVersion.count({ where: { templateId } });
+    const created = await tx.marketTemplateVersion.create({
+      data: {
+        templateId,
+        version: count + 1,
+        payload: tpl.payload,
+        payloadHash: payloadHash(tpl.payload),
+      },
+    });
+    await tx.marketTemplate.update({
+      where: { id: templateId },
+      data: { currentPublishedVersionId: created.id },
+      select: { id: true },
+    });
+    return created;
+  });
 }
 
 type MarketTextFilter = {
@@ -65,6 +139,10 @@ const marketSelect = {
   likeCount: true,
   applicationCount: true,
   publishedAt: true,
+  status: true,
+  rejectedAt: true,
+  rejectReasonCode: true,
+  rejectNote: true,
 } as const;
 
 async function enrichWithViewerFlags(
@@ -102,6 +180,10 @@ function mapMarketRows(
     likeCount: number;
     applicationCount: number;
     publishedAt: Date | null;
+    status: string;
+    rejectedAt?: Date | null;
+    rejectReasonCode?: string | null;
+    rejectNote?: string | null;
   }>,
   flags: { favorited: Set<string>; liked: Set<string> },
   withFlags: boolean,
@@ -117,6 +199,10 @@ function mapMarketRows(
     likeCount: row.likeCount,
     applicationCount: row.applicationCount,
     publishedAt: row.publishedAt?.toISOString() ?? null,
+    status: row.status,
+    rejectedAt: row.rejectedAt ? row.rejectedAt.toISOString() : null,
+    rejectReasonCode: row.rejectReasonCode ?? null,
+    rejectNote: row.rejectNote ?? null,
     ...(withFlags
       ? {
           favorited: flags.favorited.has(row.id),
@@ -181,8 +267,24 @@ export async function listMyMarketTemplates(userId: string, query: Record<string
         ? { favorites: { some: { userId } } }
         : { likes: { some: { userId } } };
 
+  const baseWhere =
+    scope === 'created'
+      ? {
+          ...(q
+            ? {
+                OR: [
+                  { title: { contains: q, mode: 'insensitive' } },
+                  { summary: { contains: q, mode: 'insensitive' } },
+                ],
+              }
+            : {}),
+          ...(category ? { category } : {}),
+          ...(tag ? { tags: { has: tag } } : {}),
+        }
+      : publishedMarketBase({ q, category, tag });
+
   const where: Prisma.MarketTemplateWhereInput = {
-    AND: [publishedMarketBase({ q, category, tag }), scopeWhere],
+    AND: [baseWhere, scopeWhere],
   };
 
   const orderBy: Prisma.MarketTemplateOrderByWithRelationInput[] =
@@ -227,10 +329,34 @@ export async function getMarketTemplatePublic(id: string) {
       likeCount: true,
       applicationCount: true,
       publishedAt: true,
-      payload: true,
+      currentPublishedVersionId: true,
     },
   });
   if (!row) return null;
+  const version = await ensureCurrentPublishedVersion(row.id);
+  if (!version) return null;
+  const parsed = parseTemplatePayload(version.payload);
+  if (!parsed.ok) {
+    // 历史数据异常：公开详情按 500 处理（调用方可转为 message）
+    throw new Error(parsed.message);
+  }
+  /** 详情页展示完整需求正文；列表仍仅用 summary 等字段 */
+  const requirement = parsed.data.requirement;
+  const requirementExcerpt =
+    requirement.length > TEMPLATE_DETAIL_REQUIREMENT_MAX_CHARS
+      ? requirement.slice(0, TEMPLATE_DETAIL_REQUIREMENT_MAX_CHARS)
+      : requirement;
+  const preview = {
+    goal: parsed.data.goal,
+    deadline: parsed.data.deadline,
+    requirementExcerpt,
+    type: parsed.data.type,
+    granularityMode: parsed.data.granularityMode ?? null,
+    startDateIso: parsed.data.startDateIso ?? null,
+    versionId: version.id,
+    version: version.version,
+    payloadHash: version.payloadHash,
+  };
   return {
     id: row.id,
     authorId: row.authorId,
@@ -242,6 +368,7 @@ export async function getMarketTemplatePublic(id: string) {
     likeCount: row.likeCount,
     applicationCount: row.applicationCount,
     publishedAt: row.publishedAt?.toISOString() ?? null,
+    preview,
   };
 }
 
@@ -259,10 +386,41 @@ function planToPayload(plan: {
   };
 }
 
+/**
+ * v1 风控：短时间内连续发布过多模板则转入人工审核。
+ *
+ * 规则（固定阈值，后续可抽配置）：
+ * - 统计最近 60 秒内同一 authorId 发布的模板数量（含已发布/待审等）
+ * - 若已达到 2，则本次创建为 pending_review（第 3 次触发）
+ */
+async function shouldSendToReview(authorId: string, now: Date): Promise<boolean> {
+  const since = new Date(now.getTime() - 60_000);
+  const count = await prisma.marketTemplate.count({
+    where: {
+      authorId,
+      createdAt: { gte: since },
+    },
+  });
+  return count >= 2;
+}
+
 export async function publishMarketTemplate(rawBody: unknown, userId: string) {
-  const parsed = publishMarketTemplateSchema.safeParse(rawBody);
+  // 兼容：某些代理/客户端可能把 JSON body 作为 string 传入
+  //（例如缺失/被覆盖 Content-Type 时 Fastify 可能不做 JSON 解析）
+  let normalizedBody: unknown = rawBody;
+  if (typeof rawBody === 'string') {
+    try {
+      normalizedBody = JSON.parse(rawBody);
+    } catch {
+      normalizedBody = rawBody;
+    }
+  }
+
+  const parsed = publishMarketTemplateSchema.safeParse(normalizedBody);
   if (!parsed.success) {
-    return { ok: false as const, code: 400 as const, message: parsed.error.message };
+    const first = parsed.error.issues?.[0];
+    const msg = first?.message ? `请求参数有误：${first.message}` : '请求参数有误';
+    return { ok: false as const, code: 400 as const, message: msg };
   }
   const body = parsed.data;
 
@@ -291,7 +449,19 @@ export async function publishMarketTemplate(rawBody: unknown, userId: string) {
     return { ok: false as const, code: 400 as const, message: payloadCheck.message };
   }
 
+  // Story 018 (v1): 发布基础频控（每用户每分钟最多 5 次）
+  const publishLimit = hitSimpleRateLimit({
+    keyParts: ['templates:publish', userId],
+    windowMs: 60_000,
+    max: 5,
+  });
+  if (!publishLimit.allowed) {
+    return { ok: false as const, code: 429 as const, message: '请求过于频繁，请稍后再试' };
+  }
+
   const now = new Date();
+  const pendingReview = await shouldSendToReview(userId, now);
+  const status = pendingReview ? 'pending_review' : 'published';
   const created = await prisma.marketTemplate.create({
     data: {
       authorId: userId,
@@ -301,8 +471,8 @@ export async function publishMarketTemplate(rawBody: unknown, userId: string) {
       category: body.category,
       tags: body.tags,
       payload: payload as InputJsonValue,
-      status: 'published',
-      publishedAt: now,
+      status,
+      publishedAt: status === 'published' ? now : null,
     },
     select: {
       id: true,
@@ -429,15 +599,30 @@ export async function applyMarketTemplate(templateId: string, userId: string) {
   if (!row) {
     return { ok: false as const, code: 404 as const, message: 'template not found' };
   }
-  const parsed = parseTemplatePayload(row.payload);
+  const version = await ensureCurrentPublishedVersion(templateId);
+  if (!version) {
+    return { ok: false as const, code: 404 as const, message: 'template not found' };
+  }
+  const parsed = parseTemplatePayload(version.payload);
   if (!parsed.ok) {
     return { ok: false as const, code: 500 as const, message: parsed.message };
   }
 
   const plan = await createGeneratedPlan(templatePayloadToCreateInput(parsed.data, userId));
-  await prisma.marketTemplate.update({
-    where: { id: templateId },
-    data: { applicationCount: { increment: 1 } },
+  await prisma.$transaction(async (tx) => {
+    await tx.marketTemplate.update({
+      where: { id: templateId },
+      data: { applicationCount: { increment: 1 } },
+    });
+    await tx.templateApplication.create({
+      data: {
+        userId,
+        templateId,
+        versionId: version.id,
+        planId: plan.id,
+      },
+      select: { id: true },
+    });
   });
 
   return { ok: true as const, planId: plan.id };

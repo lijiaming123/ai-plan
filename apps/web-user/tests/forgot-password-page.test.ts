@@ -9,12 +9,19 @@ import { createApiClient, setApiClient } from "../src/lib/api-client";
 describe("ForgotPasswordPage", () => {
   const sendOtp = vi.fn();
   const verifyOtp = vi.fn();
+  const getCaptcha = vi.fn();
 
   beforeEach(() => {
     sendOtp.mockReset();
     verifyOtp.mockReset();
+    getCaptcha.mockReset();
+    getCaptcha.mockResolvedValue({
+      captchaId: "test-captcha-id",
+      imageSvg: '<svg xmlns="http://www.w3.org/2000/svg" width="2" height="2"/>',
+    });
     setApiClient({
       ...createApiClient(),
+      getCaptcha,
       sendOtp,
       verifyOtp,
     });
@@ -34,11 +41,22 @@ describe("ForgotPasswordPage", () => {
       global: { plugins: [router] },
     });
 
+    await flushPromises();
     await wrapper.get('[data-testid="forgot-password-phone"]').setValue("13800138000");
+    await nextTick();
+    await wrapper.get('[data-testid="forgot-password-captcha-text"]').setValue("ABCD");
+    await nextTick();
     await wrapper.get('[data-testid="forgot-password-send"]').trigger("click");
     await flushPromises();
 
-    expect(sendOtp).toHaveBeenCalledWith({ phone: "13800138000", purpose: "reset" });
+    expect(sendOtp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        phone: "13800138000",
+        purpose: "reset",
+        captchaId: "test-captcha-id",
+        captchaText: "ABCD",
+      }),
+    );
     expect(wrapper.get('[data-testid="forgot-password-success"]').text()).toContain("验证码已发送");
   });
 
@@ -78,6 +96,10 @@ describe("ForgotPasswordPage", () => {
 
     await wrapper.get('[data-testid="forgot-password-phone"]').setValue("13800138000");
     await nextTick();
+    await wrapper.get('[data-testid="forgot-password-password"]').setValue("Secret12!");
+    await nextTick();
+    await wrapper.get('[data-testid="forgot-password-password-confirm"]').setValue("Secret12!");
+    await nextTick();
     await wrapper.get('[data-testid="forgot-password-code"]').setValue("123456");
     await nextTick();
     await wrapper.find("form").trigger("submit");
@@ -87,6 +109,8 @@ describe("ForgotPasswordPage", () => {
       phone: "13800138000",
       code: "123456",
       purpose: "reset",
+      password: "Secret12!",
+      passwordConfirm: "Secret12!",
     });
     expect(pushSpy).toHaveBeenCalledWith("/plans");
     pushSpy.mockRestore();

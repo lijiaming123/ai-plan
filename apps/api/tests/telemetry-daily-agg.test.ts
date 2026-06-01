@@ -14,7 +14,8 @@ const describeTelemetryDb = telemetryDbUp ? describe : describe.skip;
 
 describeTelemetryDb('telemetry daily aggregation', () => {
   const app = buildApp();
-  const dayIso = '2026-04-22';
+  // 选用其他测试不会写入的远未来日期，避免并发测试互相污染（telemetry-ingest 等会写固定 2026-04-22）
+  const dayIso = '2099-01-02';
 
   beforeAll(async () => {
     await app.ready();

@@ -1,22 +1,26 @@
 /**
  * 认证与用户态路由（均挂在同一 Fastify 前缀根路径，无前缀）。
  *
- * - POST /auth/login：Body `{ email, password }`，成功返回 `{ token }`。面向管理端与自动化；普通用户生产环境请用 OTP。演示普通用户密码仅在 test 或 AUTH_DEMO_PASSWORD_USER=true 时可用。
+ * - POST /auth/login：Body `{ phone, password }`（普通用户）或 `{ email, password }`（管理端/演示邮箱）。普通用户须已在注册时设置密码。
  * - POST /auth/forgot-password：Body `{ email }`；演示环境不发送邮件，统一返回成功说明（防枚举）。
  * - POST /auth/admin/register：演示自助注册（需 ADMIN_OPEN_REGISTER=true），返回 `{ token }`。
  * - GET /auth/admin/me：需 admin JWT，返回 email / permissions。
- * - GET /auth/me：需 user 角色 JWT，回显 token 中的 sub/email/role（不做库表查询）。
+ * - GET /auth/me：需 user 角色 JWT；返回 sub/email/role，并附带库表 planTier 与本月 aiQuota 摘要（若有 User 行）。
  * - GET /admin/secret：需 admin 角色，健康/探活用途；与 admin.routes 下业务接口分离。
  */
 import type { FastifyInstance } from 'fastify';
 import { ADMIN_PERMISSIONS } from '../admin/admin-permissions';
 import {
+  authenticateAppUserByPhonePassword,
   authenticateUser,
   registerAdmin,
   requestPasswordResetDemo,
   validateForgotPasswordEmail,
 } from './auth.service';
-import { sendOtp, verifyOtp } from './otp.service';
+import { createCaptchaSession, verifyCaptchaAnswer } from './captcha.service';
+import { normalizePhoneCN, sendOtp, verifyOtp } from './otp.service';
+import { getAuthBillingPayload } from '../billing/auth-billing';
+import { startProTrial } from '../billing/pro-trial.service';
 
 export async function registerAuthRoutes(fastify: FastifyInstance) {
   /**
@@ -79,12 +83,26 @@ export async function registerAuthRoutes(fastify: FastifyInstance) {
     return requestPasswordResetDemo(email);
   });
 
+  /** 图形验证码：用于短信发送前人机校验（内存会话，约 5 分钟有效） */
+  fastify.get('/auth/captcha', async () => createCaptchaSession());
+
   /**
    * 手机验证码发送（商业化普通版主路径）。
    * 说明：生产应接真实短信服务；测试环境会返回 codeForTest 便于闭环测试。
+   * 须先 GET /auth/captcha，再在 body 中携带 captchaId、captchaText。
    */
   fastify.post('/auth/otp/send', async (request, reply) => {
-    const body = request.body as { phone?: unknown; purpose?: unknown } | undefined;
+    const body = request.body as
+      | { phone?: unknown; purpose?: unknown; captchaId?: unknown; captchaText?: unknown }
+      | undefined;
+    const captchaId = String(body?.captchaId ?? '').trim();
+    const captchaText = String(body?.captchaText ?? '').trim();
+    if (!captchaId || !captchaText) {
+      return reply.code(400).send({ message: '请先完成图形验证码' });
+    }
+    if (!verifyCaptchaAnswer(captchaId, captchaText)) {
+      return reply.code(400).send({ message: '图形验证码错误或已过期，请刷新后重试' });
+    }
     const result = await sendOtp({
       phoneRaw: body?.phone,
       purposeRaw: body?.purpose,
@@ -95,17 +113,26 @@ export async function registerAuthRoutes(fastify: FastifyInstance) {
     return result;
   });
 
-  /** 手机验证码校验并签发 user JWT */
+  /** 手机验证码校验并签发 user JWT；register / reset 需同时提交 password、passwordConfirm */
   fastify.post('/auth/otp/verify', async (request, reply) => {
-    const body = request.body as { phone?: unknown; purpose?: unknown; code?: unknown } | undefined;
+    const body = request.body as {
+      phone?: unknown;
+      purpose?: unknown;
+      code?: unknown;
+      password?: unknown;
+      passwordConfirm?: unknown;
+    } | undefined;
     const result = await verifyOtp({
       phoneRaw: body?.phone,
       purposeRaw: body?.purpose,
       codeRaw: body?.code,
+      passwordRaw: body?.password,
+      passwordConfirmRaw: body?.passwordConfirm,
     });
     if (!result.ok) {
       return reply.code(result.code).send({ message: result.message });
     }
+    const billing = await getAuthBillingPayload(result.userId);
     return {
       token: fastify.jwt.sign({
         sub: result.userId,
@@ -115,15 +142,36 @@ export async function registerAuthRoutes(fastify: FastifyInstance) {
       }),
       phone: result.phone,
       userId: result.userId,
+      ...billing,
     };
   });
 
-  /** 登录：优先 AdminUser（账号或邮箱），无记录时回退 DEMO_USERS（本地演示） */
+  /**
+   * 登录：若 body 含有效手机号则校验 User 表密码；否则走管理端邮箱/演示账号（authenticateUser）。
+   */
   fastify.post('/auth/login', async (request, reply) => {
-    const body = request.body as { email?: string; password?: string } | undefined;
+    const body = request.body as { email?: string; phone?: string; password?: string } | undefined;
+    const password = String(body?.password ?? '');
+    const phone = normalizePhoneCN(String(body?.phone ?? ''));
+    if (phone) {
+      const appUser = await authenticateAppUserByPhonePassword(phone, password);
+      if (appUser) {
+        const billing = await getAuthBillingPayload(appUser.id);
+        return {
+          token: fastify.jwt.sign({
+            sub: appUser.id,
+            email: appUser.email,
+            role: 'user',
+          }),
+          ...billing,
+        };
+      }
+      return reply.code(401).send({ message: '手机号或密码错误' });
+    }
+
     const user = await authenticateUser({
       email: body?.email ?? '',
-      password: body?.password ?? '',
+      password,
     });
 
     if (!user) {
@@ -147,13 +195,29 @@ export async function registerAuthRoutes(fastify: FastifyInstance) {
       role: 'user' | 'admin';
       permissions?: string[];
     }>();
+    const billing = await getAuthBillingPayload(payload.sub);
     return {
       userId: payload.sub,
       email: payload.email,
       role: payload.role,
       permissions: payload.permissions,
+      ...billing,
     };
   });
+
+  fastify.post(
+    '/auth/start-pro-trial',
+    { preHandler: fastify.requireRole('user') },
+    async (request, reply) => {
+      const payload = await request.jwtVerify<{ sub: string }>();
+      const result = await startProTrial(payload.sub);
+      if (!result.ok) {
+        return reply.code(result.code).send({ message: result.message });
+      }
+      const { ok: _ok, ...billing } = result;
+      return billing;
+    },
+  );
 
   fastify.get('/admin/secret', { preHandler: fastify.requireRole('admin') }, async () => {
     return { ok: true };

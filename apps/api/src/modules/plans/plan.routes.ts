@@ -12,12 +12,13 @@
  * profile（创建计划时的扩展字段）：校验宽松，缺失或形状不对时忽略，保证老客户端仍能创建。
  */
 import { PassThrough } from "node:stream";
-import type { FastifyBaseLogger, FastifyInstance } from "fastify";
+import type { FastifyBaseLogger, FastifyInstance, FastifyReply } from "fastify";
 import {
   archivePlan,
   compareDraftVersions,
   confirmPlanVersion,
   createGeneratedPlan,
+  patchConfirmedPlan,
   getPlanDraft,
   getPlanWithDraft,
   listArchivedPlansForUser,
@@ -30,7 +31,6 @@ import {
   regeneratePlanVersion,
   REGENERATE_PLAN_SYSTEM,
   restorePlan,
-  sanitizePlanPatch,
   softDeletePlan,
   swapPlanScheduleSlotContent,
   updatePlanScheduleSlot,
@@ -44,11 +44,15 @@ import {
   validateScheduleStrict,
 } from "./deepseek-schedule";
 import { createDraftStreamSplitter } from "./draft-stream-split";
+import type { CheckinPublicReview } from "./checkin-submission-score.service";
 import {
   createScheduleSlotAppeal,
   withdrawScheduleSlotAppeal,
 } from "./schedule-slot-appeal.service";
-import { createScheduleSlotCheckin } from "./schedule-slot-checkin.service";
+import {
+  closeLatestScheduleSlotCheckin,
+  createScheduleSlotCheckin,
+} from "./schedule-slot-checkin.service";
 import {
   buildScheduleSlotKeys,
   decideScheduleGranularity,
@@ -64,8 +68,14 @@ import { runProPlanAgent } from "@ai-plan/pro-plan-agent";
 import { buildPlanAssistantCacheKey } from "./assistant-cache-key";
 import { createLlmRouter } from "../../lib/llm/llm-router";
 import { createDeepseekProvider } from "../../lib/llm/providers/deepseek-provider";
+import { prisma } from "../../lib/prisma";
+import {
+  reserveOnePlanAiQuotaUnit,
+  userMayUsePlanProAgentFeatures,
+} from "../billing/ai-quota.service";
+import { buildPlanAssistantMemoryBlock } from "../me/plan-assistant-context.service";
 
-const planTypes = ["general", "study", "work"] as const;
+const planTypes = ["general", "study", "work", "travel"] as const;
 const planModes = ["basic", "pro"] as const;
 const levels = [
   "none",
@@ -150,6 +160,8 @@ type CreatePlanBody = {
   deadline: string;
   requirement: string;
   type: PlanType;
+  /** 可选：续航来源已定稿计划 id */
+  parentPlanId?: string;
   profile?: {
     planMode: PlanMode;
     basicInfo: {
@@ -184,6 +196,13 @@ function normalizeBody(raw: unknown) {
   }
 }
 
+function parseLastReviewFromBody(raw: unknown): CheckinPublicReview | undefined {
+  if (!isRecord(raw)) return undefined;
+  if (typeof raw.summary !== "string") return undefined;
+  if (!Array.isArray(raw.dimensions)) return undefined;
+  return raw as CheckinPublicReview;
+}
+
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
@@ -213,6 +232,11 @@ function validateCreatePlanBody(
     return { ok: false, message: "deadline must be a valid date string" };
   if (!isOneOf(raw.type, planTypes))
     return { ok: false, message: "type is invalid" };
+  if ("parentPlanId" in raw && raw.parentPlanId != null) {
+    if (typeof raw.parentPlanId !== "string" || !raw.parentPlanId.trim()) {
+      return { ok: false, message: "parentPlanId 无效" };
+    }
+  }
   // profile is optional metadata for enhanced generation experience.
   // To keep /plans creation highly available across client versions,
   // profile shape mismatches will be tolerated and ignored by route logic.
@@ -426,11 +450,75 @@ function sanitizeTextContent(content: string) {
 const DEEPSEEK_SYSTEM =
   "你是「计划大师」的 AI 计划顾问。根据用户给出的信息与要求，用中文输出可直接作为「计划内容」保存的正文：务实用语、分阶段目标与验收、可执行任务（优先按周，必要时到天）、风险与应对、复盘建议。不要输出与计划无关的寒暄。";
 
+const DEEPSEEK_SYSTEM_TRAVEL =
+  "你是「旅行行程规划师」。根据用户给出的信息与要求，用中文输出可直接作为「行程攻略/行程安排」保存的正文：按天/按时段给出路线顺序、交通方式与通勤时长、预约/门票/营业时间提醒、备选方案与注意事项。不要用“完成任务/提交证明/产出”这类学习计划语气，也不要输出与行程无关的寒暄。";
+
+const DEEPSEEK_SYSTEM_GENERAL =
+  "你是「轻量行动清单教练」。根据用户给出的信息与要求，用中文输出可直接作为「行动清单/习惯计划」保存的正文：强调最小可执行动作、简单规则与复盘，不要要求上传证明/材料；完成方式默认是“勾选完成”，可选写一句备注。不要输出与清单无关的寒暄。";
+
+const TRAVEL_SCHEDULE_INSTRUCTIONS = [
+  "【行程化输出要求（仅适用于旅游/旅行类计划）】",
+  "你正在生成的是“行程安排”，不是学习计划。每个 schedule slot.content 必须同时包含以下要素：",
+  "1) 早/午/晚（或上午/下午/晚上）的路线顺序（地点/景点/餐饮/休息点按先后排列）；",
+  "2) 交通方式 + 预计通勤时长（如地铁/公交/打车/步行/高铁/航班）；",
+  "3) 预约/门票/营业时间/入园与排队等提醒（如需提前预约、建议到达时间）；",
+  "4) 备选方案（如下雨/人多/临时关闭时替代点位或改线）；",
+  "5) 可选记录建议（如拍照点/一句话记录/当日小结）。",
+  "风格：攻略/行程规划，务实可执行；避免“完成任务/提交证明/学习产出/打卡证据”等措辞。",
+].join("\n");
+
+const GENERAL_SCHEDULE_INSTRUCTIONS = [
+  "【轻量清单输出要求（仅适用于其它/通用/checkbox-only 计划）】",
+  "你正在生成的是“轻量行动清单/习惯计划”，不是学习计划也不是旅行行程。",
+  "每个 schedule slot.content 用 1-2 句中文描述“最小行动 + 可选加强动作（可省略）”。",
+  "不要在 slot.content 或 checkinSpec 中要求上传证明/材料/附件/链接；默认完成方式是“勾选完成”，用户可选写一句备注。",
+  "建议：避免过度规划，不要给太长的解释或方法论。",
+].join("\n");
+
+function isTravelLikeRequirementText(text: string): boolean {
+  const t = (text ?? "").toLowerCase();
+  if (!t.trim()) return false;
+  if (/\btype\s*[:=]\s*travel\b/i.test(t)) return true;
+  if (/\bplan\s*type\s*[:=]\s*travel\b/i.test(t)) return true;
+  if (/\btravel\b/.test(t) && /(行程|旅行|旅游|攻略|出行|路线|景点|酒店|航班|高铁|车次|地铁|公交|通勤)/i.test(text))
+    return true;
+  return /(行程|旅行|旅游|攻略|出行|路线|景点|酒店|民宿|航班|高铁|车次|地铁|公交|步行|打车|门票|预约|营业时间|开放时间)/i.test(
+    text,
+  );
+}
+
+function sendPlanAiQuotaExceeded(
+  reply: FastifyReply,
+  q: Extract<Awaited<ReturnType<typeof reserveOnePlanAiQuotaUnit>>, { ok: false }>,
+) {
+  return reply.code(429).send({
+    message: q.message,
+    aiQuota: {
+      used: q.used,
+      limit: q.limit,
+      yearMonth: q.yearMonth,
+      tier: q.tier,
+    },
+  });
+}
+
+function isGeneralLikeRequirementText(text: string): boolean {
+  const t = (text ?? "").toLowerCase();
+  if (!t.trim()) return false;
+  if (/\btype\s*[:=]\s*general\b/i.test(t)) return true;
+  if (/\bplan\s*type\s*[:=]\s*general\b/i.test(t)) return true;
+  if (/planScenario\"?\s*[:=]\s*\"?other\b/i.test(t)) return true;
+  if (/场景\s*[:：]\s*(other|其它|通用)/i.test(text)) return true;
+  if (/(其它|通用|清单|习惯|打卡|每日|最小行动)/i.test(text)) return true;
+  return false;
+}
+
 /** 配置 DeepSeek 时走云端对话；失败则回退到本地模板文案，避免接口整体失败 */
 async function tryDeepseekAssistant(
   log: FastifyBaseLogger,
   body: PlanAssistantBody,
   localDraftText: string,
+  memoryPrefix = "",
 ): Promise<{
   reply: string;
   suggestedContent: string;
@@ -467,12 +555,22 @@ async function tryDeepseekAssistant(
         body.requirement.trim().length > 0
           ? body.requirement
           : `请根据以下目标生成计划：${body.goal}`;
+      const travelLike = isTravelLikeRequirementText(baseRequirement);
+      const generalLike = !travelLike && isGeneralLikeRequirementText(baseRequirement);
       const userContent = [
+        ...(memoryPrefix.trim()
+          ? [`${memoryPrefix.trim()}\n`, ""]
+          : []),
         `目标：${body.goal}`,
         `起始：${body.startDate}，预计完成：${body.endDate}，周期代码：${body.cycle}`,
         "",
         `补充说明：`,
         baseRequirement,
+        ...(travelLike
+          ? ["", TRAVEL_SCHEDULE_INSTRUCTIONS]
+          : generalLike
+            ? ["", GENERAL_SCHEDULE_INSTRUCTIONS]
+            : []),
         "",
         `请输出两部分：`,
         `1) 可直接保存为「计划内容」的中文正文；`,
@@ -492,7 +590,14 @@ async function tryDeepseekAssistant(
       ].join("\n");
 
       const deepseekRaw = await completeDeepseekChat([
-        { role: "system", content: DEEPSEEK_SYSTEM },
+        {
+          role: "system",
+          content: travelLike
+            ? DEEPSEEK_SYSTEM_TRAVEL
+            : generalLike
+              ? DEEPSEEK_SYSTEM_GENERAL
+              : DEEPSEEK_SYSTEM,
+        },
         { role: "user", content: userContent },
       ]);
       const jsonBlock = extractLastJsonCodeBlock(deepseekRaw);
@@ -518,7 +623,7 @@ async function tryDeepseekAssistant(
       };
     }
 
-    const userContent = `【当前计划内容】\n${body.requirement || "（暂无）"}\n\n【用户补充】\n${body.message}`;
+    const userContent = `${memoryPrefix.trim() ? `${memoryPrefix.trim()}\n\n` : ""}【当前计划内容】\n${body.requirement || "（暂无）"}\n\n【用户补充】\n${body.message}`;
     const suggestedContent = await completeDeepseekChat([
       {
         role: "system",
@@ -769,6 +874,15 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
 
       const body = parsed.data;
       const payload = await request.jwtVerify<{ sub: string }>();
+      const parentPid = body.parentPlanId?.trim();
+      if (parentPid) {
+        const parent = await prisma.plan.findFirst({
+          where: { id: parentPid, userId: payload.sub, deletedAt: null },
+        });
+        if (!parent) {
+          return reply.code(404).send({ message: "父计划不存在或不可访问" });
+        }
+      }
       const granularityMode = isOneOf(
         body.profile?.basicInfo?.granularityMode,
         granularityModes,
@@ -788,6 +902,7 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
         type: body.type,
         granularityMode,
         startDateIso,
+        parentPlanId: parentPid ?? undefined,
       });
 
       return reply.code(201).send(plan);
@@ -797,9 +912,19 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
   fastify.patch(
     "/plans/:id",
     { preHandler: fastify.requireRole("user") },
-    async (request) => {
-      const body = request.body as Record<string, unknown> | undefined;
-      return sanitizePlanPatch(body ?? {});
+    async (request, reply) => {
+      const payload = await request.jwtVerify<{ sub: string }>();
+      const { id } = request.params as { id: string };
+      const raw = normalizeBody(request.body);
+      const patch = isRecord(raw) ? raw : {};
+      const result = await patchConfirmedPlan({
+        planId: id,
+        userId: payload.sub,
+        patch,
+      });
+      if (!result.ok)
+        return reply.code(result.code).send({ message: result.message });
+      return reply.send({ nextStep: result.nextStep });
     },
   );
 
@@ -809,6 +934,10 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
     async (request, reply) => {
       const payload = await request.jwtVerify<{ sub: string }>();
       const { id, slotKey } = request.params as { id: string; slotKey: string };
+      const idempotencyKeyRaw = String(
+        request.headers["idempotency-key"] ?? request.headers["Idempotency-Key"] ?? "",
+      ).trim();
+      const idempotencyKey = idempotencyKeyRaw.length ? idempotencyKeyRaw : undefined;
       const body = normalizeBody(request.body);
       const content =
         isRecord(body) && typeof body.content === "string"
@@ -884,6 +1013,14 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
     async (request, reply) => {
       const payload = await request.jwtVerify<{ sub: string }>();
       const { id, slotKey } = request.params as { id: string; slotKey: string };
+      const idempotencyKeyRaw = String(
+        request.headers["idempotency-key"] ??
+          request.headers["Idempotency-Key"] ??
+          "",
+      ).trim();
+      const idempotencyKey = idempotencyKeyRaw.length
+        ? idempotencyKeyRaw
+        : undefined;
       const body = normalizeBody(request.body);
       const content =
         isRecord(body) && typeof body.content === "string"
@@ -906,6 +1043,7 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
         slotKey,
         content,
         attachments,
+        idempotencyKey,
       });
       if (!result.ok) {
         if (result.code === 422) {
@@ -921,6 +1059,24 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
     },
   );
 
+  fastify.delete(
+    "/plans/:id/schedule/slots/:slotKey/checkins",
+    { preHandler: fastify.requireRole("user") },
+    async (request, reply) => {
+      const payload = await request.jwtVerify<{ sub: string }>();
+      const { id, slotKey } = request.params as { id: string; slotKey: string };
+      const result = await closeLatestScheduleSlotCheckin({
+        planId: id,
+        userId: payload.sub,
+        slotKey,
+      });
+      if (!result.ok) {
+        return reply.code(result.code).send({ message: result.message });
+      }
+      return reply.send({ ok: true });
+    },
+  );
+
   fastify.post(
     "/plans/:id/schedule/slots/:slotKey/appeals",
     { preHandler: fastify.requireRole("user") },
@@ -930,16 +1086,44 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
       const body = normalizeBody(request.body);
       const content =
         isRecord(body) && typeof body.content === "string" ? body.content : "";
+      const proofContent =
+        isRecord(body) && typeof body.proofContent === "string"
+          ? body.proofContent
+          : undefined;
+      const rawAtt =
+        isRecord(body) && Array.isArray(body.proofAttachments)
+          ? body.proofAttachments
+          : [];
+      const proofAttachments = rawAtt
+        .filter((x): x is Record<string, unknown> => isRecord(x))
+        .map((x) => ({
+          url: typeof x.url === "string" ? x.url : "",
+          fileName: typeof x.fileName === "string" ? x.fileName : undefined,
+          kind: typeof x.kind === "string" ? x.kind : undefined,
+        }))
+        .filter((a) => a.url.trim().length > 0);
+      const lastReview =
+        isRecord(body) && body.lastReview !== undefined
+          ? parseLastReviewFromBody(body.lastReview)
+          : undefined;
       const result = await createScheduleSlotAppeal({
         planId: id,
         userId: payload.sub,
         slotKey,
         content,
+        proofContent,
+        proofAttachments: proofAttachments.length ? proofAttachments : undefined,
+        lastReview,
       });
       if (!result.ok) {
         return reply.code(result.code).send({ message: result.message });
       }
-      return reply.code(201).send({ appeal: result.appeal });
+      return reply.code(201).send({
+        appeal: result.appeal,
+        outcome: result.outcome,
+        aiRationale: result.aiRationale,
+        ...(result.submission ? { submission: result.submission } : {}),
+      });
     },
   );
 
@@ -1001,6 +1185,10 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
         isRecord(body) && isOneOf(body.granularityMode, granularityModes)
           ? body.granularityMode
           : undefined;
+      if (isDeepseekConfigured()) {
+        const q = await reserveOnePlanAiQuotaUnit(payload.sub);
+        if (!q.ok) return sendPlanAiQuotaExceeded(reply, q);
+      }
       const result = await regeneratePlanVersion(
         id,
         payload.sub,
@@ -1044,6 +1232,11 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
         return reply.code(prep.code).send({ message: prep.message });
       }
       const { ctx } = prep;
+
+      if (isDeepseekConfigured()) {
+        const q = await reserveOnePlanAiQuotaUnit(payload.sub);
+        if (!q.ok) return sendPlanAiQuotaExceeded(reply, q);
+      }
 
       const abort = new AbortController();
       const onClose = () => abort.abort();
@@ -1182,6 +1375,15 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
         draft: { versions: d.versions },
       };
 
+      const memoryBlock = await buildPlanAssistantMemoryBlock(
+        payload.sub,
+      ).catch(() => "");
+
+      if (isDeepseekConfigured()) {
+        const q = await reserveOnePlanAiQuotaUnit(payload.sub);
+        if (!q.ok) return sendPlanAiQuotaExceeded(reply, q);
+      }
+
       const abort = new AbortController();
       const onClose = () => abort.abort();
       request.raw.socket?.once("close", onClose);
@@ -1234,7 +1436,13 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
               });
 
             const prompt = [
+              ...(memoryBlock.trim()
+                ? [`${memoryBlock.trim()}\n`, ""]
+                : []),
               streamInput.assistantPrompt.trim(),
+              ...(isTravelLikeRequirementText(streamInput.assistantPrompt)
+                ? ["", TRAVEL_SCHEDULE_INSTRUCTIONS]
+                : []),
               "",
               "请在正文后追加一个严格的 JSON 代码块（```json ...```），仅包含如下结构：",
               "{",
@@ -1254,7 +1462,12 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
             const splitter = createDraftStreamSplitter();
             for await (const chunk of streamDeepseekChat(
               [
-                { role: "system", content: DEEPSEEK_SYSTEM },
+                {
+                  role: "system",
+                  content: isTravelLikeRequirementText(streamInput.assistantPrompt)
+                    ? DEEPSEEK_SYSTEM_TRAVEL
+                    : DEEPSEEK_SYSTEM,
+                },
                 { role: "user", content: prompt },
               ],
               { signal: abort.signal },
@@ -1309,6 +1522,9 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
 
       const body = parsed.data;
       const payload = await request.jwtVerify<{ sub: string }>();
+      const memoryBlock = await buildPlanAssistantMemoryBlock(
+        payload.sub,
+      ).catch(() => "");
       const draftText = formatDraftToText({
         goal: body.goal,
         startDate: body.startDate,
@@ -1317,24 +1533,25 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
         requirement: body.requirement,
       });
 
-      // Pro Agent：生成→批评→打分→自动优化→再给选项（仅 Pro 开关命中且前端显式请求时启用）
-      const proUserIds = (process.env.PRO_USER_IDS ?? "")
-        .split(",")
-        .map((x) => x.trim())
-        .filter(Boolean);
-      const proEnabledForAll =
-        (process.env.PRO_PLAN_AGENT_ENABLED ?? "").trim() === "1";
-      const isPro = proEnabledForAll || proUserIds.includes(payload.sub);
+      // Pro Agent：生成→批评→打分→自动优化→再给选项（库表 pro / 白名单 / 全员试用开关，且前端显式请求 tier|agent=pro）
+      const isPro = await userMayUsePlanProAgentFeatures(payload.sub);
       const wantProAgent =
         isPro &&
         (((request.body as any)?.agent ?? "").toString() === "pro" ||
           ((request.body as any)?.tier ?? "").toString() === "pro");
 
+      if (isDeepseekConfigured()) {
+        const q = await reserveOnePlanAiQuotaUnit(payload.sub);
+        if (!q.ok) return sendPlanAiQuotaExceeded(reply, q);
+      }
+
       if (wantProAgent) {
+        const memoryPrefix = memoryBlock.trim() || undefined;
         const cacheKeyBase = buildPlanAssistantCacheKey({
           mode: body.mode,
           goal: body.goal,
           requirement: body.requirement,
+          memoryPrefix,
           startDate: body.startDate,
           endDate: body.endDate,
           cycle: body.cycle,
@@ -1354,6 +1571,7 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
             mode: body.mode,
             goal: body.goal,
             requirement: body.requirement,
+            memoryPrefix,
             startDate: body.startDate,
             endDate: body.endDate,
             cycle: body.cycle,
@@ -1402,6 +1620,7 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
         request.log,
         body,
         draftText,
+        memoryBlock,
       );
       if (deepseekResult) {
         return reply.send(deepseekResult);
@@ -1442,15 +1661,18 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
         requirement: body.requirement,
       });
 
-      const proUserIds = (process.env.PRO_USER_IDS ?? "")
-        .split(",")
-        .map((x) => x.trim())
-        .filter(Boolean);
-      const proEnabledForAll =
-        (process.env.PRO_PLAN_AGENT_ENABLED ?? "").trim() === "1";
-      const isPro = proEnabledForAll || proUserIds.includes(payload.sub);
+      const isPro = await userMayUsePlanProAgentFeatures(payload.sub);
       const wantProAgent =
         isPro && (body.tier === "pro" || body.agent === "pro");
+
+      if (isDeepseekConfigured()) {
+        const q = await reserveOnePlanAiQuotaUnit(payload.sub);
+        if (!q.ok) return sendPlanAiQuotaExceeded(reply, q);
+      }
+
+      const memoryBlock = await buildPlanAssistantMemoryBlock(
+        payload.sub,
+      ).catch(() => "");
 
       const pass = new PassThrough();
       reply
@@ -1501,12 +1723,17 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
               body.requirement.trim().length > 0
                 ? body.requirement
                 : `请根据以下目标生成计划：${body.goal}`;
+            const travelLike = isTravelLikeRequirementText(baseRequirement);
             const userContent = [
+              ...(memoryBlock.trim()
+                ? [`${memoryBlock.trim()}\n`, ""]
+                : []),
               `目标：${body.goal}`,
               `起始：${body.startDate}，预计完成：${body.endDate}，周期代码：${body.cycle}`,
               "",
               `补充说明：`,
               baseRequirement,
+              ...(travelLike ? ["", TRAVEL_SCHEDULE_INSTRUCTIONS] : []),
               "",
               `请输出两部分：`,
               `1) 可直接保存为「计划内容」的中文正文；`,
@@ -1527,7 +1754,7 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
 
             for await (const chunk of streamDeepseekChat(
               [
-                { role: "system", content: DEEPSEEK_SYSTEM },
+                { role: "system", content: travelLike ? DEEPSEEK_SYSTEM_TRAVEL : DEEPSEEK_SYSTEM },
                 { role: "user", content: userContent },
               ],
               { signal: abort.signal },
@@ -1546,10 +1773,12 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
 
           // 流式正文结束后，生成建议/选项（Pro 才做）
           if (wantProAgent) {
+            const memoryPrefix = memoryBlock.trim() || undefined;
             const cacheKeyBase = buildPlanAssistantCacheKey({
               mode: "draft",
               goal: body.goal,
               requirement: body.requirement,
+              memoryPrefix,
               startDate: body.startDate,
               endDate: body.endDate,
               cycle: body.cycle,
@@ -1567,6 +1796,7 @@ export async function registerPlanRoutes(fastify: FastifyInstance) {
                 mode: "draft",
                 goal: body.goal,
                 requirement: body.requirement,
+                memoryPrefix,
                 startDate: body.startDate,
                 endDate: body.endDate,
                 cycle: body.cycle,

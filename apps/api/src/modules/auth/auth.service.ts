@@ -69,6 +69,26 @@ function resolveDemoRecord(identifier: string) {
   return DEMO_USERS[key];
 }
 
+/** 普通用户（User 表）：手机号 + 密码；未设置密码时返回 null，请使用验证码登录 */
+export async function authenticateAppUserByPhonePassword(
+  phone11: string,
+  password: string,
+): Promise<AuthUser | null> {
+  if (!/^\d{11}$/.test(phone11)) return null;
+  try {
+    const row = await prisma.user.findUnique({
+      where: { phone: phone11 },
+      select: { id: true, phone: true, passwordHash: true },
+    });
+    if (!row?.passwordHash) return null;
+    const ok = await bcrypt.compare(password, row.passwordHash);
+    if (!ok) return null;
+    return { id: row.id, email: row.phone, role: 'user' };
+  } catch {
+    return null;
+  }
+}
+
 async function authenticateAdminUser(identifier: string, password: string): Promise<AuthUser | null> {
   const norm = normalizeLoginIdentifier(identifier);
   if (!norm) return null;

@@ -14,6 +14,7 @@ export type AdminPermission =
   | 'analytics:read'
   | 'analytics:export'
   | 'users:read'
+  | 'users:write'
   | 'audit:read'
   | 'rbac:manage';
 
@@ -190,6 +191,18 @@ export type AdminUserDetail = {
   firstActivityAt: string | null;
   lastActivityAt: string | null;
   telemetryTopEvents: Array<{ eventName: string; count: number }>;
+  phone?: string | null;
+  planTier?: string | null;
+  proExpiresAt?: string | null;
+  proTrialUsed?: boolean;
+  proSubscriptionSource?: string | null;
+};
+
+export type RenewProMonthResponse = {
+  ok: true;
+  planTier: 'pro';
+  proExpiresAt: string;
+  proSubscriptionSource: 'paid';
 };
 
 export type AdminApiClient = {
@@ -204,6 +217,7 @@ export type AdminApiClient = {
   getPath(token: string, query: AdminPathQuery): Promise<AdminPathResponse>;
   getUsers(token: string, query: AdminUserListQuery): Promise<AdminUserListResponse>;
   getUser(token: string, userId: string): Promise<AdminUserDetail>;
+  renewProMonth(token: string, userId: string): Promise<RenewProMonthResponse>;
   getAuditLogs(token: string, query: AdminAuditLogQuery): Promise<AdminAuditLogRecord[]>;
 };
 
@@ -378,6 +392,15 @@ export function createAdminApiClient(options: AdminApiClientOptions = {}): Admin
       const enc = encodeURIComponent(userId);
       return request<AdminUserDetail>(`/admin/users/${enc}`, {
         method: 'GET',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+    },
+    renewProMonth(token, userId) {
+      const enc = encodeURIComponent(userId);
+      return request<RenewProMonthResponse>(`/admin/users/${enc}/renew-pro-month`, {
+        method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
         },

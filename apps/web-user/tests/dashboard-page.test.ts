@@ -88,6 +88,80 @@ describe("DashboardPage 概览与热力图", () => {
     expect(wrapper.text()).toContain("示例计划 Alpha");
   });
 
+  it("应在概览顶部汇总今日待处理、逾期与即将截止计划", async () => {
+    setApiClient({
+      ...createApiClient({
+        baseURL: "http://test.local",
+        fetchImpl: vi.fn() as unknown as typeof fetch,
+      }),
+      getPlanHeatmap: vi.fn().mockResolvedValue({
+        year: 2026,
+        timeZone: "local",
+        days: emptyYearDays(2026),
+      }),
+      listPlans: vi.fn().mockResolvedValue({
+        plans: [
+          {
+            id: "plan_today",
+            goal: "今日待打卡",
+            deadline: "2026-12-01T00:00:00.000Z",
+            requirement: "完成今日任务",
+            type: "study",
+            status: "active",
+            createdAt: "2026-04-01T00:00:00.000Z",
+            todayMissing: true,
+          },
+          {
+            id: "plan_overdue",
+            goal: "已逾期计划",
+            deadline: "2020-01-01T00:00:00.000Z",
+            requirement: "已经超过截止日",
+            type: "work",
+            status: "active",
+            createdAt: "2019-12-01T00:00:00.000Z",
+            completed: false,
+          },
+          {
+            id: "plan_done",
+            goal: "已完成计划",
+            deadline: "2020-01-01T00:00:00.000Z",
+            requirement: "不应计入逾期",
+            type: "general",
+            status: "active",
+            createdAt: "2019-12-01T00:00:00.000Z",
+            completed: true,
+          },
+        ],
+      }),
+    });
+
+    const router = createAppRouter(createMemoryHistory());
+    await router.push("/dashboard");
+    await router.isReady();
+
+    setAuthToken(demoJwt());
+    setUserEmail("u@test.dev");
+
+    const wrapper = mount(DashboardPage, {
+      global: { plugins: [router] },
+    });
+    await flushPromises();
+
+    const summary = wrapper.find('[data-testid="dashboard-action-summary"]');
+    expect(summary.exists()).toBe(true);
+    expect(summary.text()).toContain("今日待处理");
+    expect(summary.text()).toContain("1 项");
+    expect(summary.text()).toContain("已逾期");
+    expect(summary.text()).toContain("1 项");
+    expect(summary.text()).toContain("即将截止");
+    expect(summary.get('[data-testid="dashboard-action-card-today"]').attributes("href")).toBe(
+      "/plans/plan_today",
+    );
+    expect(
+      summary.get('[data-testid="dashboard-action-card-overdue"]').attributes("href"),
+    ).toBe("/plans/plan_overdue");
+  });
+
   it("最近计划的需求摘要应去除 Markdown 脚手架", async () => {
     setApiClient({
       ...createApiClient({

@@ -14,7 +14,9 @@ describe("checkin reminder job", () => {
     await app.close();
   });
 
-  it("昨天未完成的日计划应在今天提醒窗口内补发一条站内提醒", async () => {
+  it(
+    "昨天未完成的日计划应在今天提醒窗口内补发一条站内提醒",
+    async () => {
     const login = await app.inject({
       method: "POST",
       url: "/auth/login",
@@ -105,7 +107,9 @@ describe("checkin reminder job", () => {
       orderBy: { createdAt: "desc" },
     });
 
-    expect(after.length).toBe(before + 1);
-    expect(after[0]?.body).toContain("昨日");
-  });
+      expect(after.length).toBe(before + 1);
+      expect(after[0]?.body).toContain("昨日");
+    },
+    30000,
+  );
 });

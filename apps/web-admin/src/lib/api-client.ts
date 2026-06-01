@@ -489,8 +489,8 @@ export function createAdminApiClient(options: AdminApiClientOptions = {}): Admin
 
 let currentAdminApiClient = createAdminApiClient();
 
-export function setAdminApiClient(client: AdminApiClient) {
-  currentAdminApiClient = client;
+export function setAdminApiClient(client: Partial<AdminApiClient>) {
+  currentAdminApiClient = { ...createAdminApiClient(), ...client };
 }
 
 export function getAdminApiClient() {

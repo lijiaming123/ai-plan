@@ -3,35 +3,7 @@ import { createMemoryHistory } from 'vue-router';
 import { createAdminRouter } from '../src/router';
 import { clearAdminToken, setAdminToken } from '../src/stores/auth';
 import { setAdminApiClient } from '../src/lib/api-client';
-
-function mockApi(permissions: string[]) {
-  return {
-    login: vi.fn(),
-    registerAdmin: vi.fn(),
-    getRegisterOpen: vi.fn(),
-    getAdminMe: vi.fn().mockResolvedValue({
-      userId: 'admin_1',
-      email: 'admin@test.dev',
-      role: 'admin',
-      permissions,
-    }),
-    getDashboard: vi.fn(),
-    getRules: vi.fn(),
-    getSubmissions: vi.fn(),
-    getFunnel: vi.fn(),
-    getRetention: vi.fn(),
-    getPath: vi.fn(),
-    getUsers: vi.fn(),
-    getUser: vi.fn(),
-    renewProMonth: vi.fn(),
-    getAuditLogs: vi.fn(),
-    recordAuditEvent: vi.fn(),
-    listAdminAccounts: vi.fn(),
-    createAdminAccount: vi.fn(),
-    updateAdminAccount: vi.fn(),
-    resetAdminAccountPassword: vi.fn(),
-  };
-}
+import { createMockAdminApiClient } from './mock-admin-api-client';
 
 describe('admin router permission guard', () => {
   beforeEach(() => {
@@ -40,7 +12,14 @@ describe('admin router permission guard', () => {
 
   it('redirects to forbidden when the admin lacks page permission', async () => {
     setAdminToken('admin-token');
-    setAdminApiClient(mockApi(['analytics:read']));
+    setAdminApiClient(createMockAdminApiClient({
+      getAdminMe: vi.fn().mockResolvedValue({
+        userId: 'admin_1',
+        email: 'admin@test.dev',
+        role: 'admin',
+        permissions: ['analytics:read'],
+      }),
+    }));
 
     const router = createAdminRouter(createMemoryHistory());
     await router.push('/admin/users');
@@ -52,7 +31,14 @@ describe('admin router permission guard', () => {
 
   it('auditor defaults to audit logs after login redirect', async () => {
     setAdminToken('admin-token');
-    setAdminApiClient(mockApi(['audit:read', 'analytics:export']));
+    setAdminApiClient(createMockAdminApiClient({
+      getAdminMe: vi.fn().mockResolvedValue({
+        userId: 'admin_1',
+        email: 'admin@test.dev',
+        role: 'admin',
+        permissions: ['audit:read', 'analytics:export'],
+      }),
+    }));
 
     const router = createAdminRouter(createMemoryHistory());
     await router.push('/admin/login');

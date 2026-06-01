@@ -17,12 +17,12 @@
 
 ## 实施状态（2026-06-01）
 
-- [ ] Phase 0：Story 013 — 角色配置与默认 landing
-- [ ] Phase 1：Story 014 — 管理员账号 API
-- [ ] Phase 2：Story 015 — 管理员账号管理 UI
-- [ ] Phase 3：Story 016 — 分析 CSV 导出 + 审计
-- [ ] Phase 4：Story 017 — 审计员工作台 + 审计导出
-- [ ] Phase 5：Story 018 — 注册策略收口 + seed 更新
+- [x] Phase 0：Story 013 — 角色配置与默认 landing
+- [x] Phase 1：Story 014 — 管理员账号 API
+- [x] Phase 2：Story 015 — 管理员账号管理 UI
+- [x] Phase 3：Story 016 — 分析 CSV 导出 + 审计
+- [x] Phase 4：Story 017 — 审计员工作台 + 审计导出
+- [x] Phase 5：Story 018 — 注册策略收口 + seed 更新
 - [ ] Phase 6（P1）：Story 019 — Telemetry 日聚合 UI
 - [ ] Phase 7（P1）：Story 020 — 规则编辑 + 审计
 

@@ -21,5 +21,7 @@ export function downloadCsv(filename: string, columns: CsvColumn[], rows: Record
   anchor.href = url;
   anchor.download = filename;
   anchor.click();
-  URL.revokeObjectURL(url);
+  if (typeof URL.revokeObjectURL === 'function') {
+    URL.revokeObjectURL(url);
+  }
 }

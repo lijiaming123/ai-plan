@@ -2,7 +2,7 @@
 
 | 属性 | 内容 |
 |------|------|
-| 状态 | **待办** |
+| 状态 | **已完成**（2026-06-01） |
 | 所属 Feature | `.ai/features/feature-admin-account-management.md` |
 | 优先级 | P0 |
 | 预估 | 1.5 天 |

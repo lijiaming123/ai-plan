@@ -155,8 +155,8 @@ Invoke-RepoPnpm --filter @ai-plan/api db:seed
 
 Write-Host "[dev-up] Starting services..."
 Write-Host "  API:       $apiBaseUrl"
-Write-Host "  Web User:  http://localhost:5173"
-Write-Host "  Web Admin: http://localhost:5174"
+Write-Host "  Web User:  http://localhost:5200"
+Write-Host "  Web Admin: http://localhost:5201"
 
 Invoke-RepoPnpm exec concurrently `
   -k `

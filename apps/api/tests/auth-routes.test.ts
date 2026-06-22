@@ -83,7 +83,7 @@ describe('auth routes', () => {
   });
 
   it('supports cors preflight for login route', async () => {
-    const origin = 'http://localhost:5173';
+    const origin = 'http://localhost:5200';
     const res = await app.inject({
       method: 'OPTIONS',
       url: '/auth/login',

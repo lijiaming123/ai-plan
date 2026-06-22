@@ -58,7 +58,7 @@ export default defineConfig(({ mode }) => {
         "/uploads": apiProxy,
         "/files": apiProxy,
       },
-      port: 5173,
+      port: 5200,
       host: "0.0.0.0",
     },
     test: {

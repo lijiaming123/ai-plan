@@ -305,7 +305,7 @@ describe('plan generation', () => {
       method: 'OPTIONS',
       url: '/plans',
       headers: {
-        origin: 'http://localhost:5173',
+        origin: 'http://localhost:5200',
         'access-control-request-method': 'POST',
         'access-control-request-headers': 'authorization,x-requested-with,x-custom-debug',
       },

@@ -9,7 +9,10 @@ export type AdminNavIcon =
   | 'rules'
   | 'submissions'
   | 'audit'
-  | 'access';
+  | 'access'
+  | 'admin-users';
+
+export type AdminRolePresetKey = 'super-admin' | 'analyst' | 'auditor' | 'custom';
 
 export type AdminNavItem = {
   label: string;
@@ -28,15 +31,15 @@ export const adminPermissionMeta: Record<
   },
   'analytics:export': {
     label: '分析导出',
-    description: '导出分析明细与下钻结果。',
+    description: '导出分析明细与审计列表。',
   },
   'users:read': {
     label: '用户查看',
     description: '访问业务用户列表与用户详情画像。',
   },
   'users:write': {
-    label: '用户运营',
-    description: '调整会员档位、续期专业版等写操作。',
+    label: '用户治理',
+    description: '调整业务用户会员档位与续期。',
   },
   'audit:read': {
     label: '审计查看',
@@ -50,24 +53,44 @@ export const adminPermissionMeta: Record<
 
 export const adminPresetMeta = [
   {
-    key: 'super-admin',
+    key: 'super-admin' as const,
     label: '超级管理员',
     description: '拥有全量后台能力，适合平台负责人或值班管理员。',
     permissions: Object.keys(adminPermissionMeta) as AdminPermission[],
   },
   {
-    key: 'analyst',
+    key: 'analyst' as const,
     label: '运营分析',
-    description: '关注增长与用户画像，可查看分析报表和业务用户。',
-    permissions: ['analytics:read', 'users:read'] as AdminPermission[],
+    description: '关注增长与用户画像，可查看分析报表、导出并访问业务用户。',
+    permissions: ['analytics:read', 'analytics:export', 'users:read'] as AdminPermission[],
   },
   {
-    key: 'auditor',
+    key: 'auditor' as const,
     label: '审计只读',
-    description: '关注审计与合规，可查看审计信息与只读分析。',
-    permissions: ['audit:read', 'analytics:read'] as AdminPermission[],
+    description: '以审计工作台为主，可查看合规留痕并导出审计记录。',
+    permissions: ['audit:read', 'analytics:export'] as AdminPermission[],
   },
 ] as const;
+
+export function permissionsMatchPreset(
+  permissions: readonly string[],
+  presetKey: AdminRolePresetKey,
+): boolean {
+  const preset = adminPresetMeta.find((p) => p.key === presetKey);
+  if (!preset) return false;
+  const a = [...permissions].sort().join('|');
+  const b = [...preset.permissions].sort().join('|');
+  return a === b;
+}
+
+export function resolveAdminRolePreset(permissions: readonly string[]): AdminRolePresetKey {
+  for (const preset of adminPresetMeta) {
+    if (permissionsMatchPreset(permissions, preset.key)) {
+      return preset.key;
+    }
+  }
+  return 'custom';
+}
 
 export const adminPageMatrix = [
   {
@@ -81,6 +104,18 @@ export const adminPageMatrix = [
     to: '/admin/users',
     permission: 'users:read' as AdminPermission,
     description: '业务用户列表、画像和行为明细。',
+  },
+  {
+    title: '审计日志',
+    to: '/admin/audit-logs',
+    permission: 'audit:read' as AdminPermission,
+    description: '合规留痕与高风险动作检索。',
+  },
+  {
+    title: '管理员账号',
+    to: '/admin/admin-users',
+    permission: 'rbac:manage' as AdminPermission,
+    description: '创建后台账号、分配角色包与禁用治理。',
   },
   {
     title: '角色权限',
@@ -109,6 +144,12 @@ export const adminNavItems: readonly AdminNavItem[] = [
     permission: 'analytics:read' as AdminPermission,
   },
   { label: '审计', to: '/admin/audit-logs', icon: 'audit', permission: 'audit:read' as AdminPermission },
+  {
+    label: '管理员',
+    to: '/admin/admin-users',
+    icon: 'admin-users',
+    permission: 'rbac:manage' as AdminPermission,
+  },
   { label: '权限', to: '/admin/access', icon: 'access', permission: undefined },
 ];
 
@@ -125,16 +166,24 @@ export function getAdminPermissionLabel(permission: AdminPermission) {
 }
 
 export function getAdminRoleLabel(permissions: readonly string[]) {
+  const preset = resolveAdminRolePreset(permissions);
+  if (preset === 'super-admin') return '超级管理员';
+  if (preset === 'analyst') return '运营分析';
+  if (preset === 'auditor') return '审计只读';
+
   const effective = new Set(permissions);
   if (effective.has('rbac:manage')) return '超级管理员';
   if (effective.has('users:read') && effective.has('analytics:read')) return '运营分析';
-  if (effective.has('audit:read') && effective.has('analytics:read')) return '审计只读';
+  if (effective.has('audit:read')) return '审计只读';
   if (effective.size === 0) return '受限账号';
   return '自定义角色';
 }
 
 export function getDefaultAdminPath(permissions: readonly string[]) {
+  const preset = resolveAdminRolePreset(permissions);
+  if (preset === 'auditor') return '/admin/audit-logs';
   if (hasAdminPermission(permissions, 'analytics:read')) return '/admin/dashboard';
+  if (hasAdminPermission(permissions, 'audit:read')) return '/admin/audit-logs';
   if (hasAdminPermission(permissions, 'users:read')) return '/admin/users';
   return '/admin/access';
 }

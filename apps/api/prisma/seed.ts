@@ -12,6 +12,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import bcrypt from 'bcryptjs';
 import { ADMIN_PERMISSIONS } from '../src/modules/admin/admin-permissions';
+import { permissionsForPreset } from '../src/modules/admin/admin-account-presets';
 import { prisma } from '../src/lib/prisma';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -43,6 +44,22 @@ async function main() {
     },
   });
   console.log('Seeded super admin (loginId=admin).');
+
+  const auditorPerms = permissionsForPreset('auditor') ?? ['audit:read', 'analytics:export'];
+  const auditorHash = await bcrypt.hash('Auditor1234!', 12);
+  await prisma.adminUser.upsert({
+    where: { loginId: 'auditor' },
+    create: {
+      loginId: 'auditor',
+      email: 'auditor@ai-plan.dev',
+      passwordHash: auditorHash,
+      permissions: auditorPerms,
+    },
+    update: {
+      permissions: auditorPerms,
+    },
+  });
+  console.log('Seeded auditor demo (loginId=auditor).');
 
   const path = join(__dirname, 'seeds', 'preset-templates.json');
   const presets = JSON.parse(readFileSync(path, 'utf8')) as PresetSeed[];

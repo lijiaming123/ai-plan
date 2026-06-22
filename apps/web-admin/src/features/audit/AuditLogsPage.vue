@@ -1,17 +1,26 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { getAdminApiClient, type AdminAuditLogRecord } from '../../lib/api-client';
-import { adminAuthState } from '../../stores/auth';
+import {
+  auditActionLabel,
+  isHighRiskAuditAction,
+} from '../../lib/audit-action-dictionary';
+import { exportCsvWithAudit } from '../../lib/export-with-audit';
+import { adminAuthState, adminProfile } from '../../stores/auth';
 
 const limit = ref(50);
 const actorId = ref('');
 const action = ref('');
 const from = ref('');
 const to = ref('');
+const highRiskOnly = ref(false);
 
 const rows = ref<AdminAuditLogRecord[]>([]);
 const error = ref('');
 const loading = ref(false);
+const exporting = ref(false);
+
+const canExport = computed(() => adminProfile.permissions.includes('analytics:export'));
 
 function displayText(value: string | null | undefined, fallback = '--') {
   const v = typeof value === 'string' ? value.trim() : '';
@@ -40,6 +49,15 @@ function formatDateTime(value: string) {
 
 const canSubmit = computed(() => !loading.value && limit.value >= 1 && limit.value <= 200);
 
+const visibleRows = computed(() => {
+  if (!highRiskOnly.value) return rows.value;
+  return rows.value.filter((r) => isHighRiskAuditAction(r.action));
+});
+
+const highRiskCount = computed(() => rows.value.filter((r) => isHighRiskAuditAction(r.action)).length);
+
+const exportCount = computed(() => rows.value.filter((r) => r.action.includes('export')).length);
+
 async function load() {
   if (!canSubmit.value) return;
   loading.value = true;
@@ -66,7 +84,44 @@ function resetFilters() {
   action.value = '';
   from.value = '';
   to.value = '';
+  highRiskOnly.value = false;
   void load();
+}
+
+function applyHighRiskFilter() {
+  highRiskOnly.value = true;
+  action.value = '';
+}
+
+async function exportCsv() {
+  if (!canExport.value || exporting.value || visibleRows.value.length === 0) return;
+  exporting.value = true;
+  try {
+    await exportCsvWithAudit(adminAuthState.token, {
+      filename: `audit-logs-${new Date().toISOString().slice(0, 10)}.csv`,
+      columns: [
+        { key: 'createdAt', label: '时间' },
+        { key: 'actorEmail', label: '操作者' },
+        { key: 'action', label: '动作' },
+        { key: 'target', label: '目标' },
+        { key: 'summary', label: '摘要' },
+      ],
+      rows: visibleRows.value.map((r) => ({
+        createdAt: formatDateTime(r.createdAt),
+        actorEmail: r.actorEmail,
+        action: r.action,
+        target: `${displayTarget(r.targetType, r.targetId).type}:${displayTarget(r.targetType, r.targetId).id}`,
+        summary: displayText(r.summary),
+      })),
+      action: 'audit.export',
+      summary: `audit rows=${visibleRows.value.length} highRisk=${highRiskOnly.value}`,
+      meta: { limit: limit.value, actorId: actorId.value, action: action.value },
+    });
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : '导出失败。';
+  } finally {
+    exporting.value = false;
+  }
 }
 
 onMounted(() => void load());
@@ -76,11 +131,44 @@ onMounted(() => void load());
   <section class="page page--wide" :aria-busy="loading">
     <span class="badge">合规留痕</span>
     <header class="section-stack">
-      <h1 class="hero-title">审计日志</h1>
+      <h1 class="hero-title">审计工作台</h1>
       <p class="hero-subtitle">
-        记录后台治理相关动作，支持按操作者、动作类型与时间范围检索。建议先用较小的时间窗口定位，再逐步放宽范围。
+        记录后台治理相关动作，支持按操作者、动作类型与时间范围检索。审计员默认以此页为首页。
       </p>
     </header>
+
+    <div class="stats-grid stats-grid--tight">
+      <article class="stat-card">
+        <span class="stat-label">当前结果</span>
+        <strong class="stat-value">{{ rows.length }}</strong>
+        <p class="stat-help">本次查询返回条数。</p>
+      </article>
+      <article class="stat-card">
+        <span class="stat-label">高风险</span>
+        <strong class="stat-value">{{ highRiskCount }}</strong>
+        <p class="stat-help">含 rbac / export / disable 等动作。</p>
+      </article>
+      <article class="stat-card">
+        <span class="stat-label">导出类</span>
+        <strong class="stat-value">{{ exportCount }}</strong>
+        <p class="stat-help">analytics.export / audit.export。</p>
+      </article>
+    </div>
+
+    <div class="chip-row">
+      <button type="button" class="chip-btn" :class="{ 'chip-btn--active': highRiskOnly }" @click="applyHighRiskFilter">
+        仅看高风险
+      </button>
+      <button type="button" class="chip-btn" :disabled="!highRiskOnly" @click="highRiskOnly = false">显示全部</button>
+      <button
+        type="button"
+        class="ghost-btn"
+        :disabled="!canExport || exporting || visibleRows.length === 0"
+        @click="exportCsv"
+      >
+        {{ exporting ? '导出中...' : '导出 CSV' }}
+      </button>
+    </div>
 
     <form class="filters" @submit.prevent="load">
       <label class="field">
@@ -94,7 +182,7 @@ onMounted(() => void load());
       </label>
       <label class="field field--grow">
         <span>action</span>
-        <input v-model="action" type="text" placeholder="可选（如 rbac.grant）" autocomplete="off" />
+        <input v-model="action" type="text" placeholder="可选（如 rbac.admin.create）" autocomplete="off" />
       </label>
       <label class="field">
         <span>开始时间</span>
@@ -121,7 +209,7 @@ onMounted(() => void load());
       <button type="button" class="ghost-btn" @click="load">重试</button>
     </div>
 
-    <p v-else-if="rows.length === 0" class="empty-hint">当前范围没有审计记录。</p>
+    <p v-else-if="visibleRows.length === 0" class="empty-hint">当前范围没有审计记录。</p>
 
     <section v-else class="detail-card">
       <h2 class="detail-card__title">最近记录</h2>
@@ -137,13 +225,16 @@ onMounted(() => void load());
             </tr>
           </thead>
           <tbody>
-            <tr v-for="r in rows" :key="r.id">
+            <tr v-for="r in visibleRows" :key="r.id">
               <td class="mono">{{ formatDateTime(r.createdAt) }}</td>
               <td>
                 <span class="cell-strong mono">{{ r.actorEmail }}</span>
                 <span class="cell-muted mono">{{ r.actorId }}</span>
               </td>
-              <td class="mono">{{ r.action }}</td>
+              <td class="mono">
+                <span>{{ auditActionLabel(r.action) }}</span>
+                <span class="cell-muted">{{ r.action }}</span>
+              </td>
               <td class="mono">
                 <span class="cell-strong">{{ displayTarget(r.targetType, r.targetId).type }}</span>
                 <span class="cell-muted">{{ displayTarget(r.targetType, r.targetId).id }}</span>
@@ -153,15 +244,19 @@ onMounted(() => void load());
           </tbody>
         </table>
       </div>
-      <p class="small-print">仅展示最近 {{ rows.length }} 条；建议使用时间范围筛选定位关键事件。</p>
+      <p class="small-print">展示 {{ visibleRows.length }} 条；建议使用时间范围筛选定位关键事件。</p>
     </section>
   </section>
 </template>
 
 <style scoped>
+.stats-grid--tight {
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  margin-bottom: 1rem;
+}
+
 .audit-summary {
   max-width: 34rem;
   line-height: 1.55;
 }
 </style>
-

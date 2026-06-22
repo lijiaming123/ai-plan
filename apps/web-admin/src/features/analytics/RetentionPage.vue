@@ -2,7 +2,8 @@
 import { computed, onMounted, ref } from 'vue';
 import { getAdminApiClient } from '../../lib/api-client';
 import type { AdminRetentionResponse, AdminRetentionRow } from '../../lib/api-client';
-import { adminAuthState } from '../../stores/auth';
+import { exportCsvWithAudit } from '../../lib/export-with-audit';
+import { adminAuthState, adminProfile } from '../../stores/auth';
 
 function toYmd(d: Date) {
   return d.toISOString().slice(0, 10);
@@ -53,6 +54,8 @@ const offsetsError = computed(() => {
 });
 
 const canSubmit = computed(() => !loading.value && !dateError.value && !offsetsError.value);
+const canExport = computed(() => adminProfile.permissions.includes('analytics:export'));
+const exporting = ref(false);
 
 const filterSummary = computed(() => {
   const parts: string[] = [];
@@ -110,6 +113,44 @@ onMounted(() => {
   setQuickCohort(30);
   void load();
 });
+
+async function exportCsv() {
+  if (!data.value || !canExport.value || exporting.value) return;
+  exporting.value = true;
+  const offsets = sortedOffsets.value;
+  try {
+    await exportCsvWithAudit(adminAuthState.token, {
+      filename: `retention-${data.value.cohortStart}-${data.value.cohortEnd}.csv`,
+      columns: [
+        { key: 'cohortDay', label: 'Cohort 日' },
+        { key: 'cohortSize', label: 'Cohort 规模' },
+        ...offsets.flatMap((n) => [
+          { key: `d${n}_count`, label: `D${n} 留存人数` },
+          { key: `d${n}_rate`, label: `D${n} 留存率` },
+        ]),
+      ],
+      rows: data.value.rows.map((row: AdminRetentionRow) => {
+        const out: Record<string, unknown> = {
+          cohortDay: row.cohortDay,
+          cohortSize: row.cohortSize,
+        };
+        for (const n of offsets) {
+          const cell = retainedAt(row, n);
+          out[`d${n}_count`] = cell.count;
+          out[`d${n}_rate`] = `${(cell.rate * 100).toFixed(1)}%`;
+        }
+        return out;
+      }),
+      action: 'analytics.export',
+      summary: `retention ${filterSummary.value}`,
+      meta: { cohortStart: data.value.cohortStart, cohortEnd: data.value.cohortEnd },
+    });
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : '导出失败。';
+  } finally {
+    exporting.value = false;
+  }
+}
 </script>
 
 <template>
@@ -164,6 +205,15 @@ onMounted(() => {
           <button type="button" class="chip-btn" :disabled="loading" @click="setQuickCohort(30)">近 30 天</button>
         </div>
         <button type="submit" class="primary-btn" :disabled="!canSubmit">查询</button>
+        <button
+          type="button"
+          class="ghost-btn"
+          :disabled="!data || !canExport || exporting"
+          :title="canExport ? '导出当前留存结果' : '需要 analytics:export 权限'"
+          @click="exportCsv"
+        >
+          {{ exporting ? '导出中...' : '导出 CSV' }}
+        </button>
         <button type="button" class="ghost-btn" :disabled="loading" @click="resetFilters">重置</button>
       </div>
       <div class="filters-summary">

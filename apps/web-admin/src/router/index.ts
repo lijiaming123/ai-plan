@@ -11,6 +11,7 @@ import AuditLogsPage from '../features/audit/AuditLogsPage.vue';
 import LoginPage from '../features/auth/LoginPage.vue';
 import RegisterPage from '../features/auth/RegisterPage.vue';
 import ForbiddenPage from '../features/auth/ForbiddenPage.vue';
+import AdminUsersPage from '../features/admin-users/AdminUsersPage.vue';
 import AccessControlPage from '../features/access/AccessControlPage.vue';
 import { getDefaultAdminPath, hasAdminPermission } from '../lib/admin-access';
 import type { AdminPermission } from '../lib/api-client';
@@ -83,6 +84,12 @@ export function createAdminRouter(history: RouterHistory = createWebHistory()) {
         name: 'admin-audit-logs',
         component: AuditLogsPage,
         meta: { permission: 'audit:read' },
+      },
+      {
+        path: '/admin/admin-users',
+        name: 'admin-admin-users',
+        component: AdminUsersPage,
+        meta: { permission: 'rbac:manage' },
       },
       { path: '/admin', redirect: '/admin/access' },
       { path: '/:pathMatch(.*)*', redirect: '/admin/access' },

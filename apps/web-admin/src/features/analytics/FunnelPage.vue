@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { getAdminApiClient, type AdminFunnelResponse } from '../../lib/api-client';
-import { adminAuthState } from '../../stores/auth';
+import { exportCsvWithAudit } from '../../lib/export-with-audit';
+import { adminAuthState, adminProfile } from '../../stores/auth';
 
 function toYmd(d: Date) {
   return d.toISOString().slice(0, 10);
@@ -25,6 +26,8 @@ const dateError = computed(() => {
 });
 
 const canSubmit = computed(() => !loading.value && !dateError.value && !!startDate.value && !!endDate.value);
+const canExport = computed(() => adminProfile.permissions.includes('analytics:export'));
+const exporting = ref(false);
 
 const filterSummary = computed(() => {
   const parts: string[] = [];
@@ -77,6 +80,34 @@ onMounted(() => {
   setQuickRange(7);
   void load();
 });
+
+async function exportCsv() {
+  if (!data.value || !canExport.value || exporting.value) return;
+  exporting.value = true;
+  try {
+    await exportCsvWithAudit(adminAuthState.token, {
+      filename: `funnel-${data.value.start}-${data.value.end}.csv`,
+      columns: [
+        { key: 'step', label: '步骤' },
+        { key: 'count', label: '人数' },
+        { key: 'conversionFromPrev', label: '相对上一阶段' },
+      ],
+      rows: data.value.steps.map((row) => ({
+        step: row.step,
+        count: row.count,
+        conversionFromPrev:
+          row.conversionFromPrev == null ? '' : `${(row.conversionFromPrev * 100).toFixed(1)}%`,
+      })),
+      action: 'analytics.export',
+      summary: `funnel ${filterSummary.value}`,
+      meta: { template: data.value.template, start: data.value.start, end: data.value.end },
+    });
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : '导出失败。';
+  } finally {
+    exporting.value = false;
+  }
+}
 </script>
 
 <template>
@@ -127,6 +158,15 @@ onMounted(() => {
           <button type="button" class="chip-btn" :disabled="loading" @click="setQuickRange(30)">近 30 天</button>
         </div>
         <button type="submit" class="primary-btn" :disabled="!canSubmit">查询</button>
+        <button
+          type="button"
+          class="ghost-btn"
+          :disabled="!data || !canExport || exporting"
+          :title="canExport ? '导出当前漏斗结果' : '需要 analytics:export 权限'"
+          @click="exportCsv"
+        >
+          {{ exporting ? '导出中...' : '导出 CSV' }}
+        </button>
         <button type="button" class="ghost-btn" :disabled="loading" @click="resetFilters">重置</button>
       </div>
       <div class="filters-summary">

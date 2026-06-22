@@ -3,8 +3,14 @@ import { prisma } from '../../lib/prisma';
 
 export type AuditAction =
   | 'analytics.export'
+  | 'audit.export'
   | 'analytics.drilldown'
   | 'rbac.change'
+  | 'rbac.admin.create'
+  | 'rbac.admin.update'
+  | 'rbac.admin.disable'
+  | 'rbac.admin.enable'
+  | 'rbac.admin.reset_password'
   | 'user.ban'
   | 'user.unban'
   | 'user.plan_tier'
@@ -13,7 +19,7 @@ export type AuditAction =
 export async function writeAuditLog(input: {
   actorId: string;
   actorEmail: string;
-  action: AuditAction;
+  action: AuditAction | string;
   targetType?: string;
   targetId?: string;
   summary?: string;

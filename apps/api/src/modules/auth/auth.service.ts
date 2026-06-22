@@ -4,6 +4,7 @@
 import bcrypt from 'bcryptjs';
 import { prisma } from '../../lib/prisma';
 import { ADMIN_PERMISSIONS } from '../admin/admin-permissions';
+import { permissionsForPreset } from '../admin/admin-account-presets';
 
 export type AuthUserRole = 'user' | 'admin';
 
@@ -22,12 +23,10 @@ export type AuthUser = {
 
 export type AdminRegisterPreset = 'analyst' | 'auditor';
 
-/** 预置权限包（与 JWT permissions 对齐，便于运营台自助注册时选用） */
+/** 预置权限包（与 admin-account-presets / web-admin adminPresetMeta 对齐） */
 export const ADMIN_PERMISSION_PRESET = {
-  /** 增长分析 + 用户列表（日常运营） */
-  analyst: ['analytics:read', 'users:read'] as const,
-  /** 审计日志 + 只读分析（合规/内控） */
-  auditor: ['audit:read', 'analytics:read'] as const,
+  analyst: permissionsForPreset('analyst') ?? ['analytics:read', 'analytics:export', 'users:read'],
+  auditor: permissionsForPreset('auditor') ?? ['audit:read', 'analytics:export'],
 } as const;
 
 const BCRYPT_COST = 12;
@@ -100,6 +99,7 @@ async function authenticateAdminUser(identifier: string, password: string): Prom
       },
     });
     if (!row) return null;
+    if (row.disabledAt) return null;
     const ok = await bcrypt.compare(password, row.passwordHash);
     if (!ok) return null;
     const perms = row.permissions;

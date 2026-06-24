@@ -142,23 +142,10 @@ describe("auth otp", () => {
       },
     });
 
-    // 已注册场景的再次注册校验：避免被上一次发送触发的 cooldown 影响
     await prisma.authOtp.deleteMany({ where: { phone, purpose: "register" } });
     const send2 = await postOtpSend(app, { phone, purpose: "register" });
-    expect(send2.statusCode).toBe(200);
-    const b2 = JSON.parse(send2.body) as { codeForTest?: string };
-    const verify2 = await app.inject({
-      method: "POST",
-      url: "/auth/otp/verify",
-      payload: {
-        phone,
-        purpose: "register",
-        code: b2.codeForTest,
-        password: "OtherP2!!",
-        passwordConfirm: "OtherP2!!",
-      },
-    });
-    expect(verify2.statusCode).toBe(409);
+    expect(send2.statusCode).toBe(409);
+    expect(JSON.parse(send2.body).message).toBe("该手机号已注册，请直接登录");
 
     await app.close();
   });

@@ -65,7 +65,7 @@ export async function sendOtp(params: {
       /** 仅测试环境回传，便于前端/后端测试闭环 */
       codeForTest?: string;
     }
-  | { ok: false; code: 400 | 429 | 502; message: string; cooldownSeconds?: number }
+  | { ok: false; code: 400 | 409 | 429 | 502; message: string; cooldownSeconds?: number }
 > {
   const phone = normalizePhoneCN(String(params.phoneRaw ?? ""));
   if (!phone) return { ok: false, code: 400, message: "请输入有效手机号" };
@@ -75,6 +75,16 @@ export async function sendOtp(params: {
       : params.purposeRaw === "reset"
         ? "reset"
         : "login";
+
+  if (purpose === "register") {
+    const existing = await prisma.user.findUnique({
+      where: { phone },
+      select: { passwordHash: true },
+    });
+    if (existing?.passwordHash) {
+      return { ok: false, code: 409, message: "该手机号已注册，请直接登录" };
+    }
+  }
 
   const now = new Date();
   const last = await prisma.authOtp.findFirst({

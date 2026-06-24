@@ -468,6 +468,33 @@ describe('PlanDetailPage schedule', () => {
     });
   });
 
+  it('模板模块关闭时计划详情不应展示发布为模板', async () => {
+    vi.stubEnv('VITE_FEATURE_TEMPLATES', 'false');
+    clearAuthToken();
+    setAuthToken(demoJwt());
+    getPlanMock.mockResolvedValueOnce({
+      id: 'plan_1',
+      userId: 'user_demo',
+      goal: '测试计划',
+      deadline: new Date().toISOString(),
+      requirement: '正文',
+      type: 'general',
+      status: 'active',
+      draft: null,
+      scheduleSlotSubmissions: {},
+    });
+
+    const router = createAppRouter(createMemoryHistory());
+    await router.push('/plans/plan_1');
+    await router.isReady();
+
+    const wrapper = mount(PlanDetailPage, { global: { plugins: [router] } });
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="btn-publish-template"]').exists()).toBe(false);
+    vi.unstubAllEnvs();
+  });
+
   it('发布模板后应发送 template_publish 埋点', async () => {
     clearAuthToken();
     setAuthToken(demoJwt());

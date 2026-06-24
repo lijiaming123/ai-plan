@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
+import { RouterLink } from 'vue-router';
 import PageSectionHeading from '../../components/PageSectionHeading.vue';
+import { LEGAL_ROUTES } from '../../lib/legal-meta';
 
 type FaqCategory = 'plan' | 'task' | 'template' | 'account';
 
@@ -76,6 +78,13 @@ const faqs: FaqItem[] = [
     title: '收不到验证码怎么办？',
     body: '登录可用验证码或密码；「收不到验证码？」请在登录页查看说明弹层。找回密码需在验证手机号后设置新密码。演示环境通常不发真实短信，验证码可在服务端日志查看。生产环境需接入短信服务商。',
     keywords: '验证码 短信 登录 找回 演示',
+  },
+  {
+    id: 'legal-docs',
+    category: 'account',
+    title: '隐私政策与用户协议在哪里？',
+    body: '注册前需阅读并同意《用户协议》与《隐私政策》。登录页、忘记密码页底部，以及本页「法律与合规」区块均可查阅全文。如有个人信息相关疑问，请通过反馈邮件联系我们。',
+    keywords: '隐私 协议 合规 法律 条款',
   },
   {
     id: 'contact',
@@ -286,6 +295,34 @@ function submitFeedback() {
             </router-link>
           </template>
         </nav>
+      </section>
+
+      <section
+        class="help-panel mb-6 overflow-hidden rounded-[1.25rem] border border-emerald-200/55 bg-white/75 p-5 shadow-[0_16px_40px_-28px_rgba(10,143,74,0.18)] ring-1 ring-white/90 backdrop-blur-md"
+        data-testid="help-legal-section"
+      >
+        <h3 class="text-base font-extrabold text-emerald-950">法律与合规</h3>
+        <p class="mt-2 text-sm leading-relaxed text-stone-600">
+          使用计划大师即表示您同意以下文件。建议在注册前完整阅读。
+        </p>
+        <div class="mt-4 flex flex-wrap gap-3">
+          <RouterLink
+            :to="LEGAL_ROUTES.privacy"
+            class="inline-flex items-center gap-2 rounded-xl border border-emerald-200/70 bg-white px-4 py-2.5 text-sm font-bold text-emerald-950 shadow-sm transition hover:border-[#0a8f4a]/40"
+            data-testid="help-link-privacy"
+          >
+            <span class="material-symbols-outlined text-[18px] text-[#0a8f4a]" aria-hidden="true">shield</span>
+            隐私政策
+          </RouterLink>
+          <RouterLink
+            :to="LEGAL_ROUTES.terms"
+            class="inline-flex items-center gap-2 rounded-xl border border-emerald-200/70 bg-white px-4 py-2.5 text-sm font-bold text-emerald-950 shadow-sm transition hover:border-[#0a8f4a]/40"
+            data-testid="help-link-terms"
+          >
+            <span class="material-symbols-outlined text-[18px] text-[#0a8f4a]" aria-hidden="true">gavel</span>
+            用户协议
+          </RouterLink>
+        </div>
       </section>
 
       <section

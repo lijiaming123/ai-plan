@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory, createMemoryHistory, type RouterHistory } from 'vue-router';
 import { authState } from '../stores/auth';
 import { trackPageView } from '../lib/telemetry';
+import { isTemplatesFeatureEnabled } from '../lib/feature-flags';
 
 // 路由懒加载：首屏只加载壳层与必要代码，页面按需拉取
 const isTest = import.meta.env.MODE === 'test';
@@ -15,6 +16,12 @@ const LoginPage = isTest
 const ForgotPasswordPage = isTest
   ? (await import('../features/auth/ForgotPasswordPage.vue')).default
   : () => import('../features/auth/ForgotPasswordPage.vue');
+const PrivacyPolicyPage = isTest
+  ? (await import('../features/legal/PrivacyPolicyPage.vue')).default
+  : () => import('../features/legal/PrivacyPolicyPage.vue');
+const TermsOfServicePage = isTest
+  ? (await import('../features/legal/TermsOfServicePage.vue')).default
+  : () => import('../features/legal/TermsOfServicePage.vue');
 
 const DashboardPage = isTest
   ? (await import('../features/dashboard/DashboardPage.vue')).default
@@ -83,6 +90,8 @@ export function createAppRouter(history: RouterHistory = createWebHistory()) {
       { path: '/auth/login', name: 'login', component: LoginPage },
       { path: '/auth/register', name: 'register', component: LoginPage },
       { path: '/auth/forgot-password', name: 'forgot-password', component: ForgotPasswordPage },
+      { path: '/legal/privacy', name: 'legal-privacy', component: PrivacyPolicyPage },
+      { path: '/legal/terms', name: 'legal-terms', component: TermsOfServicePage },
       {
         path: '/templates/market/:id',
         name: 'template-market-detail',
@@ -193,6 +202,12 @@ export function createAppRouter(history: RouterHistory = createWebHistory()) {
     const needAuth = to.matched.some((record) => record.meta.requiresAuth);
     if (needAuth && !authState.token) {
       return '/auth/login';
+    }
+    if (
+      !isTemplatesFeatureEnabled() &&
+      (to.path === '/templates' || to.path.startsWith('/templates/'))
+    ) {
+      return '/plans/new';
     }
     return true;
   });

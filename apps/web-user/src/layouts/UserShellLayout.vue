@@ -14,6 +14,8 @@ import {
   shellSidebarCollapsed,
   toggleShellSidebar,
 } from "../stores/shell-sidebar";
+import { isTemplatesFeatureEnabled } from "../lib/feature-flags";
+import { useTierBadge } from "../composables/useTierBadge";
 
 const route = useRoute();
 const router = useRouter();
@@ -24,14 +26,7 @@ const activeNav = computed(() =>
 
 const showPlanSearch = computed(() => route.name === "plan-overview");
 
-const tierLabel = computed(() => {
-  if (authState.tier === "pro") {
-    return authState.subscriptionSource === "trial"
-      ? "专业版（试用）"
-      : "专业版";
-  }
-  return "基础版";
-});
+const { tierBadgeLabel: tierLabel } = useTierBadge();
 
 const displayPhone = computed(() => authState.userPhone || "未登录手机号");
 
@@ -110,8 +105,12 @@ const primaryNavItems = [
 ] as const;
 
 /** 部署方可将 VITE_FEATURE_ARCHIVE / VITE_FEATURE_INSIGHTS 设为 false 隐藏侧栏入口（默认可用）。 */
+/** MVP 默认关闭 VITE_FEATURE_TEMPLATES；设为 true/1 时显示「模板」导航。 */
 const visiblePrimaryNavItems = computed(() =>
   primaryNavItems.filter((item) => {
+    if (item.nav === "templates") {
+      return isTemplatesFeatureEnabled();
+    }
     if (item.nav === "archive") {
       const v = import.meta.env.VITE_FEATURE_ARCHIVE as string | undefined;
       return v !== "false" && v !== "0";
@@ -212,9 +211,6 @@ if (typeof window !== "undefined") {
                   >
                     计划大师
                   </h2>
-                  <p class="mt-1 whitespace-nowrap text-sm text-[#7c8a84]">
-                    PlanMaster System
-                  </p>
                 </div>
               </div>
             </div>
@@ -325,17 +321,6 @@ if (typeof window !== "undefined") {
             >
           </router-link>
         </ElTooltip>
-        <p
-          class="shell-sidebar-footer-meta overflow-hidden text-center text-[10px] text-[#a8b5af] transition-[max-height,opacity,transform] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]"
-          :class="
-            shellSidebarCollapsed
-              ? 'max-h-0 -translate-x-2 opacity-0'
-              : 'max-h-8 translate-x-0 opacity-100'
-          "
-          :aria-hidden="shellSidebarCollapsed ? 'true' : 'false'"
-        >
-          PlanMaster v0.1
-        </p>
       </div>
     </aside>
 
@@ -375,9 +360,7 @@ if (typeof window !== "undefined") {
               type="button"
               class="relative inline-flex h-11 w-11 items-center justify-center rounded-xl border border-transparent text-[#555] hover:bg-white/80"
               :aria-label="
-                notifUnread > 0
-                  ? `通知，有 ${notifUnread} 条未读`
-                  : '通知'
+                notifUnread > 0 ? `通知，有 ${notifUnread} 条未读` : '通知'
               "
               data-testid="header-notifications"
               @click="goNotifications"
@@ -387,9 +370,7 @@ if (typeof window !== "undefined") {
                 v-if="notifUnread > 0"
                 class="absolute right-1.5 top-1.5 min-w-[1.125rem] rounded-full bg-amber-500 px-0.5 text-center text-[10px] font-black leading-4 text-[#0f1f0c] ring-1 ring-amber-200/90"
                 data-testid="header-notifications-badge"
-                >{{
-                  notifUnread > 9 ? "9+" : notifUnread
-                }}</span
+                >{{ notifUnread > 9 ? "9+" : notifUnread }}</span
               >
             </button>
             <ElDropdown

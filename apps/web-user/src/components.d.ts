@@ -11,6 +11,8 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
+    AuthOtpCaptchaBlock: typeof import('./components/auth/AuthOtpCaptchaBlock.vue')['default']
+    AuthPasswordField: typeof import('./components/auth/AuthPasswordField.vue')['default']
     ElConfigProvider: typeof import('element-plus/es')['ElConfigProvider']
     ElDatePicker: typeof import('element-plus/es')['ElDatePicker']
     ElDrawer: typeof import('element-plus/es')['ElDrawer']
@@ -29,8 +31,10 @@ declare module 'vue' {
     UiConfirmDialog: typeof import('./components/UiConfirmDialog.vue')['default']
     UiEllipsisTooltip: typeof import('./components/UiEllipsisTooltip.vue')['default']
     UiErrorToast: typeof import('./components/UiErrorToast.vue')['default']
+    UiModalShell: typeof import('./components/UiModalShell.vue')['default']
     UiMoreDropdown: typeof import('./components/UiMoreDropdown.vue')['default']
     UiSunriseSelect: typeof import('./components/UiSunriseSelect.vue')['default']
+    UiSwitchToggle: typeof import('./components/UiSwitchToggle.vue')['default']
     UserAvatarBadge: typeof import('./components/UserAvatarBadge.vue')['default']
   }
 }

@@ -1176,3 +1176,23 @@
 - apps/web-admin/tests/admin-access.test.ts
 - .ai/progress.md
 - .ai/logs/operation-log.md
+
+## 2026-06-23 11:31:15
+
+- 操作人：AI
+- 操作：Story实施
+- 提示词：响应用户「Implement the plan as specified（MVP 商用化：模板模块隐藏）」
+- 内容：采纳 MVP 决策：新增 ADR 与 Phase2 门禁文档；web-user 增加 VITE_FEATURE_TEMPLATES 开关（默认关闭）；隐藏侧栏模板导航、/templates 重定向至 /plans/new、计划详情隐藏「发布为模板」；创建页内嵌官方预设预填表单；补充 feature-flags/plan-create/plan-detail 单测；Vitest 环境默认 VITE_FEATURE_TEMPLATES=true 以保留模板域回归。
+- 状态：成功
+- 相关文件：
+- .ai/decisions/2026-06-23-mvp-hide-template-market.md
+- .ai/decisions/2026-06-23-template-market-phase2-gates.md
+- apps/web-user/src/lib/feature-flags.ts
+- apps/web-user/src/layouts/UserShellLayout.vue
+- apps/web-user/src/router/index.ts
+- apps/web-user/src/features/plans/PlanDetailPage.vue
+- apps/web-user/src/features/plans/PlanCreatePage.vue
+- apps/web-user/vite.config.ts
+- apps/web-user/tests/feature-flags.test.ts
+- apps/web-user/tests/plan-create-page.test.ts
+- apps/web-user/tests/plan-detail-page.test.ts

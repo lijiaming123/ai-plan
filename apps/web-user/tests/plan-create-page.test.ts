@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
 import { ElSelect } from 'element-plus';
 import type { VueWrapper } from '@vue/test-utils';
@@ -660,5 +660,76 @@ describe('PlanCreatePage', () => {
     expect(wrapper.find('[data-testid="plan-scenario-other-checkin-hint"]').exists()).toBe(true);
     expect(wrapper.text()).toContain('勾选完成');
     expect(wrapper.text()).toContain('不需要');
+  });
+
+  it('模板模块关闭时应展示官方示例并预填表单', async () => {
+    vi.stubEnv('VITE_FEATURE_TEMPLATES', 'false');
+    const listPresets = vi.fn().mockResolvedValue({
+      items: [
+        {
+          id: 'pr1',
+          slug: 'preset-study',
+          title: '备考冲刺',
+          summary: '示例',
+          coverImageUrl: null,
+          category: 'study',
+          tags: ['学习'],
+          locale: 'zh-CN',
+          sortOrder: 0,
+        },
+      ],
+    });
+    const getPresetTemplateDetail = vi.fn().mockResolvedValue({
+      id: 'pr1',
+      authorId: 'system',
+      authorName: '系统预设',
+      title: '备考冲刺',
+      summary: '示例',
+      category: 'study',
+      tags: ['学习'],
+      likeCount: 0,
+      applicationCount: 0,
+      publishedAt: null,
+      preview: {
+        goal: '12周备考',
+        deadline: '2026-12-31T00:00:00.000Z',
+        requirementExcerpt: '每日学习 2 小时',
+        type: 'study',
+        granularityMode: 'smart',
+        startDateIso: null,
+        versionId: 'preset:pr1',
+        version: 1,
+        payloadHash: 'preset:v1',
+      },
+    });
+    setApiClient({
+      ...createApiClient({ baseURL: 'http://test.local', fetchImpl: vi.fn() as unknown as typeof fetch }),
+      createPlan: createPlanMock,
+      planAssistant: planAssistantMock,
+      parsePlanFile: parsePlanFileMock,
+      getPlan: getPlanMock,
+      listPresets,
+      getPresetTemplateDetail,
+      getPlanAssistantContext: vi.fn().mockResolvedValue({
+        pinnedNotes: [],
+        recentSummaryInject: null,
+      }),
+    });
+    setAuthToken('token_123');
+    const router = createAppRouter(createMemoryHistory());
+    await router.push({ path: '/plans/new', query: { mode: 'basic' } });
+    await router.isReady();
+
+    const wrapper = mount(PlanCreatePage, { global: { plugins: [router] } });
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="create-preset-strip"]').exists()).toBe(true);
+    await wrapper.get('[data-testid="create-preset-pr1"]').trigger('click');
+    await flushPromises();
+
+    const nameEl = wrapper.get('input[aria-label="计划名称"]').element as HTMLInputElement;
+    expect(nameEl.value).toBe('12周备考');
+    expect(getPresetTemplateDetail).toHaveBeenCalledWith({ id: 'pr1' });
+    vi.unstubAllEnvs();
   });
 });

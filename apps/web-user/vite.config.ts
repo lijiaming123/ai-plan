@@ -66,6 +66,10 @@ export default defineConfig(({ mode }) => {
       globals: true,
       setupFiles: [],
       exclude: ["**/.worktrees/**"],
+      env: {
+        /** 单元测试仍覆盖模板域；生产 MVP 默认不设置此项即为关闭 */
+        VITE_FEATURE_TEMPLATES: "true",
+      },
       // 路由懒加载会触发更多动态编译/预处理，CI 或冷启动下可能超过默认 5s
       testTimeout: 15000,
       server: {

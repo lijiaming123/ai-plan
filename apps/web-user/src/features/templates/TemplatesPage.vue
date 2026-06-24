@@ -8,6 +8,10 @@ import { trackEvent } from '../../lib/telemetry';
 import { authState } from '../../stores/auth';
 import UiErrorToast from '../../components/UiErrorToast.vue';
 import TemplateMarketList from './TemplateMarketList.vue';
+import TemplatesFilterBar from './components/TemplatesFilterBar.vue';
+import TemplatesEditDialog from './components/TemplatesEditDialog.vue';
+import TemplatesPresetGrid from './components/TemplatesPresetGrid.vue';
+import TemplatesPagination from './components/TemplatesPagination.vue';
 
 const router = useRouter();
 const route = useRoute();
@@ -528,85 +532,17 @@ const myScopeOptions: MyScope[] = ['created', 'favorited', 'liked'];
     <UiErrorToast :message="errorToastMessage" @close="errorToastMessage = ''" />
 
     <div class="ui-scrollbar min-h-0 flex-1 overflow-y-auto pr-1 pb-2">
-    <div
-      class="sticky top-0 z-20 -mx-1 mb-6 rounded-3xl border border-stone-200/80 bg-white/60 p-4 ring-1 ring-white/70 shadow-sm backdrop-blur-sm sm:mx-0"
-      data-testid="template-filter-bar"
-    >
-      <div class="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-      <div class="relative min-w-0 flex-1">
-        <span
-          class="material-symbols-outlined pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[18px] text-stone-400"
-          aria-hidden="true"
-          >search</span
-        >
-        <input
-          v-model="searchQ"
-          type="search"
-          placeholder="搜索标题或摘要…"
-          class="h-10 w-full rounded-2xl border border-stone-200/80 bg-white/80 pl-10 pr-10 text-sm font-medium text-stone-800 ring-1 ring-white/70 outline-none transition placeholder:text-stone-400 focus:border-emerald-300/80 focus:ring-2 focus:ring-emerald-200/50"
-          data-testid="template-search"
-        />
-        <button
-          v-if="searchQ.trim()"
-          type="button"
-          class="absolute right-2 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-xl bg-white/70 text-stone-600 ring-1 ring-stone-200/70 transition hover:bg-white hover:text-stone-900"
-          aria-label="清空搜索"
-          data-testid="template-search-clear"
-          @click="searchQ = ''"
-        >
-          <span class="material-symbols-outlined text-[18px]" aria-hidden="true">close</span>
-        </button>
-      </div>
-      <select
-        v-model="filterCategory"
-        class="h-10 w-full rounded-2xl border border-stone-200/80 bg-white/80 px-3 text-sm font-semibold text-stone-700 ring-1 ring-white/70 outline-none transition focus:border-emerald-300/80 focus:ring-2 focus:ring-emerald-200/50 sm:w-40"
-        data-testid="template-category"
-      >
-        <option v-for="c in CATEGORY_OPTIONS" :key="c" :value="c">
-          {{ categoryLabel[c] ?? c }}
-        </option>
-      </select>
-      <label class="relative w-full sm:w-44">
-        <input
-          v-model="filterTag"
-          list="template-tag-options"
-          type="text"
-          placeholder="标签"
-          class="h-10 w-full rounded-2xl border border-stone-200/80 bg-white/80 px-3 text-sm font-medium text-stone-800 ring-1 ring-white/70 outline-none transition placeholder:text-stone-400 focus:border-emerald-300/80 focus:ring-2 focus:ring-emerald-200/50"
-          data-testid="template-tag"
-        />
-        <datalist id="template-tag-options">
-          <option v-for="t in HOT_TAGS" :key="t" :value="t" />
-        </datalist>
-      </label>
-
-      <button
-        v-if="hasFilters"
-        type="button"
-        class="inline-flex h-10 items-center justify-center gap-1.5 rounded-2xl border border-stone-200/80 bg-white/70 px-3 text-sm font-semibold text-stone-800 ring-1 ring-white/70 transition hover:bg-white sm:ml-auto"
-        data-testid="template-clear-filters"
-        @click="clearFilters"
-      >
-        <span class="material-symbols-outlined text-[18px]" aria-hidden="true">filter_alt_off</span>
-        清空筛选
-      </button>
-      </div>
-
-      <div class="mt-3 flex flex-wrap items-center gap-2 border-t border-stone-200/60 pt-3">
-        <span class="text-xs font-semibold text-stone-500">热门标签</span>
-        <button
-          v-for="t in HOT_TAGS"
-          :key="t"
-          type="button"
-          class="rounded-full bg-stone-100 px-2.5 py-1 text-xs font-semibold text-stone-700 ring-1 ring-stone-200/70 transition hover:bg-emerald-50 hover:text-emerald-900"
-          :class="filterTag.trim() === t ? 'bg-emerald-50 text-emerald-900 ring-emerald-200/70' : ''"
-          :data-testid="`hot-tag-${t}`"
-          @click="setTagQuick(t)"
-        >
-          {{ t }}
-        </button>
-      </div>
-    </div>
+    <TemplatesFilterBar
+      v-model:search-q="searchQ"
+      v-model:filter-category="filterCategory"
+      v-model:filter-tag="filterTag"
+      :has-filters="hasFilters"
+      :category-options="CATEGORY_OPTIONS"
+      :category-label="categoryLabel"
+      :hot-tags="HOT_TAGS"
+      @clear-filters="clearFilters"
+      @set-tag="setTagQuick"
+    />
 
     <!-- 我的模板 -->
     <div v-show="mainTab === 'mine'" class="space-y-5">
@@ -730,160 +666,40 @@ const myScopeOptions: MyScope[] = ['created', 'favorited', 'liked'];
           </template>
         </TemplateMarketList>
 
-        <UiConfirmDialog
-          v-if="editingTemplate"
-          :open="true"
-          title="编辑模板信息"
-          confirm-text="保存并重新审核"
-          cancel-text="取消"
-          :confirm-loading="editSubmitting"
-          @confirm="submitEdit"
+        <TemplatesEditDialog
+          :open="Boolean(editingTemplate)"
+          v-model:title="editForm.title"
+          v-model:summary="editForm.summary"
+          v-model:category="editForm.category"
+          v-model:tags="editForm.tags"
+          :submitting="editSubmitting"
+          :category-options="CATEGORY_OPTIONS"
+          :category-label="categoryLabel"
+          @submit="submitEdit"
           @cancel="closeEdit"
-        >
-          <div class="space-y-3 text-left">
-            <label class="block">
-              <span class="text-xs font-semibold text-stone-600">标题</span>
-              <input
-                v-model="editForm.title"
-                type="text"
-                class="mt-1 w-full rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-200 focus:ring-2 focus:ring-emerald-100"
-                data-testid="edit-title"
-              />
-            </label>
-            <label class="block">
-              <span class="text-xs font-semibold text-stone-600">摘要</span>
-              <textarea
-                v-model="editForm.summary"
-                rows="3"
-                class="mt-1 w-full rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-200 focus:ring-2 focus:ring-emerald-100"
-                data-testid="edit-summary"
-              />
-            </label>
-            <label class="block">
-              <span class="text-xs font-semibold text-stone-600">分类</span>
-              <select
-                v-model="editForm.category"
-                class="mt-1 w-full rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-200 focus:ring-2 focus:ring-emerald-100"
-                data-testid="edit-category"
-              >
-                <option v-for="c in CATEGORY_OPTIONS" :key="c" :value="c">
-                  {{ categoryLabel[c] ?? c }}
-                </option>
-              </select>
-            </label>
-            <label class="block">
-              <span class="text-xs font-semibold text-stone-600">标签（逗号分隔）</span>
-              <input
-                v-model="editForm.tags"
-                type="text"
-                class="mt-1 w-full rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-200 focus:ring-2 focus:ring-emerald-100"
-                data-testid="edit-tags"
-              />
-            </label>
-          </div>
-        </UiConfirmDialog>
+        />
 
-        <div class="flex items-center justify-end gap-2" aria-label="分页">
-          <button
-            type="button"
-            class="rounded-2xl border border-stone-200/80 bg-white/70 px-3 py-2 text-sm font-bold text-stone-800 ring-1 ring-white/70 transition hover:bg-white disabled:opacity-50"
-            data-testid="page-prev"
-            :disabled="!canPrev || loadingMy"
-            @click="prevPage"
-          >
-            上一页
-          </button>
-          <span class="text-sm font-semibold text-stone-500">{{ pageLabel }}</span>
-          <button
-            type="button"
-            class="rounded-2xl border border-stone-200/80 bg-white/70 px-3 py-2 text-sm font-bold text-stone-800 ring-1 ring-white/70 transition hover:bg-white disabled:opacity-50"
-            data-testid="page-next"
-            :disabled="!canNext || loadingMy"
-            @click="nextPage"
-          >
-            下一页
-          </button>
-        </div>
+        <TemplatesPagination
+          :page-label="pageLabel"
+          :can-prev="canPrev"
+          :can-next="canNext"
+          :loading="loadingMy"
+          @prev="prevPage"
+          @next="nextPage"
+        />
       </template>
     </div>
 
     <!-- 模板市场 -->
     <div v-show="mainTab === 'market'" class="space-y-10">
-      <section>
-        <div class="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-          <h2 class="text-lg font-bold text-stone-900">系统预设</h2>
-        </div>
-        <div
-          v-if="loadingPresets"
-          class="flex min-h-[200px] flex-col items-center justify-center gap-2 text-stone-500"
-          data-testid="preset-grid"
-        >
-          <span
-            class="inline-block h-8 w-8 animate-spin rounded-full border-2 border-emerald-200 border-t-emerald-600"
-            aria-hidden="true"
-          />
-          <span class="text-sm font-medium">加载预设中…</span>
-        </div>
-        <div
-          v-else-if="presets.length === 0"
-          class="rounded-3xl border border-dashed border-stone-300/90 bg-white/60 px-6 py-12 text-center text-sm text-stone-600"
-          data-testid="preset-grid"
-        >
-          暂无系统预设，请稍后再试。
-        </div>
-        <ul v-else class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3" data-testid="preset-grid">
-          <li
-            v-for="p in presets"
-            :key="p.id"
-            class="flex flex-col overflow-hidden rounded-3xl border border-stone-200/80 bg-white/90 shadow-sm ring-1 ring-white/50 transition hover:-translate-y-0.5 hover:shadow-md"
-            :data-testid="`preset-card-${p.id}`"
-          >
-            <button
-              type="button"
-              class="group/preset-hit flex w-full flex-col p-5 text-left outline-none transition hover:bg-stone-50/60 focus-visible:bg-stone-50/80 focus-visible:ring-2 focus-visible:ring-emerald-200/80 focus-visible:ring-offset-2 focus-visible:ring-offset-white"
-              :data-testid="`preset-card-hit-${p.id}`"
-              :aria-label="`查看预设「${p.title}」详情`"
-              @click="openPresetDetail(p.id)"
-            >
-              <span
-                class="mb-2 inline-flex w-fit items-center gap-0.5 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide text-emerald-900 ring-1 ring-emerald-200/70"
-              >
-                <span class="material-symbols-outlined text-[14px]" aria-hidden="true">verified</span>
-                预设
-              </span>
-              <p class="line-clamp-2 text-base font-bold text-stone-900 group-hover/preset-hit:text-emerald-950">
-                {{ p.title }}
-              </p>
-              <p class="mt-1 line-clamp-3 text-sm leading-relaxed text-stone-600">{{ p.summary }}</p>
-              <div class="mt-3 flex flex-wrap gap-1.5">
-                <span
-                  class="inline-flex items-center gap-1 rounded-full bg-emerald-50/90 px-2 py-0.5 text-xs font-semibold text-emerald-900 ring-1 ring-emerald-200/60"
-                >
-                  <span class="material-symbols-outlined text-[14px]" aria-hidden="true">label</span>
-                  {{ categoryLabel[p.category] ?? p.category }}
-                </span>
-                <span
-                  v-for="t in p.tags"
-                  :key="t"
-                  class="rounded-full bg-stone-100 px-2 py-0.5 text-xs font-medium text-stone-600"
-                  >{{ t }}</span
-                >
-              </div>
-            </button>
-            <div class="border-t border-stone-100 bg-stone-50/50 px-5 py-4" @click.stop>
-              <button
-                type="button"
-                class="inline-flex w-fit items-center gap-1 rounded-full bg-[#0a8f4a] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-[#088a42]"
-                data-testid="preset-apply"
-                @click="applyPreset(p.id)"
-              >
-                <span class="material-symbols-outlined text-[18px]" aria-hidden="true">bolt</span>
-                {{ loggedIn ? '套用预设' : '登录后套用' }}
-              </button>
-            </div>
-          </li>
-        </ul>
-      </section>
+      <TemplatesPresetGrid
+        :presets="presets"
+        :loading="loadingPresets"
+        :logged-in="loggedIn"
+        :category-label="categoryLabel"
+        @apply="applyPreset"
+        @open-detail="openPresetDetail"
+      />
 
       <section>
         <div class="mb-3 flex flex-wrap items-baseline justify-between gap-2">
@@ -941,27 +757,14 @@ const myScopeOptions: MyScope[] = ['created', 'favorited', 'liked'];
           </template>
         </TemplateMarketList>
 
-        <div class="flex items-center justify-end gap-2" aria-label="分页">
-          <button
-            type="button"
-            class="rounded-2xl border border-stone-200/80 bg-white/70 px-3 py-2 text-sm font-bold text-stone-800 ring-1 ring-white/70 transition hover:bg-white disabled:opacity-50"
-            data-testid="page-prev"
-            :disabled="!canPrev || loadingMarket"
-            @click="prevPage"
-          >
-            上一页
-          </button>
-          <span class="text-sm font-semibold text-stone-500">{{ pageLabel }}</span>
-          <button
-            type="button"
-            class="rounded-2xl border border-stone-200/80 bg-white/70 px-3 py-2 text-sm font-bold text-stone-800 ring-1 ring-white/70 transition hover:bg-white disabled:opacity-50"
-            data-testid="page-next"
-            :disabled="!canNext || loadingMarket"
-            @click="nextPage"
-          >
-            下一页
-          </button>
-        </div>
+        <TemplatesPagination
+          :page-label="pageLabel"
+          :can-prev="canPrev"
+          :can-next="canNext"
+          :loading="loadingMarket"
+          @prev="prevPage"
+          @next="nextPage"
+        />
       </section>
     </div>
     </div>

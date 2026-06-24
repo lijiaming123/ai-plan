@@ -1,40 +1,22 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import PageSectionHeading from "../../components/PageSectionHeading.vue";
 import UiErrorToast from "../../components/UiErrorToast.vue";
 import UiConfirmDialog from "../../components/UiConfirmDialog.vue";
-import {
-  getApiClient,
-  type CheckinListSegment,
-  type PlanListRow,
-} from "../../lib/api-client";
+import { getApiClient, type PlanListRow } from "../../lib/api-client";
 import { buildPlanCardDisplayTexts } from "../../lib/plan-list-card-text";
 import { useCloseOnEscape } from "../../composables/useCloseOnEscape";
 import { authState } from "../../stores/auth";
 import { planListSearchQuery } from "../../stores/plan-search-query";
-
-type PlanStatus = "执行中" | "已完成" | "未开始";
-type FilterType = "全部" | "执行中" | "已完成" | "未开始";
-type StatusQuery = "in_progress" | "completed" | "not_started";
-
-type PlanCard = {
-  id: string;
-  title: string;
-  description: string;
-  /** 封面区一行摘要（已去 Markdown / 脚手架） */
-  coverLine: string;
-  deadline: string;
-  progress: number;
-  status: PlanStatus;
-  type: string;
-  /** 封面改为无图视觉锚点；保留字段便于后续迁移真实数据 */
-  image: string;
-  /** 执行中：今天应打卡但未提交（用于轻量提醒；与「已过截止」分开） */
-  todayMissing?: boolean;
-  /** 有打卡表时：各段状态（绿/红/未开始） */
-  checkinSegments?: CheckinListSegment[];
-};
+import PlanListFilters from "./overview/PlanListFilters.vue";
+import PlanListCard from "./overview/PlanListCard.vue";
+import PlanListActionSheet from "./overview/PlanListActionSheet.vue";
+import type {
+  FilterType,
+  PlanCard,
+  StatusQuery,
+} from "./overview/plan-list-types";
 
 const plans = ref<PlanCard[]>([]);
 const listLoading = ref(true);
@@ -76,51 +58,6 @@ useCloseOnEscape(confirmArchiveOpen, () => {
   confirmArchivePlan.value = null;
 });
 
-/**
- * 标题色：避免与整页浅绿背景「融在一起」——少用青绿系，多用中性灰蓝、天蓝、靛紫与暖色做区分。
- */
-const TITLE_COLOR_CLASSES = [
-  "text-slate-800",
-  "text-sky-700",
-  "text-indigo-700",
-  "text-violet-700",
-  "text-blue-700",
-  "text-teal-700",
-  "text-orange-700",
-  "text-rose-700",
-  "text-amber-800",
-] as const;
-
-const TYPE_TO_TITLE_COLOR: Record<
-  string,
-  (typeof TITLE_COLOR_CLASSES)[number]
-> = {
-  general: "text-slate-800",
-  study: "text-sky-700",
-  travel: "text-teal-700",
-  work: "text-indigo-700",
-  exam: "text-violet-700",
-  fitness: "text-orange-700",
-  other: "text-amber-800",
-};
-
-function hashToIndex(input: string, mod: number) {
-  let h = 5381;
-  for (let i = 0; i < input.length; i++) {
-    h = (h * 33) ^ input.charCodeAt(i);
-  }
-  return Math.abs(h) % mod;
-}
-
-function titleColorClass(plan: Pick<PlanCard, "id" | "type">) {
-  const key = String(plan.type ?? "")
-    .trim()
-    .toLowerCase();
-  const byType = TYPE_TO_TITLE_COLOR[key];
-  if (byType) return byType;
-  return TITLE_COLOR_CLASSES[hashToIndex(plan.id, TITLE_COLOR_CLASSES.length)];
-}
-
 function deadlineDayFromIso(iso: string): string {
   const d = iso.slice(0, 10);
   return /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : iso;
@@ -148,7 +85,6 @@ function computeTimeProgressPercent(params: { startIso: string; endIso: string; 
   return Math.max(0, Math.min(100, pct));
 }
 
-/** 列表仅展示已定稿计划；有打卡段时用槽位完成度，否则用时间推进估算。 */
 function rowToCard(row: PlanListRow): PlanCard {
   const deadline = deadlineDayFromIso(row.deadline);
   const { description, coverLine } = buildPlanCardDisplayTexts({
@@ -187,66 +123,6 @@ function rowToCard(row: PlanListRow): PlanCard {
   };
 }
 
-function ringStyle(
-  plan: Pick<PlanCard, "progress" | "status" | "todayMissing" | "deadline">,
-) {
-  const pct = Math.max(0, Math.min(100, plan.progress));
-  const done = plan.status === "已完成";
-  const inProgress = plan.status === "执行中";
-  const dd = daysDiffFromToday(plan.deadline);
-  const overdueActive = inProgress && dd !== null && dd < 0;
-  const todayNudge =
-    inProgress && plan.todayMissing === true && !overdueActive;
-
-  let main: string;
-  let muted: string;
-  if (done) {
-    main = "rgba(16, 185, 129, 0.95)";
-    muted = "rgba(16, 185, 129, 0.14)";
-  } else if (overdueActive) {
-    main = "rgba(244, 63, 94, 0.95)";
-    muted = "rgba(244, 63, 94, 0.16)";
-  } else if (todayNudge) {
-    main = "rgba(245, 158, 11, 0.92)";
-    muted = "rgba(245, 158, 11, 0.2)";
-  } else {
-    main = "rgba(16, 185, 129, 0.95)";
-    muted = "rgba(16, 185, 129, 0.14)";
-  }
-  return {
-    "--p": `${pct}`,
-    "--ring-main": main,
-    "--ring-muted": muted,
-  } as Record<string, string>;
-}
-
-function segmentRingStyle(
-  segments: CheckinListSegment[],
-): Record<string, string> {
-  const n = segments.length;
-  const colorFor = (s: CheckinListSegment) => {
-    if (s === "done") return "rgba(16, 185, 129, 0.95)";
-    if (s === "missed") return "rgba(244, 63, 94, 0.9)";
-    return "rgba(229, 231, 235, 0.35)";
-  };
-  const parts: string[] = [];
-  for (let i = 0; i < n; i++) {
-    const a0 = (i / n) * 100;
-    const a1 = ((i + 1) / n) * 100;
-    parts.push(`${colorFor(segments[i]!)} ${a0}% ${a1}%`);
-  }
-  return {
-    "--ring-segments": `conic-gradient(from 210deg, ${parts.join(", ")})`,
-  };
-}
-
-function ringWrapStyle(plan: PlanCard) {
-  if (plan.checkinSegments?.length) {
-    return segmentRingStyle(plan.checkinSegments);
-  }
-  return ringStyle(plan);
-}
-
 async function loadPlans() {
   if (!authState.token) {
     plans.value = [];
@@ -277,12 +153,11 @@ onMounted(() => {
       return;
     }
     try {
-      const { plans } = await getApiClient().listDeletedPlans({
+      const { plans: deletedPlans } = await getApiClient().listDeletedPlans({
         token: authState.token,
       });
-      trashCount.value = plans.length;
+      trashCount.value = deletedPlans.length;
     } catch {
-      // 回收站入口不应因计数失败而影响主流程
       trashCount.value = null;
     }
   })();
@@ -305,6 +180,19 @@ function openConfirmArchive(plan: Pick<PlanCard, "id" | "title">) {
   closeDesktopMenu();
   confirmArchivePlan.value = plan;
   confirmArchiveOpen.value = true;
+}
+
+function onActionSheetArchive() {
+  if (actionSheetPlan.value) openConfirmArchive(actionSheetPlan.value);
+}
+
+function onActionSheetDelete() {
+  if (actionSheetPlan.value) openConfirmDelete(actionSheetPlan.value);
+}
+
+function toggleDesktopMenu(planId: string) {
+  desktopMenuPlanId.value =
+    desktopMenuPlanId.value === planId ? null : planId;
 }
 
 async function submitDeletePlan() {
@@ -391,7 +279,6 @@ async function onUndoArchive() {
   }
 }
 
-const filters: FilterType[] = ["全部", "执行中", "已完成", "未开始"];
 const route = useRoute();
 const router = useRouter();
 
@@ -407,7 +294,8 @@ function queryToFilter(status: string): FilterType | null {
     return "执行中";
   if (status === "completed") return "已完成";
   if (status === "not_started") return "未开始";
-  if (filters.includes(status as FilterType)) return status as FilterType;
+  if (["全部", "执行中", "已完成", "未开始"].includes(status))
+    return status as FilterType;
   return null;
 }
 
@@ -454,9 +342,8 @@ const filterSummary = computed(() => {
   return `当前筛选下共 ${n} 个计划`;
 });
 
-function setFilter(filter: FilterType) {
+function onFilterChange(filter: FilterType) {
   activeFilter.value = filter;
-
   const nextQuery = { ...route.query };
   const q = filterToQuery(filter);
   if (!q) delete nextQuery.status;
@@ -464,67 +351,10 @@ function setFilter(filter: FilterType) {
   router.replace({ query: nextQuery });
 }
 
-function statusClass(status: PlanStatus) {
-  if (status === "执行中") {
-    return "bg-emerald-50 text-emerald-800 ring-1 ring-emerald-200/80";
-  }
-  if (status === "已完成") {
-    return "bg-teal-50 text-teal-900 ring-1 ring-teal-200/70";
-  }
-  return "bg-stone-100 text-stone-600 ring-1 ring-stone-200/80";
-}
-
-function coverTheme(status: PlanStatus) {
-  if (status === "执行中") return "cover--active";
-  if (status === "已完成") return "cover--done";
-  return "cover--idle";
-}
-
-function fmtDeadline(deadline: string): string {
-  // 输入多为 YYYY-MM-DD
-  const m = deadline.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!m) return deadline;
-  return `${m[2]}-${m[3]}`;
-}
-
-function daysDiffFromToday(deadline: string): number | null {
-  const d = new Date(`${deadline}T00:00:00`);
-  if (Number.isNaN(d.getTime())) return null;
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const target = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  const ms = target.getTime() - today.getTime();
-  return Math.round(ms / 86400000);
-}
-
-function dueText(deadline: string): string {
-  return `截止 ${fmtDeadline(deadline)}`;
-}
-
-function relativeText(deadline: string): string {
-  const dd = daysDiffFromToday(deadline);
-  if (dd === null) return "";
-  if (dd > 0) return `还剩 ${dd} 天`;
-  if (dd < 0) return `已逾期 ${Math.abs(dd)} 天`;
-  return "今天截止";
-}
-
-/** 已完成：不再展示「已逾期」——避免与「目标已达成」语义冲突 */
-function deadlineRelativeText(plan: PlanCard): string {
-  if (plan.status === "已完成") return "";
-  return relativeText(plan.deadline);
-}
-
-function isOverdueRelativeText(text: string): boolean {
-  return text.startsWith("已逾期");
-}
-
 watch(
   () => route.query.status,
   (status) => {
     activeFilter.value = normalizeFilter(status);
-
-    // 若 URL 仍是中文状态值，自动迁移到英文枚举，便于分享/更短更稳
     if (typeof status === "string") {
       const desiredFilter = normalizeFilter(status);
       const desired = filterToQuery(desiredFilter);
@@ -540,69 +370,6 @@ watch(
   },
   { immediate: true },
 );
-
-/** Tab 滑动高亮：仅动轨道上的指示 pill，下方内容区不参与过渡 */
-const filterRailRef = ref<HTMLElement | null>(null);
-const filterIndicatorStyle = ref<Record<string, string>>({
-  left: "0px",
-  top: "0px",
-  width: "0px",
-  height: "0px",
-  opacity: "0",
-});
-
-function updateFilterIndicator() {
-  const rail = filterRailRef.value;
-  if (!rail) return;
-  const idx = filters.indexOf(activeFilter.value);
-  const btn = rail.querySelector(
-    `[data-plan-tab-index="${idx}"]`,
-  ) as HTMLElement | null;
-  if (!btn) return;
-  const rl = rail.getBoundingClientRect();
-  const br = btn.getBoundingClientRect();
-  filterIndicatorStyle.value = {
-    left: `${br.left - rl.left}px`,
-    top: `${br.top - rl.top}px`,
-    width: `${br.width}px`,
-    height: `${br.height}px`,
-    opacity: "1",
-  };
-}
-
-function scheduleFilterIndicatorUpdate() {
-  void nextTick(() => {
-    requestAnimationFrame(() => updateFilterIndicator());
-  });
-}
-
-let filterResizeObserver: ResizeObserver | null = null;
-
-onMounted(() => {
-  window.addEventListener("resize", scheduleFilterIndicatorUpdate);
-});
-
-onUnmounted(() => {
-  window.removeEventListener("resize", scheduleFilterIndicatorUpdate);
-  filterResizeObserver?.disconnect();
-  filterResizeObserver = null;
-});
-
-watch(activeFilter, scheduleFilterIndicatorUpdate);
-
-watch(
-  filterRailRef,
-  (el) => {
-    filterResizeObserver?.disconnect();
-    filterResizeObserver = null;
-    if (el && typeof ResizeObserver !== "undefined") {
-      filterResizeObserver = new ResizeObserver(scheduleFilterIndicatorUpdate);
-      filterResizeObserver.observe(el);
-    }
-    scheduleFilterIndicatorUpdate();
-  },
-  { immediate: true },
-);
 </script>
 
 <template>
@@ -611,7 +378,6 @@ watch(
     data-testid="plan-overview-root"
     @click="closeDesktopMenu"
   >
-    <!-- 柔和氛围底：渐变 + 轻噪点 -->
     <div
       class="pointer-events-none absolute inset-0 -z-10 overflow-hidden rounded-3xl opacity-90"
     >
@@ -631,66 +397,11 @@ watch(
         <p>{{ filterSummary }}</p>
       </PageSectionHeading>
 
-      <div class="mt-6 flex flex-wrap items-center justify-between gap-3">
-        <div
-          class="plan-filter-rail-scroll -mx-1 max-w-full overflow-x-auto overflow-y-visible px-1 pb-0.5 sm:mx-0 sm:overflow-visible sm:px-0"
-        >
-          <div
-            ref="filterRailRef"
-            class="plan-filter-rail relative inline-flex min-w-min flex-nowrap gap-1 rounded-2xl border border-white/60 bg-white/50 p-1.5 shadow-[0_1px_0_rgba(255,255,255,0.85)_inset,0_8px_24px_-12px_rgba(15,60,40,0.12)] backdrop-blur-sm"
-            role="tablist"
-            aria-label="计划筛选"
-          >
-          <span
-            class="plan-filter-indicator pointer-events-none absolute z-0 overflow-hidden rounded-xl bg-white shadow-[0_3px_14px_-4px_rgba(12,72,48,0.22),0_0_0_1px_rgba(16,185,129,0.2)] ring-1 ring-emerald-200/55"
-            aria-hidden="true"
-            :style="filterIndicatorStyle"
-          >
-            <span
-              :key="activeFilter"
-              class="plan-filter-indicator-shine"
-              aria-hidden="true"
-            />
-          </span>
-          <button
-            v-for="(filter, tabIndex) in filters"
-            :key="filter"
-            type="button"
-            :data-testid="`filter-${filter}`"
-            :data-plan-tab-index="tabIndex"
-            class="relative z-[1] whitespace-nowrap rounded-xl px-5 py-2.5 text-sm font-semibold transition-[color,background-color] duration-200 ease-out"
-            :class="
-              activeFilter === filter
-                ? 'text-stone-900'
-                : 'text-stone-600 hover:bg-white/55 hover:text-stone-900'
-            "
-            :aria-selected="activeFilter === filter"
-            role="tab"
-            @click="setFilter(filter)"
-          >
-            {{ filter }}
-          </button>
-          </div>
-        </div>
-        <router-link
-          to="/plans/trash"
-          class="inline-flex items-center gap-2 rounded-2xl bg-white/40 px-2.5 py-2 text-sm font-semibold text-stone-600 ring-1 ring-white/60 backdrop-blur-sm transition hover:bg-white/65 hover:text-stone-900"
-          data-testid="link-plan-trash"
-          @click.stop
-        >
-          <span class="material-symbols-outlined text-[18px]" aria-hidden="true"
-            >restore_from_trash</span
-          >
-          <span>最近删除</span>
-          <span
-            v-if="trashCount != null && trashCount > 0"
-            class="rounded-full bg-stone-900/8 px-2 py-0.5 text-xs font-extrabold tabular-nums text-stone-700 ring-1 ring-white/70"
-            data-testid="trash-count"
-          >
-            {{ trashCount }}
-          </span>
-        </router-link>
-      </div>
+      <PlanListFilters
+        :active-filter="activeFilter"
+        :trash-count="trashCount"
+        @update:active-filter="onFilterChange"
+      />
     </header>
 
     <UiErrorToast
@@ -767,159 +478,17 @@ watch(
         v-else
         class="grid grid-cols-1 gap-5 pb-8 sm:grid-cols-2 sm:gap-6 lg:grid-cols-3"
       >
-        <router-link
+        <PlanListCard
           v-for="(plan, index) in filteredPlans"
           :key="plan.id"
-          :to="`/plans/${plan.id}`"
-          data-testid="plan-card"
-          class="animate-plan-card group flex flex-col overflow-hidden rounded-3xl border border-stone-200/80 bg-white/85 shadow-[0_14px_44px_-26px_rgba(10,60,38,0.22)] ring-1 ring-white/85 transition duration-300 hover:-translate-y-1 hover:border-emerald-200/60 hover:bg-white/92 hover:shadow-[0_22px_54px_-24px_rgba(16,100,60,0.2)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500"
-          :style="{ '--stagger': `${index * 45}ms` }"
-        >
-          <!-- 无图封面：进度环 + 时间(A2) + 状态 pill（不展示标签） -->
-          <div
-            class="plan-cover relative overflow-hidden"
-            :class="coverTheme(plan.status)"
-          >
-            <div class="plan-cover-grain" aria-hidden="true" />
-            <div class="plan-cover-soft" aria-hidden="true" />
-
-            <div class="absolute right-3 top-3 z-[2]">
-              <button
-                type="button"
-                class="hidden h-9 w-9 items-center justify-center rounded-xl bg-white/55 text-stone-700 ring-1 ring-white/70 backdrop-blur-sm transition hover:bg-white/75 hover:text-stone-900 sm:inline-flex"
-                :data-testid="`plan-more-${plan.id}`"
-                aria-label="更多操作"
-                @click.stop.prevent="desktopMenuPlanId = desktopMenuPlanId === plan.id ? null : plan.id"
-              >
-                <span class="text-lg leading-none">⋯</span>
-              </button>
-              <button
-                type="button"
-                class="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-white/55 text-stone-700 ring-1 ring-white/70 backdrop-blur-sm transition hover:bg-white/75 hover:text-stone-900 sm:hidden"
-                :data-testid="`plan-more-mobile-${plan.id}`"
-                aria-label="更多操作"
-                @click.stop.prevent="openActionSheet(plan)"
-              >
-                <span class="text-lg leading-none">⋯</span>
-              </button>
-
-              <!-- Desktop popover menu -->
-              <div
-                v-if="desktopMenuPlanId === plan.id"
-                class="absolute right-0 mt-2 w-44 overflow-hidden rounded-2xl border border-stone-200/80 bg-white/95 shadow-[0_18px_48px_-30px_rgba(10,60,38,0.35)] ring-1 ring-white/80 backdrop-blur"
-                :data-testid="`plan-menu-${plan.id}`"
-                @click.stop
-              >
-                <button
-                  type="button"
-                  class="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm font-extrabold text-slate-700 transition hover:bg-slate-50"
-                  :data-testid="`plan-archive-${plan.id}`"
-                  @click.stop.prevent="openConfirmArchive(plan)"
-                >
-                  <span>归档计划</span>
-                  <span class="text-xs font-semibold text-slate-500/80"
-                    >只读</span
-                  >
-                </button>
-                <button
-                  type="button"
-                  class="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm font-extrabold text-rose-700 transition hover:bg-rose-50"
-                  :data-testid="`plan-delete-${plan.id}`"
-                  @click.stop.prevent="openConfirmDelete(plan)"
-                >
-                  <span>删除计划</span>
-                  <span class="text-xs font-semibold text-rose-700/60"
-                    >可恢复</span
-                  >
-                </button>
-              </div>
-            </div>
-
-            <div class="plan-cover-inner flex items-center gap-4 px-5 py-4">
-              <div
-                class="plan-ring-wrap shrink-0"
-                :style="ringWrapStyle(plan)"
-              >
-                <div class="plan-ring" aria-hidden="true" />
-                <div class="plan-ring-text" aria-hidden="true">
-                  <span class="plan-ring-num tabular-nums"
-                    >{{ plan.progress }}%</span
-                  >
-                </div>
-              </div>
-
-              <div class="min-w-0 flex-1">
-                <p
-                  class="plan-cover-time text-[12px] font-semibold text-stone-900/80"
-                >
-                  {{ dueText(plan.deadline) }}
-                  <span
-                    v-if="deadlineRelativeText(plan)"
-                    class="text-stone-900/35"
-                    >·</span
-                  >
-                  <span
-                    class="plan-cover-rel"
-                    :class="
-                      isOverdueRelativeText(deadlineRelativeText(plan))
-                        ? 'plan-cover-rel--overdue'
-                        : ''
-                    "
-                    >{{ deadlineRelativeText(plan) }}</span
-                  >
-                </p>
-                <div class="mt-2 flex items-center gap-2">
-                  <span
-                    class="plan-status-pill"
-                    :class="statusClass(plan.status)"
-                  >
-                    {{ plan.status }}
-                  </span>
-                </div>
-                <p
-                  v-if="plan.coverLine"
-                  class="mt-2 line-clamp-1 text-[12px] font-medium text-stone-900/65"
-                >
-                  {{ plan.coverLine }}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div class="flex flex-1 flex-col p-5">
-            <h2
-              class="mb-2 line-clamp-2 text-lg font-bold leading-snug tracking-tight sm:text-xl"
-              :class="titleColorClass(plan)"
-            >
-              {{ plan.title }}
-            </h2>
-            <p
-              class="mb-5 line-clamp-3 text-[14px] leading-relaxed text-stone-600"
-            >
-              {{ plan.description }}
-            </p>
-            <div class="mt-auto">
-              <div
-                class="flex flex-wrap items-center justify-between gap-2 text-xs font-semibold text-stone-500"
-              >
-                <span class="inline-flex items-center gap-1.5">
-                  <span>{{ dueText(plan.deadline) }}</span>
-                </span>
-                <span
-                  v-if="deadlineRelativeText(plan)"
-                  class="tabular-nums"
-                  :class="
-                    isOverdueRelativeText(deadlineRelativeText(plan))
-                      ? 'text-rose-700'
-                      : 'text-stone-600'
-                  "
-                >
-                  {{ deadlineRelativeText(plan) }}
-                </span>
-              </div>
-            </div>
-          </div>
-        </router-link>
+          :plan="plan"
+          :index="index"
+          :desktop-menu-open="desktopMenuPlanId === plan.id"
+          @open-action-sheet="openActionSheet"
+          @toggle-desktop-menu="toggleDesktopMenu"
+          @archive="openConfirmArchive"
+          @delete="openConfirmDelete"
+        />
 
         <div
           v-if="filteredPlans.length === 0"
@@ -992,80 +561,13 @@ watch(
       </div>
     </div>
 
-    <!-- Action Sheet -->
-    <div
-      v-if="actionSheetOpen"
-      class="fixed inset-0 z-50"
-      data-testid="plan-action-sheet-root"
-      @click="closeActionSheet"
-    >
-      <div
-        class="absolute inset-0 bg-stone-900/30 backdrop-blur-[1px]"
-        aria-hidden="true"
-      />
-      <div
-        class="absolute bottom-0 left-0 right-0 mx-auto w-full max-w-lg rounded-t-3xl border border-white/60 bg-white/95 px-4 pb-5 pt-4 shadow-[0_-20px_55px_-35px_rgba(10,60,38,0.55)]"
-        role="dialog"
-        aria-modal="true"
-        aria-label="计划操作"
-        data-testid="plan-action-sheet"
-        @click.stop
-      >
-        <div class="flex items-start justify-between gap-3">
-          <div class="min-w-0">
-            <p class="text-sm font-semibold text-stone-500">对该计划进行操作</p>
-            <p class="mt-1 truncate text-base font-extrabold text-stone-900">
-              {{ actionSheetPlan?.title ?? "" }}
-            </p>
-          </div>
-          <button
-            type="button"
-            class="inline-flex h-9 w-9 items-center justify-center rounded-2xl bg-stone-100 text-stone-700 ring-1 ring-stone-200/80 transition hover:bg-stone-200/70"
-            aria-label="关闭"
-            data-testid="action-sheet-close"
-            @click="closeActionSheet"
-          >
-            <span class="material-symbols-outlined text-[18px]" aria-hidden="true"
-              >close</span
-            >
-          </button>
-        </div>
-
-        <div class="mt-4 space-y-2">
-          <button
-            type="button"
-            class="flex w-full items-center justify-between rounded-2xl border border-slate-200/70 bg-slate-50/90 px-4 py-3 text-left text-sm font-extrabold text-slate-700 ring-1 ring-white/70 transition hover:bg-slate-50"
-            data-testid="action-archive"
-            @click="actionSheetPlan && openConfirmArchive(actionSheetPlan)"
-          >
-            <span>归档计划</span>
-            <span class="text-xs font-semibold text-slate-600/80"
-              >只读</span
-            >
-          </button>
-          <button
-            type="button"
-            class="flex w-full items-center justify-between rounded-2xl border border-rose-200/60 bg-rose-50/80 px-4 py-3 text-left text-sm font-extrabold text-rose-700 ring-1 ring-white/70 transition hover:bg-rose-50"
-            data-testid="action-delete"
-            @click="actionSheetPlan && openConfirmDelete(actionSheetPlan)"
-          >
-            <span>删除计划</span>
-            <span class="text-xs font-semibold text-rose-700/70"
-              >可在最近删除恢复</span
-            >
-          </button>
-
-          <button
-            type="button"
-            class="w-full rounded-2xl bg-stone-900/6 px-4 py-3 text-sm font-extrabold text-stone-700 ring-1 ring-white/70 transition hover:bg-stone-900/10"
-            data-testid="action-cancel"
-            @click="closeActionSheet"
-          >
-            取消
-          </button>
-        </div>
-      </div>
-    </div>
+    <PlanListActionSheet
+      :open="actionSheetOpen"
+      :plan-title="actionSheetPlan?.title ?? ''"
+      @close="closeActionSheet"
+      @archive="onActionSheetArchive"
+      @delete="onActionSheetDelete"
+    />
 
     <UiConfirmDialog
       v-model="confirmDeleteOpen"
@@ -1102,98 +604,6 @@ watch(
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
-/* —— 筛选 Tab：滑动白 pill + 轻弹性缓动 + 落位高光扫过（仅轨道，不涉及内容区） —— */
-.plan-filter-rail-scroll {
-  -webkit-overflow-scrolling: touch;
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .plan-filter-rail {
-    position: relative;
-  }
-
-  .plan-filter-rail::before {
-    content: "";
-    position: absolute;
-    inset: -35% -45%;
-    background: radial-gradient(
-      circle at 35% 45%,
-      rgba(52, 211, 153, 0.12),
-      transparent 58%
-    );
-    pointer-events: none;
-    opacity: 0.85;
-    animation: plan-filter-rail-glow 7s ease-in-out infinite;
-  }
-}
-
-@keyframes plan-filter-rail-glow {
-  0%,
-  100% {
-    transform: translateX(-4%) scale(1);
-    opacity: 0.65;
-  }
-  50% {
-    transform: translateX(5%) scale(1.03);
-    opacity: 0.95;
-  }
-}
-
-.plan-filter-indicator {
-  transition:
-    left 0.48s cubic-bezier(0.34, 1.22, 0.64, 1),
-    top 0.48s cubic-bezier(0.34, 1.22, 0.64, 1),
-    width 0.42s cubic-bezier(0.34, 1.15, 0.64, 1),
-    height 0.42s cubic-bezier(0.34, 1.15, 0.64, 1),
-    opacity 0.18s ease,
-    box-shadow 0.35s ease;
-  will-change: left, top, width, height;
-}
-
-.plan-filter-indicator-shine {
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: linear-gradient(
-    105deg,
-    transparent 0%,
-    transparent 38%,
-    rgba(255, 255, 255, 0.65) 48%,
-    rgba(255, 255, 255, 0.2) 52%,
-    transparent 62%
-  );
-  animation: plan-filter-shine-sweep 0.58s cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .plan-filter-rail::before {
-    display: none;
-  }
-
-  .plan-filter-indicator {
-    transition:
-      left 0.2s ease,
-      top 0.2s ease,
-      width 0.2s ease,
-      height 0.2s ease,
-      opacity 0.15s ease;
-    will-change: auto;
-  }
-
-  .plan-filter-indicator-shine {
-    display: none;
-  }
-}
-
-@keyframes plan-filter-shine-sweep {
-  from {
-    transform: translateX(-100%);
-  }
-  to {
-    transform: translateX(100%);
-  }
-}
-
 @keyframes plan-card-in {
   from {
     opacity: 0;
@@ -1213,188 +623,6 @@ watch(
 @media (prefers-reduced-motion: reduce) {
   .animate-plan-card {
     animation: none;
-  }
-}
-
-/* —— 方案A/A2：无图封面（进度环 + 时间 + 状态） —— */
-.plan-cover {
-  min-height: 150px;
-  border-bottom: 1px solid rgba(231, 236, 233, 0.85);
-}
-
-.plan-cover-inner {
-  position: relative;
-  z-index: 1;
-}
-
-.plan-cover-grain {
-  position: absolute;
-  inset: 0;
-  opacity: 0.06;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-  pointer-events: none;
-}
-
-.plan-cover-soft {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background:
-    radial-gradient(
-      ellipse 520px 220px at 18% 10%,
-      rgba(255, 255, 255, 0.75),
-      transparent 55%
-    ),
-    radial-gradient(
-      ellipse 520px 240px at 86% 92%,
-      rgba(255, 255, 255, 0.65),
-      transparent 55%
-    );
-  opacity: 0.75;
-}
-
-.cover--active {
-  background:
-    radial-gradient(
-      ellipse 520px 240px at 12% 0%,
-      rgba(16, 185, 129, 0.22),
-      transparent 58%
-    ),
-    radial-gradient(
-      ellipse 520px 260px at 92% 100%,
-      rgba(253, 230, 138, 0.14),
-      transparent 55%
-    ),
-    linear-gradient(
-      165deg,
-      rgba(255, 255, 255, 0.92) 0%,
-      rgba(240, 252, 246, 0.92) 100%
-    );
-}
-
-.cover--idle {
-  background:
-    radial-gradient(
-      ellipse 520px 240px at 12% 0%,
-      rgba(148, 163, 156, 0.18),
-      transparent 58%
-    ),
-    radial-gradient(
-      ellipse 520px 260px at 92% 100%,
-      rgba(226, 232, 228, 0.32),
-      transparent 55%
-    ),
-    linear-gradient(
-      165deg,
-      rgba(255, 255, 255, 0.92) 0%,
-      rgba(248, 250, 249, 0.92) 100%
-    );
-}
-
-.cover--done {
-  background:
-    radial-gradient(
-      ellipse 520px 240px at 12% 0%,
-      rgba(20, 184, 166, 0.18),
-      transparent 58%
-    ),
-    radial-gradient(
-      ellipse 520px 260px at 92% 100%,
-      rgba(16, 185, 129, 0.1),
-      transparent 55%
-    ),
-    linear-gradient(
-      165deg,
-      rgba(255, 255, 255, 0.92) 0%,
-      rgba(238, 252, 249, 0.92) 100%
-    );
-}
-
-.plan-ring-wrap {
-  position: relative;
-  width: 52px;
-  height: 52px;
-}
-
-.plan-ring {
-  position: absolute;
-  inset: 0;
-  border-radius: 9999px;
-  background:
-    var(
-      --ring-segments,
-      conic-gradient(
-        from 210deg,
-        var(--ring-main, rgba(16, 185, 129, 0.95)) calc(var(--p, 0) * 1%),
-        var(--ring-muted, rgba(16, 185, 129, 0.14)) 0
-      )
-    ),
-    radial-gradient(
-      circle at 35% 35%,
-      rgba(255, 255, 255, 0.85),
-      rgba(255, 255, 255, 0.55) 55%,
-      transparent 60%
-    );
-  box-shadow:
-    0 10px 24px -14px rgba(10, 143, 74, 0.38),
-    0 0 0 1px rgba(16, 185, 129, 0.18) inset;
-  -webkit-mask: radial-gradient(circle, transparent 62%, #000 64%);
-  mask: radial-gradient(circle, transparent 62%, #000 64%);
-}
-
-.plan-ring-text {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  border-radius: 9999px;
-  background: rgba(255, 255, 255, 0.78);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.8) inset;
-}
-
-.plan-ring-num {
-  font-size: 13px;
-  font-weight: 800;
-  letter-spacing: -0.01em;
-  color: rgba(15, 31, 22, 0.92);
-}
-
-.plan-status-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  padding: 0.32rem 0.55rem;
-  border-radius: 9999px;
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  backdrop-filter: blur(8px);
-}
-
-.plan-cover-rel {
-  font-weight: 700;
-  color: rgba(15, 31, 22, 0.72);
-}
-
-.plan-cover-rel--overdue {
-  /* 逾期提醒更克制：暖色但不过度“报警红” */
-  color: rgba(180, 83, 9, 0.92);
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .plan-cover {
-    transition:
-      filter 0.35s ease,
-      transform 0.35s ease;
-  }
-
-  .plan-home :deep([data-testid="plan-card"]:hover) .plan-cover-soft {
-    opacity: 0.9;
-  }
-
-  .plan-home :deep([data-testid="plan-card"]:hover) .plan-ring {
-    filter: brightness(1.04) saturate(1.05);
   }
 }
 </style>
